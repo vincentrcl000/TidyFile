@@ -292,7 +292,7 @@ class FileOrganizerGUI:
             self.organizer.initialize_ollama()
             
             # 预览前几个文件的分类结果
-            preview_count = min(5, len(source_files))
+            preview_count = min(10, len(source_files))
             preview_results = []
             
             for i, file_path in enumerate(source_files[:preview_count]):
@@ -992,7 +992,7 @@ class FileOrganizerGUI:
             # 创建重复文件删除对话框
             duplicate_window = tk.Toplevel(self.root)
             duplicate_window.title("删除重复文件")
-            duplicate_window.geometry("500x400")
+            duplicate_window.geometry("700x600")
             duplicate_window.transient(self.root)
             duplicate_window.grab_set()
             
@@ -1056,9 +1056,9 @@ class FileOrganizerGUI:
             )
             result_text.pack(fill=tk.BOTH, expand=True)
             
-            # 按钮框架
+            # 按钮框架（吸附底部，始终可见）
             button_frame = ttk.Frame(main_frame)
-            button_frame.pack(fill=tk.X)
+            button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
             
             def start_scan():
                 folder_path = folder_var.get().strip()
@@ -1082,75 +1082,82 @@ class FileOrganizerGUI:
                             target_folder_path=folder_path,
                             dry_run=dry_run
                         )
-                        
-                        # 在主线程中更新结果显示
+                        # 分组展示所有重复文件
                         def update_results():
+                            result_text.config(state='normal')
                             result_text.delete(1.0, tk.END)
-                            
-                            # 显示统计信息
                             result_text.insert(tk.END, f"扫描完成！\n\n")
                             result_text.insert(tk.END, f"总文件数: {results['total_files_scanned']}\n")
                             result_text.insert(tk.END, f"重复文件组: {results['duplicate_groups_found']}\n")
                             result_text.insert(tk.END, f"重复文件数: {results['total_duplicates_found']}\n\n")
-                            
-                            if dry_run:
-                                result_text.insert(tk.END, "[试运行模式] 以下文件将被删除:\n\n")
-                                for file_info in results['files_to_delete']:
-                                    result_text.insert(tk.END, f"• {file_info['relative_path']} ({file_info['size']} bytes)\n")
+                            # 分组展示
+                            if results.get('duplicate_groups'):
+                                for idx, group in enumerate(results['duplicate_groups'], 1):
+                                    name = group['name']
+                                    size = group['size']
+                                    md5 = group['md5']
+                                    files = group['files']
+                                    result_text.insert(tk.END, f"重复文件组{idx}: {name} ({size} bytes) [MD5: {md5}] 共{len(files)}个副本\n")
+                                    for file_info in files:
+                                        keep_flag = '【保留】' if file_info.get('keep') else '【待删】'
+                                        result_text.insert(tk.END, f"  - {file_info['relative_path']} {keep_flag}\n")
+                                    result_text.insert(tk.END, "\n")
+                            else:
+                                result_text.insert(tk.END, "未发现可删除的重复文件。\n")
+                            result_text.config(state='normal')
+                            # 添加确认删除按钮
+                            if results['files_to_delete']:
+                                def confirm_delete():
+                                    if messagebox.askyesno(
+                                        "确认删除", 
+                                        f"确定要删除这 {len(results['files_to_delete'])} 个重复文件吗？\n\n此操作不可撤销！"
+                                    ):
+                                        # 执行实际删除
+                                        result_text.delete(1.0, tk.END)
+                                        result_text.insert(tk.END, "正在删除重复文件...\n")
+                                        
+                                        def delete_worker():
+                                            try:
+                                                delete_results = self.organizer.remove_duplicate_files(
+                                                    target_folder_path=folder_path,
+                                                    dry_run=False
+                                                )
+                                                
+                                                def show_delete_results():
+                                                    result_text.delete(1.0, tk.END)
+                                                    result_text.insert(tk.END, f"删除完成！\n\n")
+                                                    result_text.insert(tk.END, f"成功删除: {len(delete_results['files_deleted'])}\n")
+                                                    result_text.insert(tk.END, f"删除失败: {len(delete_results['deletion_errors'])}\n\n")
+                                                    
+                                                    if delete_results['files_deleted']:
+                                                        result_text.insert(tk.END, "已删除的文件:\n")
+                                                        for file_info in delete_results['files_deleted']:
+                                                            result_text.insert(tk.END, f"• {file_info['relative_path']}\n")
+                                                    
+                                                    if delete_results['deletion_errors']:
+                                                        result_text.insert(tk.END, "\n删除失败的文件:\n")
+                                                        for error_info in delete_results['deletion_errors']:
+                                                            result_text.insert(tk.END, f"• {error_info['relative_path']}: {error_info['error']}\n")
+                                                
+                                                self.root.after(0, show_delete_results)
+                                                
+                                            except Exception as e:
+                                                def show_error():
+                                                    result_text.delete(1.0, tk.END)
+                                                    result_text.insert(tk.END, f"删除失败: {e}")
+                                                    messagebox.showerror("错误", f"删除失败: {e}")
+                                                
+                                                self.root.after(0, show_error)
+                                        
+                                        threading.Thread(target=delete_worker, daemon=True).start()
                                 
-                                # 添加确认删除按钮
-                                if results['files_to_delete']:
-                                    def confirm_delete():
-                                        if messagebox.askyesno(
-                                            "确认删除", 
-                                            f"确定要删除这 {len(results['files_to_delete'])} 个重复文件吗？\n\n此操作不可撤销！"
-                                        ):
-                                            # 执行实际删除
-                                            result_text.delete(1.0, tk.END)
-                                            result_text.insert(tk.END, "正在删除重复文件...\n")
-                                            
-                                            def delete_worker():
-                                                try:
-                                                    delete_results = self.organizer.remove_duplicate_files(
-                                                        target_folder_path=folder_path,
-                                                        dry_run=False
-                                                    )
-                                                    
-                                                    def show_delete_results():
-                                                        result_text.delete(1.0, tk.END)
-                                                        result_text.insert(tk.END, f"删除完成！\n\n")
-                                                        result_text.insert(tk.END, f"成功删除: {len(delete_results['files_deleted'])}\n")
-                                                        result_text.insert(tk.END, f"删除失败: {len(delete_results['deletion_errors'])}\n\n")
-                                                        
-                                                        if delete_results['files_deleted']:
-                                                            result_text.insert(tk.END, "已删除的文件:\n")
-                                                            for file_info in delete_results['files_deleted']:
-                                                                result_text.insert(tk.END, f"• {file_info['relative_path']}\n")
-                                                        
-                                                        if delete_results['deletion_errors']:
-                                                            result_text.insert(tk.END, "\n删除失败的文件:\n")
-                                                            for error_info in delete_results['deletion_errors']:
-                                                                result_text.insert(tk.END, f"• {error_info['relative_path']}: {error_info['error']}\n")
-                                                    
-                                                    self.root.after(0, show_delete_results)
-                                                    
-                                                except Exception as e:
-                                                    def show_error():
-                                                        result_text.delete(1.0, tk.END)
-                                                        result_text.insert(tk.END, f"删除失败: {e}")
-                                                        messagebox.showerror("错误", f"删除失败: {e}")
-                                                    
-                                                    self.root.after(0, show_error)
-                                            
-                                            threading.Thread(target=delete_worker, daemon=True).start()
-                                    
-                                    # 添加确认删除按钮到按钮框架
-                                    confirm_button = ttk.Button(
-                                        button_frame,
-                                        text="确认删除",
-                                        command=confirm_delete
-                                    )
-                                    confirm_button.pack(side=tk.LEFT, padx=5)
+                                # 添加确认删除按钮到按钮框架
+                                confirm_button = ttk.Button(
+                                    button_frame,
+                                    text="确认删除",
+                                    command=confirm_delete
+                                )
+                                confirm_button.pack(side=tk.LEFT, padx=5)
                             else:
                                 result_text.insert(tk.END, f"成功删除: {len(results['files_deleted'])}\n")
                                 result_text.insert(tk.END, f"删除失败: {len(results['deletion_errors'])}\n\n")
