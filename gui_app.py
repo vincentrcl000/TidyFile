@@ -20,11 +20,18 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 from datetime import datetime
 from pathlib import Path
+import json  # 新增导入
 
 # 添加当前目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from file_organizer import FileOrganizer, FileOrganizerError
+# 删除原有from file_organizer import FileOrganizer, FileOrganizerError
+# 删除原有self.organizer = FileOrganizer(enable_transfer_log=True)
+# on_mode_change中，动态import FileOrganizer和remove_duplicate_files
+# show_duplicate_removal_dialog等方法，调用remove_duplicate_files(target_folder_path, dry_run)
+
+from file_duplicate_cleaner import remove_duplicate_files
+from migration_executor import MigrationExecutor  # 新增导入
 
 
 class FileOrganizerGUI:
@@ -48,15 +55,20 @@ class FileOrganizerGUI:
         # 初始化变量
         self.source_directory = tk.StringVar()  # 源目录路径
         self.target_directory = tk.StringVar()  # 目标目录路径
+        self.classification_mode = tk.StringVar(value="ai")
         # 初始化文件整理器，启用转移日志功能
-        self.organizer = FileOrganizer(enable_transfer_log=True)  # 文件整理器实例
+        # self.organizer = FileOrganizer(enable_transfer_log=True)  # 文件整理器实例
         self.organize_results = None  # 整理结果
+        
+        # 绑定分类方式变化事件
+        self.classification_mode.trace_add('write', self.on_mode_change)
         
         # 创建界面
         self.create_widgets()
         
         # 居中显示窗口
         self.center_window()
+        self.on_mode_change()
         
     def center_window(self):
         """将窗口居中显示"""
@@ -120,9 +132,16 @@ class FileOrganizerGUI:
             command=self.select_target_directory
         ).grid(row=3, column=2, pady=5)
         
+        # 1. 单选按钮左对齐
+        mode_frame = ttk.Frame(main_frame)
+        mode_frame.grid(row=4, column=0, columnspan=3, sticky=tk.W, pady=5)
+        ttk.Label(mode_frame, text="分类方式:").pack(side=tk.LEFT)
+        ttk.Radiobutton(mode_frame, text="智能分类", variable=self.classification_mode, value="ai").pack(side=tk.LEFT)
+        ttk.Radiobutton(mode_frame, text="文件名匹配", variable=self.classification_mode, value="simple").pack(side=tk.LEFT)
+        
         # 操作按钮框架
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, columnspan=3, pady=20)
+        button_frame.grid(row=5, column=0, columnspan=3, pady=20)
         
         # 开始整理按钮
         self.organize_button = ttk.Button(
@@ -172,15 +191,15 @@ class FileOrganizerGUI:
             variable=self.progress_var,
             maximum=100
         )
-        self.progress_bar.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        self.progress_bar.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
         
         # 状态标签
         self.status_label = ttk.Label(main_frame, text="请选择源目录和目标目录")
-        self.status_label.grid(row=6, column=0, columnspan=3, pady=5)
+        self.status_label.grid(row=7, column=0, columnspan=3, pady=5)
         
         # 日志显示区域
         log_frame = ttk.LabelFrame(main_frame, text="操作日志", padding="5")
-        log_frame.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        log_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -192,10 +211,23 @@ class FileOrganizerGUI:
         self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 配置主框架的行权重
-        main_frame.rowconfigure(7, weight=1)
+        main_frame.rowconfigure(8, weight=1)
         
         # 初始化日志
         self.log_message("程序启动完成，请选择文件目录开始整理")
+        
+    def on_mode_change(self, *args):
+        """分类方式变化时动态导入并重建organizer实例"""
+        mode = self.classification_mode.get()
+        if mode == "ai":
+            from file_organizer_ai import FileOrganizer
+            # from file_organizer_ai import remove_duplicate_files # 移除重复文件去重导入
+        else:
+            from file_organizer_simple import FileOrganizer
+            # from file_organizer_simple import remove_duplicate_files # 移除重复文件去重导入
+        self.organizer = FileOrganizer(enable_transfer_log=True)
+        self.log_message(f"分类方式已切换为: {mode}")
+        self.update_status()
         
     def select_source_directory(self):
         """选择源目录"""
@@ -267,18 +299,33 @@ class FileOrganizerGUI:
             threading.Thread(target=self._preview_worker, daemon=True).start()
             
         except Exception as e:
-            self.log_message(f"预览失败: {e}")
-            messagebox.showerror("错误", f"预览失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"预览失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"预览失败: {err}"))
             
     def _preview_worker(self):
         """预览工作线程"""
         try:
+            debug_log_path = "debug_preview.log"
+            ai_result_json_path = "preview_ai_result.json"
+            # 每次预览前清空调试日志和AI结果json
+            with open(debug_log_path, 'w', encoding='utf-8') as f:
+                f.write(f"==== 迁移预览调试日志 ====")
+            with open(ai_result_json_path, 'w', encoding='utf-8') as f:
+                f.write("[]")
+
+            def log_debug(title, data):
+                with open(debug_log_path, 'a', encoding='utf-8') as f:
+                    f.write(f"\n\n==== {title} ===="\
+                            f"\n{json.dumps(data, ensure_ascii=False, indent=2) if not isinstance(data, str) else data}")
+
             source = self.source_directory.get()
             target = self.target_directory.get()
             
             # 扫描文件和文件夹
             target_folders = self.organizer.scan_target_folders(target)
+            log_debug("目标文件夹扫描结果", target_folders)
             source_files = self.organizer.scan_source_files(source)
+            log_debug("源文件扫描结果", source_files)
             
             if not target_folders:
                 self.root.after(0, lambda: messagebox.showerror("错误", "目标目录中没有子文件夹"))
@@ -288,36 +335,76 @@ class FileOrganizerGUI:
                 self.root.after(0, lambda: messagebox.showerror("错误", "源目录中没有文件"))
                 return
                 
-            # 初始化 Ollama
-            self.organizer.initialize_ollama()
-            
-            # 预览前几个文件的分类结果
-            preview_count = min(10, len(source_files))
+            # 仅AI模式下初始化ollama
+            if self.classification_mode.get() == "ai":
+                self.organizer.initialize_ollama()
+
+            # ====== 新增：正式迁移流程 dry_run 只处理第一个文件 ======
+            preview_plan = []
+            first_file = source_files[0]
+            folder, reason, success = self.organizer.classify_file(first_file, target)
+            log_debug("第一个文件分类结果", {"file": first_file, "folder": folder, "reason": reason, "success": success})
+            if success:
+                preview_plan.append({
+                    'source': first_file,
+                    'target_dir': folder,
+                    'operation': 'copy'
+                })
+            else:
+                self.root.after(0, lambda: self.log_message(f"[迁移预览] 文件 {first_file} 无法推荐目标目录，跳过正式迁移流程"))
+            log_debug("生成的迁移计划", preview_plan)
+            if preview_plan:
+                executor = MigrationExecutor()
+                self.root.after(0, lambda: self.log_message(f"[迁移预览] 正式迁移流程 dry_run 开始: {preview_plan[0]['source']} -> {preview_plan[0]['target_dir']}"))
+                results = executor.execute_plan(preview_plan, dry_run=True)
+                log_debug("MigrationExecutor 执行结果", results)
+                self.root.after(0, lambda: self.log_message(f"[迁移预览] 正式迁移流程 dry_run 结果: {results}"))
+            # ====== 新增结束 ======
+
+            # 保留原有AI预览前3个文件逻辑，并输出AI识别结果到json
+            preview_count = min(3, len(source_files))
             preview_results = []
-            
+            ai_result_list = []
             for i, file_path in enumerate(source_files[:preview_count]):
                 filename = Path(file_path).name
-                
-                # 使用新的classify_file方法
                 folder, reason, success = self.organizer.classify_file(file_path, target)
-                
+                # 获取文件摘要（假设organizer有get_file_summary方法，否则用前50字内容）
+                try:
+                    if hasattr(self.organizer, 'get_file_summary'):
+                        summary = self.organizer.get_file_summary(file_path, max_length=50)
+                    else:
+                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            summary = f.read(50)
+                except Exception as e:
+                    summary = "摘要获取失败"
+                # 只保留20字理由
+                reason_short = reason[:20] if reason else ""
+                ai_result_list.append({
+                    "源文件路径": file_path,
+                    "文件摘要": summary,
+                    "最匹配的目标目录": folder if success else "无推荐",
+                    "匹配理由": reason_short
+                })
                 preview_results.append({
                     'filename': filename,
                     'recommended_folder': folder if success else "无推荐",
                     'reason': reason,
                     'success': success
                 })
-                
-                # 更新进度
+                log_debug(f"第{i+1}个文件分类结果", {"file": file_path, "folder": folder, "reason": reason, "success": success})
                 progress = (i + 1) / preview_count * 100
                 self.root.after(0, lambda p=progress: self.progress_var.set(p))
-                
-            # 显示预览结果
+            log_debug("全部预览分类结果", preview_results)
+            # 输出AI识别结果到json
+            with open(ai_result_json_path, 'w', encoding='utf-8') as f:
+                json.dump(ai_result_list, f, ensure_ascii=False, indent=2)
             self.root.after(0, lambda: self._show_preview_results(preview_results, len(source_files)))
-            
         except Exception as e:
-            self.root.after(0, lambda: self.log_message(f"预览失败: {e}"))
-            self.root.after(0, lambda: messagebox.showerror("错误", f"预览失败: {e}"))
+            with open("debug_preview.log", 'a', encoding='utf-8') as f:
+                f.write(f"\n\n==== 发生异常 ===="\
+                        f"\n{str(e)}")
+            self.root.after(0, lambda err=e: self.log_message(f"预览失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"预览失败: {err}"))
         finally:
             self.root.after(0, lambda: self.progress_var.set(0))
             self.root.after(0, lambda: self.status_label.config(text="预览完成"))
@@ -408,8 +495,8 @@ class FileOrganizerGUI:
             threading.Thread(target=self._organize_worker, daemon=True).start()
             
         except Exception as e:
-            self.log_message(f"启动整理失败: {e}")
-            messagebox.showerror("错误", f"启动整理失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"启动整理失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"启动整理失败: {err}"))
             
     def _organize_worker(self):
         """文件整理工作线程"""
@@ -430,8 +517,8 @@ class FileOrganizerGUI:
             self.root.after(0, self._show_organize_results)
             
         except Exception as e:
-            self.root.after(0, lambda: self.log_message(f"整理失败: {e}"))
-            self.root.after(0, lambda: messagebox.showerror("错误", f"整理失败: {e}"))
+            self.root.after(0, lambda err=e: self.log_message(f"整理失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"整理失败: {err}"))
         finally:
             self.root.after(0, lambda: self.organize_button.config(state='normal'))
             self.root.after(0, lambda: self.preview_button.config(state='normal'))
@@ -491,8 +578,8 @@ class FileOrganizerGUI:
             )
             
         except Exception as e:
-            self.log_message(f"删除原文件失败: {e}")
-            messagebox.showerror("错误", f"删除原文件失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"删除原文件失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"删除原文件失败: {err}"))
     
     def show_transfer_logs(self):
         """显示转移日志管理界面"""
@@ -593,8 +680,8 @@ class FileOrganizerGUI:
             ).pack(side=tk.RIGHT, padx=5)
             
         except Exception as e:
-            self.log_message(f"显示转移日志失败: {e}")
-            messagebox.showerror("错误", f"显示转移日志失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"显示转移日志失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示转移日志失败: {err}"))
     
     def _load_transfer_logs(self, tree_widget):
         """加载转移日志到树形控件"""
@@ -636,12 +723,12 @@ class FileOrganizerGUI:
                     
                 except Exception as e:
                     # 如果单个日志文件解析失败，跳过但记录错误
-                    self.log_message(f"解析日志文件失败 {log_file}: {e}")
+                    self.root.after(0, lambda err=e: self.log_message(f"解析日志文件失败 {log_file}: {err}"))
                     continue
             
         except Exception as e:
-            self.log_message(f"加载转移日志失败: {e}")
-            messagebox.showerror("错误", f"加载转移日志失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"加载转移日志失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"加载转移日志失败: {err}"))
     
     def _show_log_details(self, tree_widget):
         """显示选中日志的详细信息"""
@@ -705,8 +792,8 @@ class FileOrganizerGUI:
             ).pack(side=tk.RIGHT)
             
         except Exception as e:
-            self.log_message(f"显示日志详情失败: {e}")
-            messagebox.showerror("错误", f"显示日志详情失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"显示日志详情失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示日志详情失败: {err}"))
     
     def _restore_from_selected_log(self, tree_widget):
         """从选中的日志恢复文件"""
@@ -764,8 +851,8 @@ class FileOrganizerGUI:
             self.log_message(f"文件恢复完成: 成功 {restore_results['successful_restores']}, 失败 {restore_results['failed_restores']}")
             
         except Exception as e:
-            self.log_message(f"文件恢复失败: {e}")
-            messagebox.showerror("错误", f"文件恢复失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"文件恢复失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"文件恢复失败: {err}"))
     
     def _cleanup_old_logs(self, tree_widget):
         """清理旧的转移日志"""
@@ -817,8 +904,8 @@ class FileOrganizerGUI:
             self._load_transfer_logs(tree_widget)
             
         except Exception as e:
-            self.log_message(f"清理旧日志失败: {e}")
-            messagebox.showerror("错误", f"清理旧日志失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"清理旧日志失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"清理旧日志失败: {err}"))
     
     def show_restore_dialog(self):
         """显示文件恢复对话框"""
@@ -879,7 +966,7 @@ class FileOrganizerGUI:
                     log_data.append(log_file)
                     
                 except Exception as e:
-                    self.log_message(f"解析日志文件失败 {log_file}: {e}")
+                    self.root.after(0, lambda err=e: self.log_message(f"解析日志文件失败 {log_file}: {err}"))
                     continue
             
             # 按钮框架
@@ -911,8 +998,8 @@ class FileOrganizerGUI:
             ).pack(side=tk.RIGHT, padx=5)
             
         except Exception as e:
-            self.log_message(f"显示恢复对话框失败: {e}")
-            messagebox.showerror("错误", f"显示恢复对话框失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"显示恢复对话框失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示恢复对话框失败: {err}"))
     
     def _execute_restore(self, log_file_path):
         """执行文件恢复操作"""
@@ -952,8 +1039,8 @@ class FileOrganizerGUI:
                     self.root.after(0, show_dry_run_results)
                     
                 except Exception as e:
-                    self.root.after(0, lambda: self.log_message(f"恢复试运行失败: {e}"))
-                    self.root.after(0, lambda: messagebox.showerror("错误", f"恢复试运行失败: {e}"))
+                    self.root.after(0, lambda err=e: self.log_message(f"恢复试运行失败: {err}"))
+                    self.root.after(0, lambda err=e: messagebox.showerror("错误", f"恢复试运行失败: {err}"))
             
             def actual_restore_worker():
                 try:
@@ -976,15 +1063,15 @@ class FileOrganizerGUI:
                     self.root.after(0, show_results)
                     
                 except Exception as e:
-                    self.root.after(0, lambda: self.log_message(f"文件恢复失败: {e}"))
-                    self.root.after(0, lambda: messagebox.showerror("错误", f"文件恢复失败: {e}"))
+                    self.root.after(0, lambda err=e: self.log_message(f"文件恢复失败: {err}"))
+                    self.root.after(0, lambda err=e: messagebox.showerror("错误", f"文件恢复失败: {err}"))
             
             # 启动试运行
             threading.Thread(target=restore_worker, daemon=True).start()
             
         except Exception as e:
-            self.log_message(f"执行恢复失败: {e}")
-            messagebox.showerror("错误", f"执行恢复失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"执行恢复失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"执行恢复失败: {err}"))
     
     def show_duplicate_removal_dialog(self):
         """显示重复文件删除对话框"""
@@ -1078,7 +1165,7 @@ class FileOrganizerGUI:
                 def scan_worker():
                     try:
                         dry_run = dry_run_var.get()
-                        results = self.organizer.remove_duplicate_files(
+                        results = remove_duplicate_files(
                             target_folder_path=folder_path,
                             dry_run=dry_run
                         )
@@ -1090,17 +1177,17 @@ class FileOrganizerGUI:
                             result_text.insert(tk.END, f"总文件数: {results['total_files_scanned']}\n")
                             result_text.insert(tk.END, f"重复文件组: {results['duplicate_groups_found']}\n")
                             result_text.insert(tk.END, f"重复文件数: {results['total_duplicates_found']}\n\n")
-                            # 分组展示
                             if results.get('duplicate_groups'):
                                 for idx, group in enumerate(results['duplicate_groups'], 1):
-                                    name = group['name']
                                     size = group['size']
                                     md5 = group['md5']
                                     files = group['files']
-                                    result_text.insert(tk.END, f"重复文件组{idx}: {name} ({size} bytes) [MD5: {md5}] 共{len(files)}个副本\n")
+                                    result_text.insert(tk.END, f"重复文件组{idx}: (大小: {size} bytes, MD5: {md5}) 共{len(files)}个副本\n")
                                     for file_info in files:
                                         keep_flag = '【保留】' if file_info.get('keep') else '【待删】'
-                                        result_text.insert(tk.END, f"  - {file_info['relative_path']} {keep_flag}\n")
+                                        from datetime import datetime
+                                        ctime_str = datetime.fromtimestamp(file_info['ctime']).strftime('%Y-%m-%d %H:%M:%S') if 'ctime' in file_info else ''
+                                        result_text.insert(tk.END, f"  - {file_info['relative_path']} {keep_flag} 创建时间: {ctime_str}\n")
                                     result_text.insert(tk.END, "\n")
                             else:
                                 result_text.insert(tk.END, "未发现可删除的重复文件。\n")
@@ -1118,7 +1205,7 @@ class FileOrganizerGUI:
                                         
                                         def delete_worker():
                                             try:
-                                                delete_results = self.organizer.remove_duplicate_files(
+                                                delete_results = remove_duplicate_files(
                                                     target_folder_path=folder_path,
                                                     dry_run=False
                                                 )
@@ -1174,9 +1261,9 @@ class FileOrganizerGUI:
                             
                             # 记录日志
                             if dry_run:
-                                self.log_message(f"重复文件扫描完成 [试运行]: 发现 {results['total_duplicates_found']} 个重复文件")
+                                self.root.after(0, lambda: self.log_message(f"重复文件扫描完成 [试运行]: 发现 {results['total_duplicates_found']} 个重复文件"))
                             else:
-                                self.log_message(f"重复文件删除完成: 删除 {len(results['files_deleted'])} 个文件")
+                                self.root.after(0, lambda: self.log_message(f"重复文件删除完成: 删除 {len(results['files_deleted'])} 个文件"))
                         
                         self.root.after(0, update_results)
                         
@@ -1184,7 +1271,7 @@ class FileOrganizerGUI:
                         def show_error():
                             result_text.delete(1.0, tk.END)
                             result_text.insert(tk.END, f"扫描失败: {e}")
-                            self.log_message(f"重复文件扫描失败: {e}")
+                            self.root.after(0, lambda err=e: self.log_message(f"重复文件扫描失败: {err}"))
                             messagebox.showerror("错误", f"扫描失败: {e}")
                         
                         self.root.after(0, show_error)
@@ -1204,8 +1291,8 @@ class FileOrganizerGUI:
             ).pack(side=tk.RIGHT, padx=5)
             
         except Exception as e:
-            self.log_message(f"显示重复文件删除对话框失败: {e}")
-            messagebox.showerror("错误", f"显示重复文件删除对话框失败: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"显示重复文件删除对话框失败: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示重复文件删除对话框失败: {err}"))
             
     def run(self):
         """运行应用"""
@@ -1214,8 +1301,8 @@ class FileOrganizerGUI:
         except KeyboardInterrupt:
             self.log_message("程序被用户中断")
         except Exception as e:
-            self.log_message(f"程序运行错误: {e}")
-            messagebox.showerror("错误", f"程序运行错误: {e}")
+            self.root.after(0, lambda err=e: self.log_message(f"程序运行错误: {err}"))
+            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"程序运行错误: {err}"))
 
 
 def main():
