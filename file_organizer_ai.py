@@ -7,7 +7,7 @@ import os
 import shutil
 import logging
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
 import ollama
 from transfer_log_manager import TransferLogManager
@@ -19,7 +19,7 @@ class FileOrganizerError(Exception):
     pass
 
 class OllamaClient:
-    def __init__(self, model_name: str = None, host: str = "http://localhost:11434"):
+    def __init__(self, model_name: Optional[str] = None, host: str = "http://localhost:11434"):
         self.model_name = model_name
         self.host = host
         self.client = ollama.Client(host=host)
@@ -40,10 +40,8 @@ class OllamaClient:
                         self.available_models.append(model['name'])
                     elif 'model' in model:
                         self.available_models.append(model['model'])
-                elif hasattr(model, 'name'):
-                    self.available_models.append(model.name)
-                elif hasattr(model, 'model'):
-                    self.available_models.append(model.model)
+                elif isinstance(model, str):
+                    self.available_models.append(model)
                 else:
                     self.available_models.append(str(model))
             if not self.available_models:
@@ -57,7 +55,7 @@ class OllamaClient:
             logging.info(f"可用模型列表: {self.available_models}")
         except Exception as e:
             raise FileOrganizerError(f"连接 Ollama 失败: {e}")
-    def chat_with_retry(self, messages: List[Dict], max_retries: int = None) -> str:
+    def chat_with_retry(self, messages: List[Dict], max_retries: Optional[int] = None) -> str:
         if max_retries is None:
             max_retries = len(self.available_models)
         last_error = None
@@ -65,6 +63,8 @@ class OllamaClient:
         for attempt, model_name in enumerate(models_to_try[:max_retries]):
             try:
                 client = ollama.Client(host=self.host)
+                if not isinstance(model_name, str) or not model_name:
+                    raise FileOrganizerError("模型名无效，无法调用 chat")
                 response = client.chat(
                     model=model_name,
                     messages=messages
@@ -81,7 +81,7 @@ class OllamaClient:
         raise FileOrganizerError(f"所有可用模型都响应失败，最后错误: {last_error}")
 
 class FileOrganizer:
-    def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
+    def __init__(self, model_name: Optional[str] = None, enable_transfer_log: bool = True):
         self.model_name = model_name
         self.ollama_client = None
         self.enable_transfer_log = enable_transfer_log
@@ -156,6 +156,14 @@ class FileOrganizer:
             file_name = Path(file_path).name
             prompt = self._build_classification_prompt(file_path, target_directory)
             logging.info(f"正在分类文件: {file_name}")
+            if self.ollama_client is None:
+                try:
+                    self.initialize_ollama()
+                except Exception as e:
+                    logging.error(f'Ollama 初始化失败: {e}')
+                    raise FileOrganizerError(f'Ollama 初始化失败: {e}')
+            if self.ollama_client is None:
+                raise FileOrganizerError("Ollama 客户端未初始化，无法调用 chat_with_retry")
             classification_result = self.ollama_client.chat_with_retry([
                 {
                     'role': 'user',
@@ -262,7 +270,7 @@ class FileOrganizer:
             return files
         except Exception as e:
             raise FileOrganizerError(f"扫描源文件失败: {e}")
-    def scan_files(self, source_directory: str) -> List[Dict[str, str]]:
+    def scan_files(self, source_directory: str) -> List[Dict[str, object]]:
         try:
             source_path = Path(source_directory)
             if not source_path.exists():
@@ -282,7 +290,7 @@ class FileOrganizer:
             raise FileOrganizerError(f"扫描源文件失败: {e}")
     def get_target_folders(self, target_directory: str) -> List[str]:
         return self.scan_target_folders(target_directory)
-    def preview_classification(self, source_directory: str, target_directory: str) -> List[Dict[str, any]]:
+    def preview_classification(self, source_directory: str, target_directory: str) -> List[Dict[str, object]]:
         try:
             source_files = self.scan_source_files(source_directory)
             if not source_files:
@@ -339,10 +347,11 @@ class FileOrganizer:
                 self.initialize_ollama()
             file_path_obj = Path(file_path)
             filename = file_path_obj.name
-            recommended_folders = self.ollama_client.classify_file(filename, target_folders)
-            if not recommended_folders:
+            # recommended_folders = self.ollama_client.classify_file(filename, target_folders)
+            target_folder, match_reason, success = self.classify_file(str(file_path_obj), target_directory)
+            if not success or not target_folder:
                 return False, "无法确定目标文件夹"
-            target_folder = recommended_folders[0]
+            # target_folder = recommended_folders[0]  # 已由上面获得
             target_folder_path = Path(target_directory) / target_folder
             target_folder_path.mkdir(parents=True, exist_ok=True)
             target_file_path = target_folder_path / filename
@@ -361,7 +370,7 @@ class FileOrganizer:
             error_msg = f"整理文件失败: {e}"
             logging.error(error_msg)
             return False, error_msg
-    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False) -> Dict[str, any]:
+    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False) -> Dict[str, object]:
         try:
             if source_directory and target_directory:
                 target_folders = self.scan_target_folders(target_directory)
@@ -400,8 +409,8 @@ class FileOrganizer:
             }
             logging.info(f"开始安全文件整理，共 {len(files)} 个文件")
             for i, file_info in enumerate(files, 1):
-                file_path = file_info['path']
-                filename = file_info['name']
+                file_path = str(file_info['path'])
+                filename = str(file_info['name'])
                 try:
                     logging.info(f"正在处理文件 {i}/{len(files)}: {filename}")
                     target_folder, match_reason, success = self.classify_file(file_path, target_base_dir)
@@ -456,11 +465,11 @@ class FileOrganizer:
                                 })
                                 continue
                             if copy_mode:
-                                shutil.copy2(file_path, target_file_path)
+                                shutil.copy2(file_path, str(target_file_path))
                                 operation = "copy"
                                 operation_cn = "复制"
                             else:
-                                shutil.move(file_path, target_file_path)
+                                shutil.move(file_path, str(target_file_path))
                                 operation = "move"
                                 operation_cn = "移动"
                             if target_file_path.exists():
@@ -503,7 +512,8 @@ class FileOrganizer:
                         results['successful_moves'] += 1
                     if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                         try:
-                            file_size = file_info.get('size', 0)
+                            file_size_raw = file_info.get('size', 0)
+                            file_size = int(file_size_raw) if isinstance(file_size_raw, (int, float, str)) and str(file_size_raw).isdigit() else 0
                             self.transfer_log_manager.log_transfer_operation(
                                 source_path=file_path,
                                 target_path=str(target_file_path),
@@ -573,13 +583,13 @@ class FileOrganizer:
         if not self.enable_transfer_log or not self.transfer_log_manager:
             raise FileOrganizerError("转移日志功能未启用")
         return self.transfer_log_manager.get_session_summary(log_file_path)
-    def restore_files_from_log(self, log_file_path: str, operation_ids: List[int] = None, dry_run: bool = True) -> Dict:
+    def restore_files_from_log(self, log_file_path: str, operation_ids: Optional[List[int]] = None, dry_run: bool = True) -> Dict:
         if not self.enable_transfer_log or not self.transfer_log_manager:
             raise FileOrganizerError("转移日志功能未启用")
         try:
             restore_results = self.transfer_log_manager.restore_from_log(
                 log_file_path=log_file_path,
-                operation_ids=operation_ids,
+                operation_ids=operation_ids if operation_ids is not None else [],
                 dry_run=dry_run
             )
             logging.info(f"文件恢复完成: 成功 {restore_results['successful_restores']}, 失败 {restore_results['failed_restores']}, 跳过 {restore_results['skipped_operations']}")
