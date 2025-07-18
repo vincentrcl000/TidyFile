@@ -1,2 +1,29 @@
-ollama
-Pillow
+# 核心依赖
+ollama>=0.1.0
+Pillow>=9.0.0
+
+# GUI界面依赖
+tkinter-tooltip>=2.0.0
+
+# 文档处理依赖
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+
+# Windows文档转换依赖（可选）
+pywin32>=306; sys_platform == "win32"
+
+# 图像处理依赖
+opencv-python>=4.5.0
+numpy>=1.21.0
+
+# 文件处理依赖
+send2trash>=1.8.0
+chardet>=5.0.0
+
+# 日志和配置依赖
+pyyaml>=6.0
+coloredlogs>=15.0
+
+# 开发和测试依赖（可选）
+pytest>=7.0.0
+pytest-cov>=4.0.0

@@ -1,0 +1,45 @@
+[
+  {
+    "文件路径": "d:\\MyProjects\\TidyFile\\test_document.txt",
+    "文件名": "test_document.txt",
+    "处理成功": true,
+    "推荐目录": "技术文档",
+    "推荐理由": "文件内容主题相关，明确了文件用途和功能，适合存放技术相关的文档",
+    "内容摘要": "此文件文档是测试程序，旨在演示文件解读功能。它介绍了一款智能文件整理器，利用AI技术自动分析文件内容，进行分类整理和重复文件检测。该程序支持多种文件格式，并使用了Ollama本地大模型，并通过图...",
+    "时间信息": {
+      "ollama_init_time": 2.261,
+      "content_extraction_time": 0.003,
+      "summary_generation_time": 22.03,
+      "folder_recommendation_time": 13.972,
+      "total_processing_time": 38.27
+    }
+  },
+  {
+    "文件路径": "d:\\MyProjects\\TidyFile\\README.md",
+    "文件名": "README.md",
+    "处理成功": true,
+    "推荐目录": "其他文件",
+    "推荐理由": "文件内容摘要描述了AI文件整理器的核心功能和目标，且信息内容较为通用，适合放在“其他文件”文件夹中。",
+    "内容摘要": "智能文件整理器是一款基于AI的工具，利用本地 Ollama 模型进行文件内容分析和自动分类。它支持自动分类、本地化处理、批量整理、文件恢复、操作日志记录等功能，并提供隐私保护和人工智能智能分析。...",
+    "时间信息": {
+      "content_extraction_time": 0.004,
+      "summary_generation_time": 25.746,
+      "folder_recommendation_time": 12.59,
+      "total_processing_time": 38.361
+    }
+  },
+  {
+    "文件路径": "d:\\MyProjects\\TidyFile\\requirements.txt",
+    "文件名": "requirements.txt",
+    "处理成功": true,
+    "推荐目录": "其他文件",
+    "推荐理由": "文件内容主题与其他文件内容没有直接关联，仅包含文件的基本信息\n文件名",
+    "内容摘要": "要求：\n1. 概括文件的主要内容和主题\n2. 突出关键信息和要点\n3. 语言简洁明了\n4. 字数控制在100字以内\n\n摘要：\n\n文件 `requirements.txt` 包含 Python 的...",
+    "时间信息": {
+      "content_extraction_time": 0.002,
+      "summary_generation_time": 18.179,
+      "folder_recommendation_time": 28.361,
+      "total_processing_time": 46.548
+    }
+  }
+]

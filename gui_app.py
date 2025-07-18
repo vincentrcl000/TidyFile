@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from file_duplicate_cleaner import remove_duplicate_files
 from migration_executor import MigrationExecutor  # 新增导入
+from file_reader import FileReader, FileReaderError  # 新增文件解读功能导入
 
 
 class FileOrganizerGUI:
@@ -184,6 +185,14 @@ class FileOrganizerGUI:
         )
         self.duplicate_button.pack(side=tk.LEFT, padx=5)
         
+        # 文件解读按钮
+        self.file_reader_button = ttk.Button(
+            button_frame,
+            text="文件解读",
+            command=self.show_file_reader_dialog
+        )
+        self.file_reader_button.pack(side=tk.LEFT, padx=5)
+        
         # 进度条
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(
@@ -299,8 +308,9 @@ class FileOrganizerGUI:
             threading.Thread(target=self._preview_worker, daemon=True).start()
             
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"预览失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"预览失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"预览失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"预览失败: {error_msg}"))
             
     def _preview_worker(self):
         """预览工作线程"""
@@ -367,31 +377,70 @@ class FileOrganizerGUI:
             ai_result_list = []
             for i, file_path in enumerate(source_files[:preview_count]):
                 filename = Path(file_path).name
-                folder, reason, success = self.organizer.classify_file(file_path, target)
-                # 获取文件摘要（假设organizer有get_file_summary方法，否则用前50字内容）
-                try:
-                    if hasattr(self.organizer, 'get_file_summary'):
-                        summary = self.organizer.get_file_summary(file_path, max_length=50)
-                    else:
+                
+                # 使用新的增强分析方法
+                if hasattr(self.organizer, 'analyze_and_classify_file'):
+                    analysis_result = self.organizer.analyze_and_classify_file(file_path, target)
+                    folder = analysis_result.get('recommended_folder')
+                    reason = analysis_result.get('match_reason', '')
+                    success = analysis_result.get('success', False)
+                    summary = analysis_result.get('content_summary', '摘要获取失败')
+                    timing_info = analysis_result.get('timing_info', {})
+                else:
+                    # 回退到旧方法
+                    folder, reason, success = self.organizer.classify_file(file_path, target)
+                    summary = "摘要获取失败"
+                    timing_info = {}
+                    try:
                         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                             summary = f.read(50)
-                except Exception as e:
-                    summary = "摘要获取失败"
+                    except Exception as e:
+                        pass
+                
                 # 只保留20字理由
                 reason_short = reason[:20] if reason else ""
-                ai_result_list.append({
+                
+                # 构建AI结果JSON条目
+                ai_result_item = {
                     "源文件路径": file_path,
                     "文件摘要": summary,
                     "最匹配的目标目录": folder if success else "无推荐",
                     "匹配理由": reason_short
-                })
+                }
+                
+                # 添加时间信息到JSON输出
+                if timing_info:
+                    ai_result_item["处理耗时信息"] = {
+                        "总耗时(秒)": timing_info.get('total_processing_time', 0),
+                        "内容提取耗时(秒)": timing_info.get('content_extraction_time', 0),
+                        "摘要生成耗时(秒)": timing_info.get('summary_generation_time', 0),
+                        "目录推荐耗时(秒)": timing_info.get('folder_recommendation_time', 0)
+                    }
+                    if 'ollama_init_time' in timing_info:
+                        ai_result_item["处理耗时信息"]["Ollama初始化耗时(秒)"] = timing_info['ollama_init_time']
+                
+                ai_result_list.append(ai_result_item)
+                
                 preview_results.append({
                     'filename': filename,
                     'recommended_folder': folder if success else "无推荐",
                     'reason': reason,
-                    'success': success
+                    'success': success,
+                    'timing_info': timing_info
                 })
-                log_debug(f"第{i+1}个文件分类结果", {"file": file_path, "folder": folder, "reason": reason, "success": success})
+                
+                # 记录详细的调试信息
+                debug_info = {
+                    "file": file_path, 
+                    "folder": folder, 
+                    "reason": reason, 
+                    "success": success,
+                    "summary": summary[:100] + "..." if len(summary) > 100 else summary
+                }
+                if timing_info:
+                    debug_info["timing_info"] = timing_info
+                
+                log_debug(f"第{i+1}个文件分析结果", debug_info)
                 progress = (i + 1) / preview_count * 100
                 self.root.after(0, lambda p=progress: self.progress_var.set(p))
             log_debug("全部预览分类结果", preview_results)
@@ -403,8 +452,9 @@ class FileOrganizerGUI:
             with open("debug_preview.log", 'a', encoding='utf-8') as f:
                 f.write(f"\n\n==== 发生异常 ===="\
                         f"\n{str(e)}")
-            self.root.after(0, lambda err=e: self.log_message(f"预览失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"预览失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"预览失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"预览失败: {error_msg}"))
         finally:
             self.root.after(0, lambda: self.progress_var.set(0))
             self.root.after(0, lambda: self.status_label.config(text="预览完成"))
@@ -444,6 +494,7 @@ class FileOrganizerGUI:
             folder = result['recommended_folder']
             reason = result['reason']
             success = result['success']
+            timing_info = result.get('timing_info', {})
             
             result_text.insert(tk.END, f"[{i}] 文件: {filename}\n")
             
@@ -454,6 +505,19 @@ class FileOrganizerGUI:
                 result_text.insert(tk.END, f"⚠ 分类结果: {reason}\n")
                 if "建议创建新文件夹" in reason:
                     result_text.insert(tk.END, f"  建议操作：在目标目录中创建合适的文件夹后重新分类\n")
+            
+            # 显示时间信息
+            if timing_info:
+                total_time = timing_info.get('total_processing_time', 0)
+                extract_time = timing_info.get('content_extraction_time', 0)
+                summary_time = timing_info.get('summary_generation_time', 0)
+                recommend_time = timing_info.get('folder_recommendation_time', 0)
+                
+                result_text.insert(tk.END, f"  ⏱ 处理耗时: 总计{total_time}秒 (提取{extract_time}s + 摘要{summary_time}s + 推荐{recommend_time}s)\n")
+                
+                if 'ollama_init_time' in timing_info:
+                    init_time = timing_info['ollama_init_time']
+                    result_text.insert(tk.END, f"  🔧 Ollama初始化: {init_time}秒\n")
             
             result_text.insert(tk.END, "\n")
             
@@ -495,8 +559,9 @@ class FileOrganizerGUI:
             threading.Thread(target=self._organize_worker, daemon=True).start()
             
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"启动整理失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"启动整理失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"启动整理失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"启动整理失败: {error_msg}"))
             
     def _organize_worker(self):
         """文件整理工作线程"""
@@ -517,8 +582,9 @@ class FileOrganizerGUI:
             self.root.after(0, self._show_organize_results)
             
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"整理失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"整理失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"整理失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"整理失败: {error_msg}"))
         finally:
             self.root.after(0, lambda: self.organize_button.config(state='normal'))
             self.root.after(0, lambda: self.preview_button.config(state='normal'))
@@ -578,8 +644,9 @@ class FileOrganizerGUI:
             )
             
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"删除原文件失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"删除原文件失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"删除原文件失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"删除原文件失败: {error_msg}"))
     
     def show_transfer_logs(self):
         """显示转移日志管理界面"""
@@ -680,8 +747,9 @@ class FileOrganizerGUI:
             ).pack(side=tk.RIGHT, padx=5)
             
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"显示转移日志失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示转移日志失败: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"显示转移日志失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"显示转移日志失败: {error_msg}"))
     
     def _load_transfer_logs(self, tree_widget):
         """加载转移日志到树形控件"""
@@ -1293,6 +1361,305 @@ class FileOrganizerGUI:
         except Exception as e:
             self.root.after(0, lambda err=e: self.log_message(f"显示重复文件删除对话框失败: {err}"))
             self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示重复文件删除对话框失败: {err}"))
+    
+    def show_file_reader_dialog(self):
+        """显示文件解读对话框"""
+        try:
+            # 创建文件解读对话框
+            reader_window = tk.Toplevel(self.root)
+            reader_window.title("文件解读")
+            reader_window.geometry("700x550")
+            reader_window.transient(self.root)
+            reader_window.grab_set()
+            
+            # 设置窗体居中显示
+            reader_window.update_idletasks()
+            width = reader_window.winfo_width()
+            height = reader_window.winfo_height()
+            x = (reader_window.winfo_screenwidth() // 2) - (width // 2)
+            y = (reader_window.winfo_screenheight() // 2) - (height // 2)
+            reader_window.geometry(f"{width}x{height}+{x}+{y}")
+            
+            # 创建主框架
+            main_frame = ttk.Frame(reader_window, padding="10")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+            
+            # 标题
+            ttk.Label(
+                main_frame,
+                text="文件解读 - AI智能内容分析",
+                font=('Arial', 14, 'bold')
+            ).pack(pady=(0, 10))
+            
+            # 说明文字
+            ttk.Label(
+                main_frame,
+                text="选择一个文档文件，使用本地Ollama大模型分析其内容并生成摘要",
+                font=('Arial', 10)
+            ).pack(pady=(0, 15))
+            
+            # 文件选择框架
+            file_frame = ttk.LabelFrame(main_frame, text="文件选择", padding="10")
+            file_frame.pack(fill=tk.X, pady=(0, 15))
+            
+            # 文件路径变量
+            file_path_var = tk.StringVar()
+            
+            # 文件路径输入框
+            path_frame = ttk.Frame(file_frame)
+            path_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            ttk.Label(path_frame, text="选择文件:").pack(anchor=tk.W)
+            file_entry = ttk.Entry(path_frame, textvariable=file_path_var, width=60)
+            file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+            
+            def select_file():
+                """选择文件"""
+                file_types = [
+                    ("所有支持的文件", "*.txt;*.md;*.pdf;*.docx;*.doc;*.py;*.js;*.html;*.css;*.json;*.xml;*.csv"),
+                    ("文本文件", "*.txt;*.md"),
+                    ("PDF文件", "*.pdf"),
+                    ("Word文档", "*.docx;*.doc"),
+                    ("代码文件", "*.py;*.js;*.html;*.css;*.json;*.xml"),
+                    ("所有文件", "*.*")
+                ]
+                
+                file_path = filedialog.askopenfilename(
+                    title="选择要解读的文件",
+                    filetypes=file_types,
+                    initialdir=self.source_directory.get() or os.path.expanduser("~")
+                )
+                
+                if file_path:
+                    file_path_var.set(file_path)
+                    # 显示文件基本信息
+                    try:
+                        file_info = Path(file_path)
+                        size_mb = file_info.stat().st_size / (1024 * 1024)
+                        info_text = f"文件名: {file_info.name}\n"
+                        info_text += f"文件大小: {size_mb:.2f} MB\n"
+                        info_text += f"文件类型: {file_info.suffix}\n"
+                        info_text += f"文件路径: {file_path}"
+                        
+                        file_info_text.config(state='normal')
+                        file_info_text.delete(1.0, tk.END)
+                        file_info_text.insert(tk.END, info_text)
+                        file_info_text.config(state='disabled')
+                        
+                    except Exception as e:
+                        self.log_message(f"获取文件信息失败: {e}")
+            
+            ttk.Button(path_frame, text="浏览", command=select_file).pack(side=tk.RIGHT, padx=(0, 5))
+            
+            # 开始解读按钮（移到文件选择区域）
+            def start_reading():
+                """开始文件解读"""
+                file_path = file_path_var.get().strip()
+                if not file_path:
+                    messagebox.showwarning("提示", "请先选择要解读的文件")
+                    return
+                
+                if not os.path.exists(file_path):
+                    messagebox.showerror("错误", "选择的文件不存在")
+                    return
+                
+                # 更新状态
+                status_label.config(text="正在初始化AI模型...")
+                progress_var.set(10)  # 设置初始进度
+                result_text.delete(1.0, tk.END)
+                result_text.insert(tk.END, "正在解读文件，请稍候...\n")
+                
+                # 在新线程中执行解读
+                def reading_worker():
+                    try:
+                        # 创建文件解读器
+                        reader = FileReader()
+                        
+                        # 更新状态
+                        reader_window.after(0, lambda: status_label.config(text="正在连接Ollama服务..."))
+                        reader_window.after(0, lambda: progress_var.set(25))
+                        reader_window.after(0, lambda: self.log_message("[文件解读] 开始初始化Ollama客户端"))
+                        
+                        # 初始化Ollama
+                        reader.initialize_ollama()
+                        
+                        reader_window.after(0, lambda: status_label.config(text="正在提取文件内容..."))
+                        reader_window.after(0, lambda: progress_var.set(50))
+                        reader_window.after(0, lambda: self.log_message(f"[文件解读] Ollama初始化成功，使用模型: {reader.model_name}"))
+                        
+                        # 生成摘要
+                        reader_window.after(0, lambda: status_label.config(text="正在生成内容摘要..."))
+                        reader_window.after(0, lambda: progress_var.set(75))
+                        reader_window.after(0, lambda: self.log_message("[文件解读] 正在调用大模型生成摘要"))
+                        
+                        summary_result = reader.generate_summary(
+                            file_path=file_path,
+                            max_summary_length=summary_length_var.get()
+                        )
+                        
+                        # 显示结果
+                        def show_result():
+                            progress_var.set(100)  # 完成时设置为100%
+                            result_text.delete(1.0, tk.END)
+                            
+                            if summary_result['success']:
+                                status_label.config(text="解读完成")
+                                
+                                result_content = f"=== 文件解读结果 ===\n\n"
+                                result_content += f"文件名: {summary_result['file_name']}\n"
+                                result_content += f"解读时间: {summary_result['timestamp'][:19]}\n"
+                                result_content += f"使用模型: {summary_result['model_used']}\n\n"
+                                
+                                # 显示提取的原始文本
+                                if 'extracted_text' in summary_result and summary_result['extracted_text']:
+                                    result_content += f"=== 提取的原始文本 ===\n"
+                                    extracted_text = summary_result['extracted_text']
+                                    if len(extracted_text) > 1000:
+                                        result_content += f"{extracted_text[:1000]}...\n\n"
+                                        result_content += f"[文本过长，仅显示前1000字符，完整文本长度: {len(extracted_text)} 字符]\n\n"
+                                    else:
+                                        result_content += f"{extracted_text}\n\n"
+                                
+                                # 显示AI生成的摘要
+                                result_content += f"=== AI生成的摘要 ===\n"
+                                result_content += f"{summary_result['summary']}\n\n"
+                                result_content += f"=== 解读完成 ==="
+                                
+                                result_text.insert(tk.END, result_content)
+                                self.log_message(f"[文件解读] 解读成功: {summary_result['file_name']} -> {summary_result['summary'][:30]}...")
+                                
+                            else:
+                                status_label.config(text="解读失败")
+                                
+                                error_content = f"=== 文件解读失败 ===\n\n"
+                                error_content += f"文件名: {summary_result['file_name']}\n"
+                                error_content += f"错误信息: {summary_result['error']}\n\n"
+                                error_content += f"请检查：\n"
+                                error_content += f"1. Ollama服务是否正常运行\n"
+                                error_content += f"2. 是否已下载可用的AI模型\n"
+                                error_content += f"3. 文件是否可以正常访问\n"
+                                
+                                result_text.insert(tk.END, error_content)
+                                self.log_message(f"[文件解读] 解读失败: {summary_result['error']}")
+                            
+                            # 延迟重置进度条
+                            reader_window.after(2000, lambda: progress_var.set(0))
+                        
+                        reader_window.after(0, show_result)
+                        
+                    except Exception as e:
+                        error_msg = str(e)  # 先保存错误信息
+                        def show_error():
+                            progress_var.set(0)  # 出错时重置进度条
+                            status_label.config(text="解读失败")
+                            result_text.delete(1.0, tk.END)
+                            result_text.insert(tk.END, f"解读过程中发生错误:\n{error_msg}")
+                            self.log_message(f"[文件解读] 解读过程异常: {error_msg}")
+                            messagebox.showerror("错误", f"文件解读失败: {error_msg}")
+                        
+                        reader_window.after(0, show_error)
+                
+                # 启动解读线程
+                threading.Thread(target=reading_worker, daemon=True).start()
+            
+            ttk.Button(path_frame, text="开始解读", command=start_reading).pack(side=tk.RIGHT)
+            
+            # 文件信息显示
+            info_frame = ttk.LabelFrame(file_frame, text="文件信息", padding="5")
+            info_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            file_info_text = tk.Text(
+                info_frame,
+                height=4,
+                wrap=tk.WORD,
+                state='disabled'
+            )
+            file_info_text.pack(fill=tk.X)
+            
+            # 解读选项框架
+            options_frame = ttk.LabelFrame(main_frame, text="解读选项", padding="10")
+            options_frame.pack(fill=tk.X, pady=(0, 15))
+            
+            # 摘要长度选项
+            length_frame = ttk.Frame(options_frame)
+            length_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            ttk.Label(length_frame, text="摘要长度:").pack(side=tk.LEFT)
+            
+            summary_length_var = tk.IntVar(value=50)
+            length_scale = ttk.Scale(
+                length_frame,
+                from_=20,
+                to=100,
+                variable=summary_length_var,
+                orient=tk.HORIZONTAL,
+                length=200
+            )
+            length_scale.pack(side=tk.LEFT, padx=(10, 5))
+            
+            length_label = ttk.Label(length_frame, text="50字")
+            length_label.pack(side=tk.LEFT, padx=(5, 0))
+            
+            def update_length_label(value):
+                length_label.config(text=f"{int(float(value))}字")
+            
+            length_scale.config(command=update_length_label)
+            
+            # 状态显示框架
+            status_frame = ttk.LabelFrame(main_frame, text="解读状态", padding="10")
+            status_frame.pack(fill=tk.X, pady=(0, 15))
+            
+            # 状态标签
+            status_label = ttk.Label(status_frame, text="请选择文件开始解读")
+            status_label.pack(anchor=tk.W)
+            
+            # 进度条
+            progress_var = tk.DoubleVar(value=0.0)
+            progress_bar = ttk.Progressbar(
+                status_frame,
+                variable=progress_var,
+                mode='determinate',
+                maximum=100
+            )
+            progress_bar.pack(fill=tk.X, pady=(5, 0))
+            
+            # 结果显示区域
+            result_frame = ttk.LabelFrame(main_frame, text="解读结果", padding="10")
+            result_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+            
+            result_text = scrolledtext.ScrolledText(
+                result_frame,
+                height=8,
+                wrap=tk.WORD
+            )
+            result_text.pack(fill=tk.BOTH, expand=True)
+            
+            # 按钮框架
+            button_frame = ttk.Frame(main_frame)
+            button_frame.pack(fill=tk.X, pady=(10, 0))
+            
+            # 清空结果按钮
+            def clear_result():
+                result_text.delete(1.0, tk.END)
+                status_label.config(text="请选择文件开始解读")
+                progress_var.set(0)  # 重置进度条
+            
+            ttk.Button(
+                button_frame,
+                text="清空结果",
+                command=clear_result
+            ).pack(side=tk.LEFT, padx=5)
+            
+            # 关闭按钮
+            ttk.Button(
+                button_frame,
+                text="关闭",
+                command=reader_window.destroy
+            ).pack(side=tk.RIGHT, padx=5)
+            
+        except Exception as e:
+            self.log_message(f"显示文件解读对话框失败: {e}")
+            messagebox.showerror("错误", f"显示文件解读对话框失败: {e}")
             
     def run(self):
         """运行应用"""
@@ -1301,8 +1668,9 @@ class FileOrganizerGUI:
         except KeyboardInterrupt:
             self.log_message("程序被用户中断")
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"程序运行错误: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"程序运行错误: {err}"))
+            error_msg = str(e)  # 先保存错误信息
+            self.root.after(0, lambda: self.log_message(f"程序运行错误: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"程序运行错误: {error_msg}"))
 
 
 def main():

@@ -189,7 +189,7 @@ class FileOrganizer:
             error_msg = f"整理文件失败: {e}"
             logging.error(error_msg)
             return False, error_msg
-    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False) -> Dict[str, any]:
+    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False, progress_callback=None) -> Dict[str, any]:
         try:
             if source_directory and target_directory:
                 target_folders = self.scan_target_folders(target_directory)
@@ -226,12 +226,31 @@ class FileOrganizer:
                 'transfer_log_file': log_session_name,
                 'dry_run': dry_run
             }
+            # 输出整理开始信息到控制台
+            print(f"\n=== 开始简单文件整理 ===")
+            print(f"整理模式: {'复制' if copy_mode else '移动'}")
+            print(f"源目录: {source_directory}")
+            print(f"目标目录: {target_base_dir}")
+            print(f"文件总数: {len(files)}")
+            print(f"试运行: {'是' if dry_run else '否'}")
+            print("=" * 50)
+            
             logging.info(f"开始安全文件整理，共 {len(files)} 个文件")
             for i, file_info in enumerate(files, 1):
                 file_path = file_info['path']
                 filename = file_info['name']
+                
+                # 更新进度回调
+                if progress_callback:
+                    progress_percent = int((i / len(files)) * 100)
+                    progress_callback(progress_percent, f"正在处理: {filename} ({i}/{len(files)})")
+                
+                # 控制台输出当前处理文件
+                print(f"\n[{i}/{len(files)}] 正在处理: {filename}")
+                
                 try:
                     logging.info(f"正在处理文件 {i}/{len(files)}: {filename}")
+                    print(f"  → 正在分析文件...")
                     target_folder, match_reason, success = self._simple_classification(file_path, target_folders)
                     results['ai_responses'].append({
                         'file_name': filename,
@@ -239,6 +258,14 @@ class FileOrganizer:
                         'match_reason': match_reason,
                         'success': success
                     })
+                    
+                    # 输出分类结果
+                    if success and target_folder:
+                        print(f"  ✓ 分类成功: {target_folder}")
+                        print(f"  ✓ 匹配理由: {match_reason}")
+                    else:
+                        print(f"  ✗ 分类失败: {match_reason}")
+                    
                     if not success or not target_folder:
                         error_msg = f"文件 {filename} 分类失败: {match_reason}，已跳过，未做任何处理"
                         logging.warning(error_msg)
@@ -291,6 +318,8 @@ class FileOrganizer:
                                 shutil.move(file_path, target_file_path)
                                 operation = "move"
                                 operation_cn = "移动"
+                            
+                            print(f"  ✓ {operation_cn}操作完成: {target_file_path}")
                             if target_file_path.exists():
                                 if not copy_mode and Path(file_path).exists():
                                     error_msg = f"文件移动验证失败: {filename}"
@@ -383,6 +412,23 @@ class FileOrganizer:
                 finally:
                     results['processed_files'] += 1
             results['end_time'] = datetime.now()
+            
+            # 计算总耗时
+            total_time = (results['end_time'] - results['start_time']).total_seconds()
+            
+            # 输出总结信息到控制台
+            print(f"\n=== 简单文件整理完成 ===")
+            print(f"总文件数: {results['total_files']}")
+            print(f"成功处理: {results['successful_moves']}")
+            print(f"处理失败: {results['failed_moves']}")
+            print(f"跳过文件: {results['skipped_files']}")
+            print(f"总耗时: {total_time:.2f} 秒")
+            print("=" * 50)
+            
+            # 最终进度回调
+            if progress_callback:
+                progress_callback(100, f"整理完成! 成功: {results['successful_moves']}, 失败: {results['failed_moves']}")
+            
             if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                 try:
                     session_summary = self.transfer_log_manager.end_transfer_session()
@@ -488,4 +534,4 @@ class FileOrganizer:
         except Exception as e:
             if (time.time() - start_time) > max_seconds:
                 return '提取超时，已跳过'
-            return f'摘要获取失败: {e}' 
+            return f'摘要获取失败: {e}'

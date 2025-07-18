@@ -6,6 +6,7 @@ AI智能分类专用文件整理核心模块
 import os
 import shutil
 import logging
+import json
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
@@ -37,13 +38,46 @@ class OllamaClient:
             for model in models_list:
                 if isinstance(model, dict):
                     if 'name' in model:
-                        self.available_models.append(model['name'])
+                        model_name = model['name']
+                        # 确保模型名称是字符串格式
+                        if isinstance(model_name, str):
+                            self.available_models.append(model_name)
+                        else:
+                            self.available_models.append(str(model_name))
                     elif 'model' in model:
-                        self.available_models.append(model['model'])
+                        model_name = model['model']
+                        if isinstance(model_name, str):
+                            self.available_models.append(model_name)
+                        else:
+                            self.available_models.append(str(model_name))
                 elif isinstance(model, str):
                     self.available_models.append(model)
                 else:
-                    self.available_models.append(str(model))
+                    # 如果是其他类型，尝试提取model或name属性
+                    model_name = None
+                    if hasattr(model, 'model'):
+                        model_name = getattr(model, 'model')
+                    elif hasattr(model, 'name'):
+                        model_name = getattr(model, 'name')
+                    
+                    if model_name:
+                        if isinstance(model_name, str):
+                            self.available_models.append(model_name)
+                        else:
+                            self.available_models.append(str(model_name))
+                    else:
+                        # 最后尝试直接转换为字符串
+                        model_str = str(model)
+                        # 如果字符串包含模型信息，尝试提取
+                        if "model='" in model_str:
+                            import re
+                            match = re.search(r"model='([^']+)'", model_str)
+                            if match:
+                                self.available_models.append(match.group(1))
+                            else:
+                                self.available_models.append(model_str)
+                        else:
+                            self.available_models.append(model_str)
             if not self.available_models:
                 raise FileOrganizerError("没有可用的模型，请先拉取模型")
             if self.model_name is None or self.model_name not in self.available_models:
@@ -86,6 +120,11 @@ class FileOrganizer:
         self.ollama_client = None
         self.enable_transfer_log = enable_transfer_log
         self.transfer_log_manager = None
+        
+        # AI参数设置
+        self.summary_length = 100  # 摘要长度，默认100字符
+        self.content_truncate = 500  # 内容截取，默认500字符
+        
         if self.enable_transfer_log:
             try:
                 self.transfer_log_manager = TransferLogManager()
@@ -149,39 +188,97 @@ class FileOrganizer:
             return tree_structure
         except Exception as e:
             raise FileOrganizerError(f"生成目录树结构失败: {e}")
-    def classify_file(self, file_path: str, target_directory: str) -> tuple:
+    def analyze_and_classify_file(self, file_path: str, target_directory: str) -> Dict[str, Any]:
+        """
+        新的文件分析和分类方法：先解析内容，生成摘要，再推荐目录
+        返回包含提取内容、摘要和推荐目录的完整结果
+        """
+        start_time = time.time()
+        timing_info = {}
+        
         try:
             if not self.ollama_client:
+                init_start = time.time()
                 self.initialize_ollama()
+                timing_info['ollama_init_time'] = round(time.time() - init_start, 3)
+            
             file_name = Path(file_path).name
-            prompt = self._build_classification_prompt(file_path, target_directory)
-            logging.info(f"正在分类文件: {file_name}")
-            if self.ollama_client is None:
-                try:
-                    self.initialize_ollama()
-                except Exception as e:
-                    logging.error(f'Ollama 初始化失败: {e}')
-                    raise FileOrganizerError(f'Ollama 初始化失败: {e}')
-            if self.ollama_client is None:
-                raise FileOrganizerError("Ollama 客户端未初始化，无法调用 chat_with_retry")
-            classification_result = self.ollama_client.chat_with_retry([
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ])
-            logging.info(f"AI分类原始结果: {classification_result}")
-            target_folders = self.scan_target_folders(target_directory)
-            target_folder, match_reason = self._parse_classification_result(classification_result, target_folders)
-            if target_folder and match_reason:
-                logging.info(f"AI分类成功: {file_name} -> {target_folder}, 理由: {match_reason}")
-                return target_folder, match_reason, True
+            logging.info(f"开始分析文件: {file_name}")
+            
+            # 第一步：解析文件内容
+            extract_start = time.time()
+            extracted_content = self._extract_file_content(file_path)
+            extract_time = round(time.time() - extract_start, 3)
+            timing_info['content_extraction_time'] = extract_time
+            logging.info(f"文件内容提取完成，长度: {len(extracted_content)} 字符，耗时: {extract_time}秒")
+            
+            # 根据设置截取内容用于后续AI处理，提高处理效率
+            truncate_length = self.content_truncate if self.content_truncate < 2000 else len(extracted_content)
+            content_for_ai = extracted_content[:truncate_length] if extracted_content else ""
+            if len(extracted_content) > truncate_length:
+                logging.info(f"内容已截取至前{truncate_length}字符用于AI处理（原长度: {len(extracted_content)} 字符）")
+            
+            # 第二步：生成100字摘要（使用截取后的内容）
+            summary_start = time.time()
+            summary = self._generate_content_summary(content_for_ai, file_name)
+            summary_time = round(time.time() - summary_start, 3)
+            timing_info['summary_generation_time'] = summary_time
+            logging.info(f"内容摘要生成完成: {summary[:50]}...，耗时: {summary_time}秒")
+            
+            # 第三步：推荐最匹配的存放目录（使用截取后的内容）
+            recommend_start = time.time()
+            recommended_folder, match_reason = self._recommend_target_folder(
+                file_name, content_for_ai, summary, target_directory
+            )
+            recommend_time = round(time.time() - recommend_start, 3)
+            timing_info['folder_recommendation_time'] = recommend_time
+            
+            total_time = round(time.time() - start_time, 3)
+            timing_info['total_processing_time'] = total_time
+            
+            result = {
+                'file_path': file_path,
+                'file_name': file_name,
+                'extracted_content': extracted_content,
+                'content_summary': summary,
+                'recommended_folder': recommended_folder,
+                'match_reason': match_reason,
+                'success': recommended_folder is not None,
+                'timing_info': timing_info
+            }
+            
+            if recommended_folder:
+                logging.info(f"文件分析完成: {file_name} -> {recommended_folder}，总耗时: {total_time}秒")
+                logging.info(f"摘要: {summary}")
+                logging.info(f"推荐理由: {match_reason}")
+                logging.info(f"详细耗时 - 内容提取: {extract_time}秒, 摘要生成: {summary_time}秒, 目录推荐: {recommend_time}秒")
             else:
-                logging.warning(f"AI分类解析失败: {file_name}")
-                return None, "所有分类方法均失败", False
+                logging.warning(f"文件分析失败: {file_name}，总耗时: {total_time}秒")
+            
+            return result
+            
         except Exception as e:
-            logging.error(f"AI分类失败: {e}")
-            return None, f"分类失败: {str(e)}", False
+            total_time = round(time.time() - start_time, 3)
+            timing_info['total_processing_time'] = total_time
+            logging.error(f"文件分析失败: {e}，总耗时: {total_time}秒")
+            return {
+                'file_path': file_path,
+                'file_name': Path(file_path).name,
+                'extracted_content': '',
+                'content_summary': '',
+                'recommended_folder': None,
+                'match_reason': f"分析失败: {str(e)}",
+                'success': False,
+                'error': str(e),
+                'timing_info': timing_info
+            }
+    
+    def classify_file(self, file_path: str, target_directory: str) -> tuple:
+        """
+        保持原有的分类方法兼容性
+        """
+        result = self.analyze_and_classify_file(file_path, target_directory)
+        return result['recommended_folder'], result['match_reason'], result['success']
     def _build_classification_prompt(self, file_path: str, target_directory: str) -> str:
         file_name = Path(file_path).name
         file_extension = Path(file_path).suffix.lower()
@@ -236,24 +333,332 @@ class FileOrganizer:
 请严格按照上述格式输出，只输出一行结果。
 """
         return prompt
+    
+    def _extract_file_content(self, file_path: str, max_length: int = 3000) -> str:
+        """
+        提取文件内容（从file_reader.py复制的完整实现）
+        
+        Args:
+            file_path: 文件路径
+            max_length: 最大提取长度
+            
+        Returns:
+            提取的文件内容
+        """
+        try:
+            file_path = Path(file_path)
+            if not file_path.exists():
+                raise Exception(f"文件不存在: {file_path}")
+            
+            file_extension = file_path.suffix.lower()
+            logging.info(f"正在提取文件内容: {file_path.name} (类型: {file_extension})")
+            
+            # 根据文件类型选择不同的提取方法
+            if file_extension == '.pdf':
+                return self._extract_pdf_content(file_path, max_length)
+            elif file_extension in ['.docx', '.doc']:
+                return self._extract_docx_content(file_path, max_length)
+            elif file_extension in ['.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv']:
+                return self._extract_text_content(file_path, max_length)
+            elif file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.gif']:
+                return self._extract_image_info(file_path)
+            else:
+                # 尝试作为文本文件读取
+                return self._extract_text_content(file_path, max_length)
+                
+        except Exception as e:
+            logging.error(f"提取文件内容失败: {e}")
+            return f"无法提取文件内容: {str(e)}"
+    
+    def _extract_pdf_content(self, file_path: Path, max_length: int) -> str:
+        """
+        提取PDF文件内容（从file_reader.py复制的完整实现）
+        """
+        try:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                content = ""
+                
+                # 读取前几页内容
+                for page_num in range(min(3, len(pdf_reader.pages))):
+                    page = pdf_reader.pages[page_num]
+                    content += page.extract_text() + "\n"
+                    
+                    if len(content) >= max_length:
+                        break
+                
+                return content[:max_length] if content else "PDF文件内容为空或无法提取"
+                
+        except Exception as e:
+            return f"PDF文件读取失败: {str(e)}"
+    
+    def _extract_docx_content(self, file_path: Path, max_length: int) -> str:
+        """
+        提取Word文档内容（从file_reader.py复制的完整实现）
+        """
+        try:
+            # 检查文件是否存在且可读
+            if not file_path.exists():
+                return "文件不存在"
+            
+            if not file_path.is_file():
+                return "路径不是文件"
+            
+            # 检查文件大小
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                return "文件为空"
+            
+            # 尝试读取Word文档
+            try:
+                doc = docx.Document(file_path)
+                content = ""
+                
+                # 提取段落内容
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():  # 跳过空段落
+                        content += paragraph.text.strip() + "\n"
+                        if len(content) >= max_length:
+                            break
+                
+                # 如果段落内容为空，尝试提取表格内容
+                if not content.strip():
+                    for table in doc.tables:
+                        for row in table.rows:
+                            for cell in row.cells:
+                                if cell.text.strip():
+                                    content += cell.text.strip() + " "
+                        content += "\n"
+                        if len(content) >= max_length:
+                            break
+                
+                return content[:max_length].strip() if content.strip() else "Word文档内容为空或无法提取"
+                
+            except Exception as docx_error:
+                # 如果是.doc文件或损坏的.docx文件，尝试其他方法
+                if file_path.suffix.lower() == '.doc':
+                    return "不支持.doc格式，请转换为.docx格式"
+                else:
+                    return f"Word文档格式错误或文件损坏: {str(docx_error)}"
+            
+        except Exception as e:
+            return f"Word文档读取失败: {str(e)}"
+    
+    def _extract_text_content(self, file_path: Path, max_length: int) -> str:
+        """
+        提取文本文件内容（从file_reader.py复制的完整实现）
+        """
+        try:
+            # 尝试多种编码格式
+            encodings = ['utf-8', 'gbk', 'gb2312', 'latin-1']
+            
+            for encoding in encodings:
+                try:
+                    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+                        content = f.read(max_length)
+                        
+                        # 检查内容是否可读
+                        printable_ratio = sum(1 for c in content if c.isprintable() or c.isspace()) / len(content) if content else 0
+                        if printable_ratio > 0.7:
+                            return content
+                        
+                except Exception:
+                    continue
+            
+            return "文件内容为二进制格式，无法读取"
+            
+        except Exception as e:
+            return f"文本文件读取失败: {str(e)}"
+    
+    def _extract_image_info(self, file_path: Path) -> str:
+        """
+        提取图片文件信息（从file_reader.py复制的完整实现）
+        """
+        try:
+            from PIL import Image
+            with Image.open(file_path) as img:
+                info = f"图片文件信息:\n"
+                info += f"格式: {img.format}\n"
+                info += f"尺寸: {img.size[0]} x {img.size[1]}\n"
+                info += f"模式: {img.mode}\n"
+                
+                # 如果有EXIF信息，提取一些基本信息
+                if hasattr(img, '_getexif') and img._getexif():
+                    info += "包含EXIF信息\n"
+                
+                return info
+                
+        except Exception as e:
+            return f"图片文件信息提取失败: {str(e)}"
+    
+    def _generate_content_summary(self, content: str, file_name: str) -> str:
+        """
+        生成文件内容摘要
+        """
+        try:
+            if not content or content.startswith("无法") or content.startswith("文件内容为二进制"):
+                return f"无法生成摘要：{content[:50]}..."
+            
+            if not self.ollama_client:
+                self.initialize_ollama()
+            
+            prompt = f"""
+请为以下文件内容生成一个{self.summary_length}字以内的中文摘要，要求：
+1. 概括文件的主要内容和主题
+2. 突出关键信息和要点
+3. 语言简洁明了
+4. 字数控制在{self.summary_length}字以内
+
+文件名：{file_name}
+文件内容：
+{content}
+
+请直接输出摘要内容，不要包含其他说明文字：
+"""
+            
+            summary = self.ollama_client.chat_with_retry([
+                {
+                    'role': 'user',
+                    'content': prompt
+                }
+            ])
+            
+            # 确保摘要长度不超过100字
+            if len(summary) > 100:
+                summary = summary[:97] + "..."
+            
+            return summary.strip()
+            
+        except Exception as e:
+            logging.error(f"生成摘要失败: {e}")
+            return f"摘要生成失败: {str(e)}"
+    
+    def _recommend_target_folder(self, file_name: str, content: str, summary: str, target_directory: str) -> tuple:
+        """
+        基于文件内容和摘要推荐最匹配的目标文件夹
+        """
+        try:
+            if not self.ollama_client:
+                self.initialize_ollama()
+            
+            target_folders = self.scan_target_folders(target_directory)
+            directory_structure = self.get_directory_tree_structure(target_directory)
+            
+            # 判断是否有有效的内容和摘要
+            has_valid_content = content and not content.startswith("无法") and not content.startswith("文件内容为二进制")
+            has_valid_summary = summary and not summary.startswith("无法") and not summary.startswith("摘要生成失败")
+            
+            if has_valid_content and has_valid_summary:
+                # 有内容和摘要时，优先使用摘要进行分类
+                prompt = f"""
+你是一个专业的文件分类助手。请根据文件的内容摘要，推荐最适合的存放文件夹。
+
+文件信息：
+- 文件名：{file_name}
+- 内容摘要：{summary}
+
+可选的目标文件夹：
+{directory_structure}
+
+分类原则：
+1. 优先根据文件内容主题匹配文件夹
+2. 考虑文件的用途和性质
+3. 选择最具体、最相关的文件夹
+
+输出格式：
+文件名|推荐文件夹|推荐理由
+
+推荐理由格式：
+内容匹配：{{简述匹配原因，不超过30字}}
+
+请严格按照格式输出一行结果：
+"""
+            else:
+                # 无法获取有效内容时，使用文件名进行分类
+                file_extension = Path(file_name).suffix.lower()
+                prompt = f"""
+你是一个专业的文件分类助手。由于无法读取文件内容，请根据文件名和扩展名推荐最适合的存放文件夹。
+
+文件信息：
+- 文件名：{file_name}
+- 文件扩展名：{file_extension}
+- 内容状态：{content[:100] if content else "无内容"}
+
+可选的目标文件夹：
+{directory_structure}
+
+分类原则：
+1. 根据文件扩展名匹配相应类型的文件夹
+2. 根据文件名关键词匹配主题文件夹
+3. 选择最具体、最相关的文件夹
+
+输出格式：
+文件名|推荐文件夹|推荐理由
+
+推荐理由格式：
+文件名匹配：{{简述匹配原因，不超过30字}}
+
+请严格按照格式输出一行结果：
+"""
+            
+            result = self.ollama_client.chat_with_retry([
+                {
+                    'role': 'user',
+                    'content': prompt
+                }
+            ])
+            
+            return self._parse_classification_result(result, target_folders)
+            
+        except Exception as e:
+            logging.error(f"推荐目标文件夹失败: {e}")
+            return None, f"推荐失败: {str(e)}"
     def _parse_classification_result(self, result: str, target_folders: List[str]) -> tuple:
         try:
             result = result.strip()
+            
+            # 处理多行格式的结果，查找包含文件名和推荐信息的行
+            lines = result.split('\n')
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('---') or line.startswith('文件名|'):
+                    continue
+                
+                parts = line.split('|')
+                if len(parts) >= 3:
+                    original_filename = parts[0].strip()
+                    target_folder = parts[1].strip()
+                    match_reason = parts[2].strip()
+                    
+                    # 验证目标文件夹是否有效
+                    if target_folder in target_folders:
+                        return target_folder, match_reason
+                    else:
+                        # 尝试模糊匹配
+                        for valid_folder in target_folders:
+                            if target_folder in valid_folder or valid_folder in target_folder:
+                                return valid_folder, f"{match_reason}（模糊匹配：{target_folder}）"
+                        
+                        # 如果没有找到匹配的文件夹，继续尝试下一行
+                        continue
+            
+            # 如果没有找到有效的分类结果，尝试原来的单行解析
             parts = result.split('|')
-            if len(parts) != 3:
-                logging.warning(f"分类结果格式不正确，期望3个部分，实际得到{len(parts)}个: {result}")
-                return None, None
-            original_filename = parts[0].strip()
-            target_folder = parts[1].strip()
-            match_reason = parts[2].strip()
-            if target_folder in target_folders:
-                return target_folder, match_reason
-            else:
-                for valid_folder in target_folders:
-                    if target_folder in valid_folder or valid_folder in target_folder:
-                        return valid_folder, f"{match_reason}（模糊匹配：{target_folder}）"
-                logging.warning(f"目标文件夹 '{target_folder}' 不在有效列表中")
-                return None, None
+            if len(parts) >= 3:
+                original_filename = parts[0].strip()
+                target_folder = parts[1].strip()
+                match_reason = parts[2].strip()
+                
+                if target_folder in target_folders:
+                    return target_folder, match_reason
+                else:
+                    for valid_folder in target_folders:
+                        if target_folder in valid_folder or valid_folder in target_folder:
+                            return valid_folder, f"{match_reason}（模糊匹配：{target_folder}）"
+            
+            logging.warning(f"无法解析分类结果或找不到有效的目标文件夹: {result}")
+            return None, None
+            
         except Exception as e:
             logging.warning(f"解析分类结果失败: {e}, 原始结果: {result}")
             return None, None
@@ -302,28 +707,46 @@ class FileOrganizer:
                 file_name = Path(file_path).name
                 try:
                     logging.info(f"正在处理文件 {i}/{preview_count}: {file_name}")
-                    target_folder, match_reason, success = self.classify_file(file_path, target_directory)
-                    if success and target_folder:
+                    # 使用新的分析方法
+                    analysis_result = self.analyze_and_classify_file(file_path, target_directory)
+                    
+                    if analysis_result['success']:
+                        timing_info = analysis_result.get('timing_info', {})
                         preview_results.append({
                             'file_path': file_path,
                             'file_name': file_name,
-                            'target_folder': target_folder,
-                            'match_reason': match_reason,
-                            'classification_method': 'AI',
-                            'success': True
+                            'target_folder': analysis_result['recommended_folder'],
+                            'match_reason': analysis_result['match_reason'],
+                            'classification_method': 'AI_Enhanced',
+                            'success': True,
+                            'extracted_content': analysis_result['extracted_content'][:200] + "..." if len(analysis_result['extracted_content']) > 200 else analysis_result['extracted_content'],
+                            'content_summary': analysis_result['content_summary'],
+                            'timing_info': timing_info
                         })
-                        logging.info(f"文件 {file_name} 分类成功: {target_folder} ({match_reason})")
+                        total_time = timing_info.get('total_processing_time', 0)
+                        extract_time = timing_info.get('content_extraction_time', 0)
+                        summary_time = timing_info.get('summary_generation_time', 0)
+                        recommend_time = timing_info.get('folder_recommendation_time', 0)
+                        
+                        logging.info(f"文件 {file_name} 分析成功: {analysis_result['recommended_folder']} ({analysis_result['match_reason']})，总耗时: {total_time}秒")
+                        logging.info(f"内容摘要: {analysis_result['content_summary']}")
+                        logging.info(f"详细耗时 - 内容提取: {extract_time}秒, 摘要生成: {summary_time}秒, 目录推荐: {recommend_time}秒")
                     else:
+                        timing_info = analysis_result.get('timing_info', {})
                         preview_results.append({
                             'file_path': file_path,
                             'file_name': file_name,
                             'target_folder': None,
-                            'match_reason': match_reason or "分类失败",
+                            'match_reason': analysis_result['match_reason'],
                             'classification_method': 'Failed',
                             'success': False,
-                            'error': match_reason
+                            'error': analysis_result.get('error', analysis_result['match_reason']),
+                            'extracted_content': analysis_result.get('extracted_content', ''),
+                            'content_summary': analysis_result.get('content_summary', ''),
+                            'timing_info': timing_info
                         })
-                        logging.warning(f"文件 {file_name} 分类失败: {match_reason}")
+                        total_time = timing_info.get('total_processing_time', 0)
+                        logging.warning(f"文件 {file_name} 分析失败: {analysis_result['match_reason']}，总耗时: {total_time}秒")
                 except Exception as e:
                     error_msg = f"处理文件时出错: {str(e)}"
                     logging.error(f"文件 {file_name} 处理异常: {e}")
@@ -370,7 +793,7 @@ class FileOrganizer:
             error_msg = f"整理文件失败: {e}"
             logging.error(error_msg)
             return False, error_msg
-    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False) -> Dict[str, object]:
+    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False, progress_callback=None) -> Dict[str, object]:
         try:
             if source_directory and target_directory:
                 target_folders = self.scan_target_folders(target_directory)
@@ -408,20 +831,39 @@ class FileOrganizer:
                 'dry_run': dry_run
             }
             logging.info(f"开始安全文件整理，共 {len(files)} 个文件")
+            print(f"\n=== 开始AI智能文件整理 ===")
+            print(f"源目录: {source_directory if source_directory else '指定文件列表'}")
+            print(f"目标目录: {target_base_dir}")
+            print(f"待处理文件总数: {len(files)}")
+            print(f"操作模式: {'复制' if copy_mode else '移动'}")
+            print("=" * 50)
+            
             for i, file_info in enumerate(files, 1):
                 file_path = str(file_info['path'])
                 filename = str(file_info['name'])
+                
+                # 调用进度回调
+                if progress_callback:
+                    progress_callback(i, len(files), filename)
+                
+                # 控制台输出当前处理进度
+                print(f"\n[{i}/{len(files)}] 正在处理: {filename}")
+                
                 try:
                     logging.info(f"正在处理文件 {i}/{len(files)}: {filename}")
+                    print(f"  🔍 正在分析文件内容...", end="", flush=True)
                     target_folder, match_reason, success = self.classify_file(file_path, target_base_dir)
+                    
                     results['ai_responses'].append({
                         'file_name': filename,
                         'target_folder': target_folder,
                         'match_reason': match_reason,
                         'success': success
                     })
+                    
                     if not success or not target_folder:
                         error_msg = f"文件 {filename} 分类失败: {match_reason}，已跳过，未做任何处理"
+                        print(f"\r  ❌ 分类失败: {match_reason}")
                         logging.warning(error_msg)
                         results['errors'].append(error_msg)
                         results['skipped_files'] += 1
@@ -430,6 +872,9 @@ class FileOrganizer:
                             'error': error_msg
                         })
                         continue
+                    
+                    print(f"\r  ✅ 推荐目录: {target_folder}")
+                    print(f"     理由: {match_reason}")
                     target_folder_path = Path(target_base_dir) / target_folder
                     if not target_folder_path.exists():
                         error_msg = f"目标文件夹不存在: {target_folder}"
@@ -483,6 +928,7 @@ class FileOrganizer:
                                         'error': error_msg
                                     })
                                     continue
+                                print(f"     ✅ {operation_cn}成功: {filename} -> {target_folder}")
                                 logging.info(f"文件安全{operation_cn}成功: {filename} -> {target_folder} ({match_reason})")
                                 results['successful_moves'] += 1
                             else:
@@ -565,12 +1011,58 @@ class FileOrganizer:
                 finally:
                     results['processed_files'] += 1
             results['end_time'] = datetime.now()
+            
+            # 输出处理完成总结
+            print(f"\n=== 文件整理完成 ===")
+            print(f"总文件数: {results['total_files']}")
+            print(f"成功处理: {results['successful_moves']} 个")
+            print(f"处理失败: {results['failed_moves']} 个")
+            print(f"跳过文件: {results['skipped_files']} 个")
+            duration = (results['end_time'] - results['start_time']).total_seconds()
+            print(f"总耗时: {duration:.1f} 秒")
+            print("=" * 50)
+            
+            # 生成AI结果JSON文件
+            try:
+                ai_results = []
+                for ai_response in results['ai_responses']:
+                    # 获取对应的详细分析结果
+                    file_name = ai_response['file_name']
+                    file_path = next((f['path'] for f in files if Path(f['path']).name == file_name), None)
+                    
+                    if file_path:
+                        # 重新分析文件以获取完整信息
+                        analysis_result = self.analyze_and_classify_file(str(file_path), target_base_dir)
+                        
+                        ai_result = {
+                            'file_name': file_name,
+                            'file_path': str(file_path),
+                            'extracted_content': analysis_result.get('extracted_content', '')[:200] + "..." if len(analysis_result.get('extracted_content', '')) > 200 else analysis_result.get('extracted_content', ''),
+                            'content_summary': analysis_result.get('content_summary', ''),
+                            'recommended_folder': analysis_result.get('recommended_folder', ''),
+                            'match_reason': analysis_result.get('match_reason', ''),
+                            'success': analysis_result.get('success', False),
+                            'timing_info': analysis_result.get('timing_info', {})
+                        }
+                        ai_results.append(ai_result)
+                
+                # 保存AI结果到JSON文件
+                ai_result_file = 'ai_organize_result.json'
+                with open(ai_result_file, 'w', encoding='utf-8') as f:
+                    json.dump(ai_results, f, ensure_ascii=False, indent=2)
+                logging.info(f"AI分析结果已保存到: {ai_result_file}")
+                results['ai_result_file'] = ai_result_file
+                
+            except Exception as e:
+                logging.warning(f"生成AI结果文件失败: {e}")
+            
             if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                 try:
                     session_summary = self.transfer_log_manager.end_transfer_session()
                     logging.info(f"转移日志会话结束: {session_summary}")
                 except Exception as e:
                     logging.warning(f"结束转移日志会话失败: {e}")
+            
             logging.info(f"安全文件整理完成: 成功 {results['successful_moves']}, 失败 {results['failed_moves']}, 跳过 {results['skipped_files']}")
             return results
         except Exception as e:
@@ -642,4 +1134,4 @@ class FileOrganizer:
         except Exception as e:
             if (time.time() - start_time) > max_seconds:
                 return '提取超时，已跳过'
-            return f'摘要获取失败: {e}' 
+            return f'摘要获取失败: {e}'
