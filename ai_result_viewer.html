@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI文件整理结果查看器</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #101e5a 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.2em;
+            margin-bottom: 0;
+            font-weight: 300;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .refresh-btn button {
+            background: #28a745;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+
+        .refresh-btn button:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+
+        .pagination-info {
+            color: #6c757d;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .pagination {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .pagination button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .pagination button:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 10px 15px;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .file-item {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border-left: 5px solid #007bff;
+        }
+
+        .file-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .file-item.success {
+            border-left-color: #28a745;
+        }
+
+        .file-item.failed {
+            border-left-color: #dc3545;
+        }
+
+        .file-item.dry-run {
+            border-left-color: #ffc107;
+        }
+
+        .file-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .file-name {
+            font-size: 1.3em;
+            font-weight: 600;
+            color: #2c3e50;
+            cursor: pointer;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .file-name:hover {
+            color: #007bff;
+            text-decoration: underline;
+        }
+
+        .file-time {
+            color: #6c757d;
+            font-size: 0.9em;
+            white-space: nowrap;
+        }
+
+        .file-status {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-dry-run {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .file-summary {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            font-size: 1em;
+            line-height: 1.6;
+            color: #495057;
+            flex: 1;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            max-height: 200px;
+            overflow: hidden;
+        }
+
+        .file-summary:hover {
+            background: #e9ecef;
+        }
+
+        .file-summary.expanded {
+            max-height: none;
+        }
+
+        .file-summary::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 30px;
+            background: linear-gradient(transparent, #f8f9fa);
+            pointer-events: none;
+        }
+
+        .file-summary.expanded::after {
+            display: none;
+        }
+
+        .file-path {
+            margin-top: 20px;
+            padding: 10px 15px;
+            background: #e9ecef;
+            border-radius: 8px;
+            font-size: 0.8em;
+            color: #6c757d;
+            transition: all 0.3s ease;
+            word-break: break-all;
+            border: 1px solid transparent;
+        }
+
+        .clickable-path {
+            cursor: pointer;
+        }
+
+        .clickable-path:hover {
+            background: #007bff;
+            color: white;
+        }
+
+        .timing-info {
+            display: flex;
+            gap: 15px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        .timing-item {
+            background: #e3f2fd;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            color: #1565c0;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #6c757d;
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                margin: 10px;
+                border-radius: 15px;
+            }
+
+            .header {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 2em;
+            }
+
+            .controls {
+                padding: 15px 20px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .file-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .file-details {
+                grid-template-columns: 1fr;
+            }
+
+            .timing-info {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>文章阅读助手</h1>
+        </div>
+
+        <div class="controls">
+            <div class="refresh-btn">
+                <button id="refreshBtn" onclick="cleanDuplicateFiles()">🔄 刷新并清理重复</button>
+            </div>
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="🔍 搜索文件名、摘要或路径...">
+            </div>
+            <div class="stats" id="stats">
+                <span>总计: <strong>0</strong></span>
+                <span>成功: <strong>0</strong></span>
+                <span>失败: <strong>0</strong></span>
+            </div>
+            <div class="pagination-info" id="paginationInfo">
+                <span>显示: <strong id="currentRange">0-0</strong> / <strong id="totalCount">0</strong></span>
+            </div>
+        </div>
+
+        <div class="content" id="content">
+            <div class="empty-state">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                </svg>
+                <h3>请选择AI整理结果文件</h3>
+                <p>点击上方按钮选择 ai_organize_result.json 文件</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+        let filteredData = [];
+        let displayedCount = 0;
+        const itemsPerPage = 20;
+        const defaultFilePath = 'ai_organize_result.json';
+
+        // 页面加载时自动加载默认文件
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDefaultFile();
+            startHeartbeat();
+        });
+
+        document.getElementById('searchInput').addEventListener('input', handleSearch);
+
+        async function loadDefaultFile() {
+            try {
+                const response = await fetch(defaultFilePath);
+                if (response.ok) {
+                    const data = await response.json();
+                    loadData(data);
+                } else {
+                    document.getElementById('content').innerHTML = `
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                            </svg>
+                            <h3>文件未找到</h3>
+                            <p>无法加载 ${defaultFilePath}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('content').innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                        </svg>
+                        <h3>加载失败</h3>
+                        <p>错误: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function cleanDuplicateFiles() {
+            try {
+                const refreshBtn = document.getElementById('refreshBtn');
+                const originalText = refreshBtn.textContent;
+                refreshBtn.textContent = '🔄 清理中...';
+                refreshBtn.disabled = true;
+                
+                const response = await fetch('/api/clean-duplicates', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (result.removed_count > 0) {
+                        alert(`清理完成！\n原始记录: ${result.original_count}\n清理后记录: ${result.cleaned_count}\n删除重复: ${result.removed_count}`);
+                    } else {
+                        alert(`数据已是最新状态，无需清理！\n当前记录数: ${result.original_count}`);
+                    }
+                    // 重新加载数据
+                    await loadDefaultFile();
+                } else {
+                    alert(`清理失败: ${result.message}`);
+                }
+                
+                refreshBtn.textContent = originalText;
+                refreshBtn.disabled = false;
+                
+            } catch (error) {
+                alert(`清理失败: ${error.message}`);
+                const refreshBtn = document.getElementById('refreshBtn');
+                refreshBtn.textContent = '🔄 刷新数据';
+                refreshBtn.disabled = false;
+            }
+        }
+
+        async function loadData(data) {
+            if (!Array.isArray(data)) {
+                showError('数据格式错误：期望数组格式');
+                return;
+            }
+
+            // 直接使用所有数据，不检查文件是否存在（避免CORS问题）
+            const validData = data;
+
+            // 按处理时间倒序排列（最新的在前）
+            validData.sort((a, b) => {
+                const timeA = new Date(a['处理时间'] || '1970-01-01');
+                const timeB = new Date(b['处理时间'] || '1970-01-01');
+                return timeB - timeA;
+            });
+
+            allData = validData;
+            filteredData = [...allData];
+            displayedCount = 0;
+            renderData();
+            updateStats();
+        }
+
+        // 移除了checkFileExists和updateJsonFile函数以避免CORS问题
+
+        function handleSearch() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            if (!query) {
+                filteredData = [...allData];
+            } else {
+                filteredData = allData.filter(item => {
+                    const fileName = (item['文件名'] || '').toLowerCase();
+                    const summary = (item['文件摘要'] || '').toLowerCase();
+                    const sourcePath = (item['源文件路径'] || '').toLowerCase();
+                    const targetPath = (item['最终目标路径'] || '').toLowerCase();
+                    return fileName.includes(query) || summary.includes(query) || 
+                           sourcePath.includes(query) || targetPath.includes(query);
+                });
+            }
+            displayedCount = 0;
+            renderData();
+            updateStats();
+        }
+
+        function renderData() {
+            const content = document.getElementById('content');
+            
+            if (filteredData.length === 0) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" />
+                        </svg>
+                        <h3>没有找到匹配的结果</h3>
+                        <p>请尝试其他搜索关键词</p>
+                    </div>
+                `;
+                updatePaginationInfo();
+                return;
+            }
+
+            // 初始显示前20条
+            displayedCount = Math.min(itemsPerPage, filteredData.length);
+            const html = filteredData.slice(0, displayedCount).map(item => createFileItemHTML(item)).join('');
+            content.innerHTML = html + (displayedCount < filteredData.length ? '<div style="text-align: center; margin: 20px;"><button onclick="loadMoreResults()" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer;">加载更多</button></div>' : '');
+            
+            // 为新添加的元素绑定点击事件
+            bindClickEvents();
+            
+            // 更新分页信息
+            updatePaginationInfo();
+        }
+
+        // 绑定点击事件到可点击的路径元素
+        function bindClickEvents() {
+            document.querySelectorAll('.clickable-path').forEach(element => {
+                element.addEventListener('click', function() {
+                    const fileItem = this.closest('.file-item');
+                    const filePath = fileItem.getAttribute('data-file-path');
+                    if (filePath) {
+                        openFile(filePath);
+                    }
+                });
+            });
+        }
+
+        function loadMoreResults() {
+            const newDisplayCount = Math.min(displayedCount + itemsPerPage, filteredData.length);
+            const newItems = filteredData.slice(displayedCount, newDisplayCount).map(item => createFileItemHTML(item)).join('');
+            
+            const content = document.getElementById('content');
+            const loadMoreBtn = content.querySelector('button');
+            if (loadMoreBtn) {
+                loadMoreBtn.parentElement.remove();
+            }
+            
+            content.innerHTML += newItems + (newDisplayCount < filteredData.length ? '<div style="text-align: center; margin: 20px;"><button onclick="loadMoreResults()" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 25px; cursor: pointer;">加载更多</button></div>' : '');
+            displayedCount = newDisplayCount;
+            
+            // 为新添加的元素绑定点击事件
+            bindClickEvents();
+            
+            updatePaginationInfo();
+        }
+
+        function updatePaginationInfo() {
+            document.getElementById('currentRange').textContent = `1-${displayedCount || 0}`;
+            document.getElementById('totalCount').textContent = filteredData.length;
+        }
+
+        function createFileItemHTML(item) {
+            const status = item['处理状态'] || '未知';
+            const statusClass = getStatusClass(status);
+            const itemClass = getItemClass(status);
+            const displayStatus = getDisplayStatus(status);
+            
+            const fileName = item['文件名'] || '未知文件';
+            const summary = item['文件摘要'] || '无摘要';
+            const sourcePath = item['源文件路径'] || '';
+            
+            // 生成唯一ID用于事件绑定
+            const itemId = 'item_' + Math.random().toString(36).substr(2, 9);
+
+            return `
+                <div class="file-item ${itemClass}" id="${itemId}" data-file-path="${sourcePath}">
+                    <div class="file-header">
+                        <div class="file-name clickable-path" title="点击打开文件">
+                            📄 ${fileName}
+                        </div>
+                        <div class="file-status ${statusClass}">${displayStatus}</div>
+                    </div>
+                    
+                    ${summary ? `<div class="file-summary" onclick="toggleSummary(this)" title="点击展开/收起完整摘要">📝 ${summary}</div>` : ''}
+                    
+                    ${sourcePath ? `<div class="file-path clickable-path" title="点击打开文件">📁 ${sourcePath}</div>` : ''}
+                </div>
+            `;
+        }
+
+        function getStatusClass(status) {
+            if (status.includes('成功')) return 'status-success';
+            if (status.includes('失败')) return 'status-failed';
+            if (status.includes('试运行')) return 'status-dry-run';
+            return 'status-failed';
+        }
+
+        function getDisplayStatus(status) {
+            if (status.includes('成功')) return 'AI已生成摘要';
+            if (status.includes('失败')) return '处理失败';
+            if (status.includes('试运行')) return '试运行';
+            return status;
+        }
+
+        function getItemClass(status) {
+            if (status.includes('成功')) return 'success';
+            if (status.includes('失败')) return 'failed';
+            if (status.includes('试运行')) return 'dry-run';
+            return 'failed';
+        }
+
+        function updateStats() {
+            const total = filteredData.length;
+            const success = filteredData.filter(item => (item['处理状态'] || '').includes('成功')).length;
+            const failed = filteredData.filter(item => (item['处理状态'] || '').includes('失败')).length;
+            
+            document.getElementById('stats').innerHTML = `
+                <span>总计: <strong>${total}</strong></span>
+                <span>成功: <strong>${success}</strong></span>
+                <span>失败: <strong>${failed}</strong></span>
+            `;
+        }
+
+        function toggleSummary(element) {
+            const isExpanded = element.classList.contains('expanded');
+            if (isExpanded) {
+                element.classList.remove('expanded');
+            } else {
+                // 检查是否需要展开（内容是否超出当前高度）
+                const scrollHeight = element.scrollHeight;
+                const clientHeight = element.clientHeight;
+                if (scrollHeight > clientHeight + 10) { // 10px 容差
+                    element.classList.add('expanded');
+                }
+            }
+        }
+
+        function openFile(filePath) {
+            if (!filePath) return;
+            
+            // 调用本地命令行打开文件
+            openWithCommandLine(filePath);
+        }
+        
+        function openWithCommandLine(filePath) {
+            // 使用fetch调用后端API来执行命令行打开文件
+            fetch('/api/open-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ filePath: filePath })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('文件打开成功:', filePath);
+                } else {
+                    console.error('文件打开失败:', data.error);
+                    alert('文件打开失败: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('调用打开文件API失败:', error);
+                alert('调用打开文件API失败: ' + error.message);
+            });
+        }
+        
+
+
+        function showError(message) {
+            document.getElementById('content').innerHTML = `
+                <div class="error">
+                    <strong>错误:</strong> ${message}
+                </div>
+            `;
+        }
+
+        // 心跳检测功能
+        function startHeartbeat() {
+            // 每15秒发送一次心跳
+            setInterval(function() {
+                fetch('/api/heartbeat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({})
+                })
+                .then(response => response.json())
+                .then(data => {
+                    console.log('心跳发送成功:', data.timestamp);
+                })
+                .catch(error => {
+                    console.log('心跳发送失败:', error);
+                });
+            }, 15000); // 15秒间隔
+        }
+
+        // 页面加载完成后绑定事件
+        window.addEventListener('load', function() {
+            // 初始绑定点击事件
+            bindClickEvents();
+        });
+
+        // 页面卸载时发送最后一次心跳（可选）
+        window.addEventListener('beforeunload', function() {
+            // 使用sendBeacon确保请求能发送出去
+            navigator.sendBeacon('/api/heartbeat', JSON.stringify({action: 'closing'}));
+        });
+    </script>
+</body>
+</html>

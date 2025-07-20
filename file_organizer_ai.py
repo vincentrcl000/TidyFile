@@ -25,6 +25,7 @@ class OllamaClient:
         self.host = host
         self.client = ollama.Client(host=host)
         self._validate_connection()
+    
     def _validate_connection(self) -> None:
         try:
             models_response = self.client.list()
@@ -89,6 +90,7 @@ class OllamaClient:
             logging.info(f"可用模型列表: {self.available_models}")
         except Exception as e:
             raise FileOrganizerError(f"连接 Ollama 失败: {e}")
+    
     def chat_with_retry(self, messages: List[Dict], max_retries: Optional[int] = None) -> str:
         if max_retries is None:
             max_retries = len(self.available_models)
@@ -99,10 +101,16 @@ class OllamaClient:
                 client = ollama.Client(host=self.host)
                 if not isinstance(model_name, str) or not model_name:
                     raise FileOrganizerError("模型名无效，无法调用 chat")
-                response = client.chat(
-                    model=model_name,
-                    messages=messages
-                )
+                
+                # 同时使用三种策略抑制思考过程
+                chat_params = {
+                    'model': model_name,
+                    'messages': messages,
+                    'options': {'enable_thinking': False}  # 策略2：传递enable_thinking参数
+                }
+                
+                response = client.chat(**chat_params)
+                
                 if model_name != self.model_name:
                     logging.info(f"模型切换: {self.model_name} -> {model_name}")
                     self.model_name = model_name
@@ -134,14 +142,11 @@ class FileOrganizer:
                 self.enable_transfer_log = False
         self.setup_logging()
     def setup_logging(self) -> None:
-        log_filename = f"file_organizer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log_path = os.path.join(os.path.dirname(__file__), "logs", log_filename)
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        """设置日志配置，仅输出到控制台"""
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_path, encoding='utf-8'),
                 logging.StreamHandler()
             ]
         )
@@ -153,38 +158,40 @@ class FileOrganizer:
         except Exception as e:
             raise FileOrganizerError(f"初始化 Ollama 客户端失败: {e}")
     def scan_target_folders(self, target_directory: str) -> List[str]:
+        """扫描目标文件夹，返回相对路径列表（内部使用，不输出日志）"""
         try:
             target_path = Path(target_directory)
             if not target_path.exists():
                 raise FileOrganizerError(f"目标目录不存在: {target_directory}")
             folders = []
             for item in target_path.rglob('*'):
-                if item.is_dir():
+                if item.is_dir() and item != target_path:  # 排除目标目录本身
                     relative_path = item.relative_to(target_path)
                     folders.append(str(relative_path))
-            logging.info(f"扫描到 {len(folders)} 个目标文件夹（包含子目录）")
             return folders
         except Exception as e:
             raise FileOrganizerError(f"扫描目标文件夹失败: {e}")
     def get_directory_tree_structure(self, target_directory: str) -> str:
+        """生成目标目录结构，返回完整路径列表"""
         try:
             target_path = Path(target_directory)
             if not target_path.exists():
                 raise FileOrganizerError(f"目标目录不存在: {target_directory}")
-            def build_tree(path: Path, prefix: str = "", is_last: bool = True) -> List[str]:
-                lines = []
-                if path != target_path:
-                    connector = "└── " if is_last else "├── "
-                    lines.append(f"{prefix}{connector}{path.name}")
-                    prefix += "    " if is_last else "│   "
-                subdirs = sorted([item for item in path.iterdir() if item.is_dir()], key=lambda x: x.name)
-                for i, subdir in enumerate(subdirs):
-                    is_last_subdir = (i == len(subdirs) - 1)
-                    lines.extend(build_tree(subdir, prefix, is_last_subdir))
-                return lines
-            tree_lines = build_tree(target_path)
-            tree_structure = "\n".join(tree_lines)
-            logging.info(f"生成目录树结构，共 {len(tree_lines)} 行")
+            
+            # 直接扫描并构建目录结构
+            folders = []
+            for item in target_path.rglob('*'):
+                if item.is_dir() and item != target_path:  # 排除目标目录本身
+                    relative_path = item.relative_to(target_path)
+                    folders.append(str(relative_path))
+            
+            # 构建清晰的路径列表，每行一个完整路径
+            path_lines = []
+            for i, folder_path in enumerate(folders, 1):
+                path_lines.append(f"{i}. {folder_path}")
+            
+            tree_structure = "\n".join(path_lines)
+            logging.info(f"生成目录路径结构，共 {len(path_lines)} 行")
             return tree_structure
         except Exception as e:
             raise FileOrganizerError(f"生成目录树结构失败: {e}")
@@ -228,7 +235,7 @@ class FileOrganizer:
             # 第三步：推荐最匹配的存放目录（使用截取后的内容）
             recommend_start = time.time()
             recommended_folder, match_reason = self._recommend_target_folder(
-                file_name, content_for_ai, summary, target_directory
+                file_path, content_for_ai, summary, target_directory
             )
             recommend_time = round(time.time() - recommend_start, 3)
             timing_info['folder_recommendation_time'] = recommend_time
@@ -491,9 +498,14 @@ class FileOrganizer:
         except Exception as e:
             return f"图片文件信息提取失败: {str(e)}"
     
-    def _generate_content_summary(self, content: str, file_name: str) -> str:
+    def _generate_content_summary(self, content: str, file_name: str, summary_length: int = None) -> str:
         """
         生成文件内容摘要
+        
+        Args:
+            content: 文件内容
+            file_name: 文件名
+            summary_length: 摘要长度（字数），如果为None则使用默认值
         """
         try:
             if not content or content.startswith("无法") or content.startswith("文件内容为二进制"):
@@ -502,30 +514,108 @@ class FileOrganizer:
             if not self.ollama_client:
                 self.initialize_ollama()
             
-            prompt = f"""
-请为以下文件内容生成一个{self.summary_length}字以内的中文摘要，要求：
-1. 概括文件的主要内容和主题
-2. 突出关键信息和要点
-3. 语言简洁明了
-4. 字数控制在{self.summary_length}字以内
+            # 使用传入的摘要长度，如果没有则使用默认值
+            target_length = summary_length if summary_length is not None else self.summary_length
+            
+            # 构建更明确的提示词，避免思考过程输出
+            prompt = f"""请为以下文件内容生成一个{target_length}字以内的中文摘要。
 
 文件名：{file_name}
+
 文件内容：
 {content}
 
-请直接输出摘要内容，不要包含其他说明文字：
-"""
-            
-            summary = self.ollama_client.chat_with_retry([
+要求：
+1. 概括文件的主要内容和主题
+2. 突出关键信息和要点
+3. 语言简洁明了
+4. 字数控制在{target_length}字以内
+5. 直接输出摘要内容，不要包含任何思考过程或说明文字
+6. 不要使用"<think>"标签或任何思考过程描述
+
+摘要：/no_think"""
+
+            # 在传递给大模型的完整内容最尾部添加/no_think标签
+            final_prompt = prompt
+
+            # 使用系统提示词来抑制思考过程
+            messages = [
+                {
+                    'role': 'system',
+                    'content': '你是一个专业的文档摘要助手。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出摘要内容，不要包含任何其他信息。'
+                },
                 {
                     'role': 'user',
-                    'content': prompt
+                    'content': final_prompt
                 }
-            ])
+            ]
+
+            summary = self.ollama_client.chat_with_retry(messages)
             
-            # 确保摘要长度不超过100字
-            if len(summary) > 100:
-                summary = summary[:97] + "..."
+            # 清理可能的思考过程标签和内容
+            summary = summary.replace('<think>', '').replace('</think>', '').strip()
+            
+            # 移除常见的思考过程开头
+            think_prefixes = [
+                '好的，', '好，', '嗯，', '我来', '我需要', '首先，', '让我', '现在我要',
+                '用户希望', '用户要求', '用户让我', '根据', '基于', '考虑到', '让我先仔细看看',
+                '用户给了我这个查询', '用户给了我这个任务', '用户给了一个任务',
+                '首先，我得看一下', '首先，我要理解', '首先，我得仔细看看',
+                '好的，用户让我', '用户让我生成', '内容来自文件', '重点包括', '首先，我需要确认'
+            ]
+            
+            # 更激进的清理：移除所有以思考过程开头的句子
+            lines = summary.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 检查是否以思考过程开头
+                is_think_line = False
+                for prefix in think_prefixes:
+                    if line.lower().startswith(prefix.lower()):
+                        is_think_line = True
+                        break
+                
+                # 如果不是思考过程，保留这一行
+                if not is_think_line:
+                    cleaned_lines.append(line)
+            
+            # 如果清理后没有内容，尝试更简单的方法
+            if not cleaned_lines:
+                # 找到第一个不是思考过程的句子
+                sentences = summary.split('。')
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    
+                    # 检查是否以思考过程开头
+                    is_think_sentence = False
+                    for prefix in think_prefixes:
+                        if sentence.lower().startswith(prefix.lower()):
+                            is_think_sentence = True
+                            break
+                    
+                    if not is_think_sentence:
+                        cleaned_lines.append(sentence)
+                        break
+            
+            # 如果还是没有内容，使用原始摘要的最后一部分
+            if not cleaned_lines:
+                # 取最后100个字符作为摘要
+                summary = summary[-100:] if len(summary) > 100 else summary
+            
+            # 重新组合清理后的内容
+            if cleaned_lines:
+                summary = '。'.join(cleaned_lines)
+            
+            # 确保摘要长度不超过限制
+            if len(summary) > target_length:
+                summary = summary[:target_length-3] + "..."
             
             return summary.strip()
             
@@ -533,135 +623,347 @@ class FileOrganizer:
             logging.error(f"生成摘要失败: {e}")
             return f"摘要生成失败: {str(e)}"
     
-    def _recommend_target_folder(self, file_name: str, content: str, summary: str, target_directory: str) -> tuple:
+    def _clean_ai_response(self, response: str) -> str:
+        """清理AI响应中的思考过程"""
+        if not response:
+            return response
+        
+        print(f"🔧 开始清理AI响应，原始长度: {len(response)}")
+        print(f"🔧 原始响应: {response}")
+        
+        # 清理可能的思考过程标签和内容
+        response = response.replace('<think>', '').replace('</think>', '').strip()
+        
+        # 移除常见的思考过程开头
+        think_prefixes = [
+            '好的，', '好，', '嗯，', '我来', '我需要', '首先，', '让我', '现在我要',
+            '用户希望', '用户要求', '用户让我', '根据', '基于', '考虑到', '让我先仔细看看',
+            '用户给了我这个查询', '用户给了我这个任务', '用户给了一个任务',
+            '首先，我得看一下', '首先，我要理解', '首先，我得仔细看看',
+            '好的，用户让我', '用户让我生成', '内容来自文件', '重点包括', '首先，我需要确认'
+        ]
+        
+        # 更激进的清理：移除所有以思考过程开头的句子
+        lines = response.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 检查是否以思考过程开头
+            is_think_line = False
+            for prefix in think_prefixes:
+                if line.lower().startswith(prefix.lower()):
+                    is_think_line = True
+                    break
+            
+            # 如果不是思考过程，保留这一行
+            if not is_think_line:
+                cleaned_lines.append(line)
+        
+        print(f"🔧 清理后行数: {len(cleaned_lines)}")
+        
+        # 如果清理后没有内容，尝试更简单的方法
+        if not cleaned_lines:
+            print(f"🔧 清理后没有内容，尝试句子分割方法")
+            # 找到第一个不是思考过程的句子
+            sentences = response.split('。')
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                
+                # 检查是否以思考过程开头
+                is_think_sentence = False
+                for prefix in think_prefixes:
+                    if sentence.lower().startswith(prefix.lower()):
+                        is_think_sentence = True
+                        break
+                
+                if not is_think_sentence:
+                    cleaned_lines.append(sentence)
+                    break
+        
+        # 如果还是没有内容，使用原始响应的最后一部分
+        if not cleaned_lines:
+            print(f"🔧 仍然没有内容，使用最后100个字符")
+            # 取最后100个字符
+            response = response[-100:] if len(response) > 100 else response
+            print(f"🔧 截断后响应: {response}")
+            return response
+        
+        # 重新组合清理后的内容，保持换行符以支持多行推荐路径
+        if cleaned_lines:
+            response = '\n'.join(cleaned_lines)
+        
+        print(f"🔧 最终清理结果: {response}")
+        return response.strip()
+    
+    def _recommend_target_folder(self, file_path: str, content: str, summary: str, target_directory: str, retry_count: int = 0) -> tuple:
         """
         基于文件内容和摘要推荐最匹配的目标文件夹
+        支持重试机制，当AI返回不存在的文件夹时自动重试
         """
         try:
             if not self.ollama_client:
                 self.initialize_ollama()
             
-            target_folders = self.scan_target_folders(target_directory)
+            file_name = Path(file_path).name
+            file_full_path = str(Path(file_path).absolute())
+            
             directory_structure = self.get_directory_tree_structure(target_directory)
+            
+            print(f"📄 源文件完整路径: {file_full_path}")
+            print(f"📋 目录结构:\n{directory_structure}")
+            if retry_count > 0:
+                print(f"🔄 第 {retry_count} 次重试AI分类")
+            
+            # 存储AI推荐的完整路径
+            self.recommended_folder_path = None
+            # 存储源文件完整路径
+            self.source_file_path = file_full_path
             
             # 判断是否有有效的内容和摘要
             has_valid_content = content and not content.startswith("无法") and not content.startswith("文件内容为二进制")
             has_valid_summary = summary and not summary.startswith("无法") and not summary.startswith("摘要生成失败")
             
+            print(f"📄 文件内容有效: {has_valid_content}")
+            print(f"📝 摘要有效: {has_valid_summary}")
+            if has_valid_summary:
+                print(f"📝 摘要内容: {summary[:100]}...")
+            
+            # 构建更明确的分类提示词，要求返回前三个匹配度最高的路径
             if has_valid_content and has_valid_summary:
-                # 有内容和摘要时，优先使用摘要进行分类
-                prompt = f"""
-你是一个专业的文件分类助手。请根据文件的内容摘要，推荐最适合的存放文件夹。
+                prompt = f"""你是一个专业的文件分类助手。请根据文件信息推荐匹配度前三的目标文件夹路径。
 
 文件信息：
+- 源文件完整路径：{file_full_path}
 - 文件名：{file_name}
 - 内容摘要：{summary}
 
-可选的目标文件夹：
+可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
 {directory_structure}
 
-分类原则：
-1. 优先根据文件内容主题匹配文件夹
-2. 考虑文件的用途和性质
-3. 选择最具体、最相关的文件夹
+分类要求：
+1. 必须严格从上述文件夹路径列表中复制完整的路径
+2. 不能修改、缩写或添加任何内容到路径
+3. 不能创建或想象不存在的文件夹
+4. 优先根据文件内容主题匹配文件夹
+5. 按匹配度从高到低返回前三个路径
+6. 每行一个路径，不要包含任何其他内容
+7. 不要使用"<think>"标签或任何思考过程描述
+8. 如果匹配度相近，优先选择更具体的文件夹
 
-输出格式：
-文件名|推荐文件夹|推荐理由
+输出格式（严格按此格式，每行一个完整路径）：
+第一推荐：[完整路径1]
+第二推荐：[完整路径2]
+第三推荐：[完整路径3]
 
-推荐理由格式：
-内容匹配：{{简述匹配原因，不超过30字}}
+示例输出：
+第一推荐：【7-4-10】新兴业态/【7-4-9-10】医疗保险
+第二推荐：【7-4】保险/健康险
+第三推荐：【7-4-5】人身险
 
-请严格按照格式输出一行结果：
-"""
+请开始推荐："""
             else:
-                # 无法获取有效内容时，使用文件名进行分类
+                # 无法获取有效内容时，使用文件名进行分类，同样返回前三个推荐
                 file_extension = Path(file_name).suffix.lower()
-                prompt = f"""
-你是一个专业的文件分类助手。由于无法读取文件内容，请根据文件名和扩展名推荐最适合的存放文件夹。
+                
+                prompt = f"""你是一个专业的文件分类助手。由于无法读取文件内容，请根据文件名和扩展名推荐匹配度前三的目标文件夹路径。
 
 文件信息：
+- 源文件完整路径：{file_full_path}
 - 文件名：{file_name}
 - 文件扩展名：{file_extension}
-- 内容状态：{content[:100] if content else "无内容"}
 
-可选的目标文件夹：
+可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
 {directory_structure}
 
-分类原则：
-1. 根据文件扩展名匹配相应类型的文件夹
-2. 根据文件名关键词匹配主题文件夹
-3. 选择最具体、最相关的文件夹
+分类要求：
+1. 必须严格从上述文件夹路径列表中复制完整的路径
+2. 不能修改、缩写或添加任何内容到路径
+3. 不能创建或想象不存在的文件夹
+4. 根据文件扩展名和文件名关键词匹配文件夹
+5. 按匹配度从高到低返回前三个路径
+6. 每行一个路径，不要包含任何其他内容
+7. 不要使用"<think>"标签或任何思考过程描述
+8. 如果匹配度相近，优先选择更具体的文件夹
 
-输出格式：
-文件名|推荐文件夹|推荐理由
+输出格式（严格按此格式，每行一个完整路径）：
+第一推荐：[完整路径1]
+第二推荐：[完整路径2]
+第三推荐：[完整路径3]
 
-推荐理由格式：
-文件名匹配：{{简述匹配原因，不超过30字}}
+示例输出：
+第一推荐：【7-4-10】新兴业态/【7-4-9-10】医疗保险
+第二推荐：【7-4】保险/健康险
+第三推荐：【7-4-5】人身险
 
-请严格按照格式输出一行结果：
-"""
+请开始推荐："""
             
-            result = self.ollama_client.chat_with_retry([
+            # 在传递给大模型的完整内容最尾部添加/no_think标签
+            final_prompt = prompt + "\n\n/no_think"
+            
+            print(f"🤖 发送给AI的提示词:\n{final_prompt}")
+            
+            # 使用系统提示词来抑制思考过程
+            messages = [
+                {
+                    'role': 'system',
+                    'content': '你是一个专业的文件分类助手。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。'
+                },
                 {
                     'role': 'user',
-                    'content': prompt
+                    'content': final_prompt
                 }
-            ])
+            ]
             
-            return self._parse_classification_result(result, target_folders)
+            result = self.ollama_client.chat_with_retry(messages)
+            print(f"🤖 AI原始返回结果: {result}")
+            
+            # 清理结果中的思考过程（现在在_parse_classification_result中统一处理）
+            result = result.strip()
+            
+            # 如果结果仍然以思考过程开头，尝试更激进的清理
+            if any(keyword in result.lower() for keyword in ['好，', '嗯，', '我来', '我需要', '首先，', '让我']):
+                # 找到第一个完整的句子
+                sentences = result.split('。')
+                if len(sentences) > 1:
+                    # 跳过第一个句子（通常是思考过程），使用第二个句子开始
+                    result = '。'.join(sentences[1:]).strip()
+            
+            # 解析AI分类结果
+            recommended_folder, match_reason = self._parse_classification_result(result, target_directory)
+            
+            # 检查是否匹配失败，如果是且未超过重试次数，则重试
+            if recommended_folder is None and retry_count < 2:  # 最多重试2次
+                print(f"⚠️  AI分类失败，准备第 {retry_count + 1} 次重试...")
+                logging.warning(f"AI分类失败，准备第 {retry_count + 1} 次重试")
+                
+                # 递归调用自身进行重试
+                return self._recommend_target_folder(file_path, content, summary, target_directory, retry_count + 1)
+            
+            return recommended_folder, match_reason
             
         except Exception as e:
             logging.error(f"推荐目标文件夹失败: {e}")
             return None, f"推荐失败: {str(e)}"
-    def _parse_classification_result(self, result: str, target_folders: List[str]) -> tuple:
-        try:
-            result = result.strip()
+    def _extract_recommended_paths(self, ai_result: str) -> List[str]:
+        """
+        从AI返回结果中提取三个推荐路径
+        
+        Args:
+            ai_result: AI返回的原始结果
             
-            # 处理多行格式的结果，查找包含文件名和推荐信息的行
-            lines = result.split('\n')
+        Returns:
+            List[str]: 提取到的推荐路径列表
+        """
+        recommended_paths = []
+        
+        try:
+            lines = ai_result.strip().split('\n')
+            
             for line in lines:
                 line = line.strip()
-                if not line or line.startswith('---') or line.startswith('文件名|'):
+                if not line:
                     continue
-                
-                parts = line.split('|')
-                if len(parts) >= 3:
-                    original_filename = parts[0].strip()
-                    target_folder = parts[1].strip()
-                    match_reason = parts[2].strip()
                     
-                    # 验证目标文件夹是否有效
-                    if target_folder in target_folders:
-                        return target_folder, match_reason
-                    else:
-                        # 尝试模糊匹配
-                        for valid_folder in target_folders:
-                            if target_folder in valid_folder or valid_folder in target_folder:
-                                return valid_folder, f"{match_reason}（模糊匹配：{target_folder}）"
-                        
-                        # 如果没有找到匹配的文件夹，继续尝试下一行
-                        continue
+                # 查找包含推荐路径的行
+                if any(keyword in line for keyword in ['第一推荐：', '第二推荐：', '第三推荐：', '推荐：']):
+                    # 提取冒号后的路径
+                    if '：' in line:
+                        path = line.split('：', 1)[1].strip()
+                        if path and path not in recommended_paths:
+                            recommended_paths.append(path)
+                elif line.startswith('【') and '】' in line:
+                    # 直接识别以【开头的路径格式
+                    if line not in recommended_paths:
+                        recommended_paths.append(line)
             
-            # 如果没有找到有效的分类结果，尝试原来的单行解析
-            parts = result.split('|')
-            if len(parts) >= 3:
-                original_filename = parts[0].strip()
-                target_folder = parts[1].strip()
-                match_reason = parts[2].strip()
-                
-                if target_folder in target_folders:
-                    return target_folder, match_reason
-                else:
-                    for valid_folder in target_folders:
-                        if target_folder in valid_folder or valid_folder in target_folder:
-                            return valid_folder, f"{match_reason}（模糊匹配：{target_folder}）"
+            # 如果没有找到格式化的推荐，尝试按行提取前三个有效路径
+            if not recommended_paths:
+                for line in lines:
+                    line = line.strip()
+                    if line and line.startswith('【') and '】' in line:
+                        if line not in recommended_paths:
+                            recommended_paths.append(line)
+                        if len(recommended_paths) >= 3:
+                            break
             
-            logging.warning(f"无法解析分类结果或找不到有效的目标文件夹: {result}")
-            return None, None
+            # 限制最多返回3个路径
+            return recommended_paths[:3]
             
         except Exception as e:
-            logging.warning(f"解析分类结果失败: {e}, 原始结果: {result}")
-            return None, None
+            logging.error(f"提取推荐路径时出错: {e}")
+            return []
+    
+    def _parse_classification_result(self, result: str, target_directory: str) -> tuple:
+        """
+        解析AI分类结果，支持三个推荐路径的依次验证
+        
+        Args:
+            result: AI返回的分类结果
+            target_directory: 目标目录路径
+            
+        Returns:
+            tuple: (推荐文件夹路径, 匹配理由)
+        """
+        try:
+            result = result.strip()
+            logging.info(f"正在解析AI分类结果: {result[:100]}...")
+            
+            print(f"🔍 解析AI分类结果: {result}")
+            
+            # 清理AI返回结果中的思考过程标签和内容
+            result_clean = self._clean_ai_response(result)
+            logging.info(f"清理后的分类结果: {result_clean[:100]}...")
+            print(f"🧹 清理后的结果: {result_clean}")
+            
+            # 提取三个推荐路径
+            recommended_paths = self._extract_recommended_paths(result_clean)
+            
+            if not recommended_paths:
+                logging.warning(f"无法从AI结果中提取推荐路径")
+                print(f"⚠️ 无法提取推荐路径")
+                return None, f"AI智能分类失败，无法解析推荐路径: {result_clean[:50]}..."
+            
+            print(f"📋 提取到 {len(recommended_paths)} 个推荐路径: {recommended_paths}")
+            
+            # 依次验证每个推荐路径
+            for i, recommended_path in enumerate(recommended_paths, 1):
+                target_path = Path(target_directory) / recommended_path
+                
+                print(f"🔍 验证第{i}个推荐路径: {recommended_path}")
+                print(f"🎯 完整目标路径: {target_path}")
+                
+                # 验证路径是否存在且为目录
+                if target_path.exists() and target_path.is_dir():
+                    logging.info(f"找到有效的目标文件夹(第{i}选择): {recommended_path}")
+                    print(f"✅ 找到有效目标文件夹(第{i}选择): {recommended_path}")
+                    
+                    # 存储推荐的完整路径
+                    self.recommended_folder_path = recommended_path
+                    print(f"💾 存储推荐路径: {self.recommended_folder_path}")
+                    
+                    # 生成有意义的匹配理由
+                    match_reason = f"AI智能分类(第{i}选择)：根据文件内容匹配到 {recommended_path}"
+                    
+                    return recommended_path, match_reason
+                else:
+                    logging.warning(f"第{i}个推荐路径不存在: {target_path}")
+                    print(f"❌ 第{i}个推荐路径不存在: {recommended_path}")
+            
+            # 如果所有推荐路径都无效
+            logging.error(f"所有推荐路径都无效: {recommended_paths}")
+            print(f"💥 所有推荐路径都无效")
+            
+            return None, f"AI智能分类失败，三个推荐路径都不存在: {', '.join(recommended_paths[:3])}"
+            
+        except Exception as e:
+            logging.error(f"解析分类结果失败: {e}, 原始结果: {result}")
+            return None, f"解析分类结果时发生错误: {str(e)}"
     def scan_source_files(self, source_directory: str) -> List[str]:
         try:
             source_path = Path(source_directory)
@@ -693,20 +995,20 @@ class FileOrganizer:
             return files
         except Exception as e:
             raise FileOrganizerError(f"扫描源文件失败: {e}")
-    def get_target_folders(self, target_directory: str) -> List[str]:
-        return self.scan_target_folders(target_directory)
+
     def preview_classification(self, source_directory: str, target_directory: str) -> List[Dict[str, object]]:
         try:
             source_files = self.scan_source_files(source_directory)
             if not source_files:
                 raise FileOrganizerError("源目录中没有找到文件")
             preview_results = []
-            logging.info(f"开始预览分类，共 {len(source_files)} 个文件，仅分析前10个")
-            preview_count = min(10, len(source_files))
-            for i, file_path in enumerate(source_files[:preview_count], 1):
+            logging.info(f"开始预览分类，共 {len(source_files)} 个文件")
+            preview_count = len(source_files)
+            for i, file_path in enumerate(source_files, 1):
                 file_name = Path(file_path).name
                 try:
                     logging.info(f"正在处理文件 {i}/{preview_count}: {file_name}")
+                    print(f"\n=== 处理文件 {i}/{preview_count}: {file_name} ===")
                     # 使用新的分析方法
                     analysis_result = self.analyze_and_classify_file(file_path, target_directory)
                     
@@ -761,23 +1063,79 @@ class FileOrganizer:
                     })
             success_count = sum(1 for result in preview_results if result['success'])
             logging.info(f"预览分类完成，成功分类 {success_count}/{len(preview_results)} 个文件")
+            
+            # 生成预览结果JSON文件（格式与preview_ai_result.json保持一致）
+            try:
+                ai_preview_results = []
+                for result in preview_results:
+                    if result['success']:
+                        ai_preview_result = {
+                            "源文件路径": result['file_path'],
+                            "文件摘要": result['content_summary'],
+                            "最匹配的目标目录": result['target_folder'],
+                            "匹配理由": result['match_reason'],
+                            "处理耗时信息": {
+                                "总耗时(秒)": result['timing_info'].get('total_processing_time', 0),
+                                "内容提取耗时(秒)": result['timing_info'].get('content_extraction_time', 0),
+                                "摘要生成耗时(秒)": result['timing_info'].get('summary_generation_time', 0),
+                                "目录推荐耗时(秒)": result['timing_info'].get('folder_recommendation_time', 0)
+                            }
+                        }
+                        ai_preview_results.append(ai_preview_result)
+                
+                # 保存预览结果到JSON文件
+                preview_result_file = 'preview_ai_result.json'
+                with open(preview_result_file, 'w', encoding='utf-8') as f:
+                    json.dump(ai_preview_results, f, ensure_ascii=False, indent=2)
+                logging.info(f"AI预览结果已保存到: {preview_result_file}")
+                
+            except Exception as e:
+                logging.warning(f"生成预览结果文件失败: {e}")
+            
             return preview_results
         except Exception as e:
             raise FileOrganizerError(f"预览分类失败: {e}")
-    def organize_file(self, file_path: str, target_directory: str, target_folders: List[str]) -> Tuple[bool, str]:
+    def organize_file(self, file_path: str, target_directory: str) -> Tuple[bool, str]:
         try:
             if not self.ollama_client:
                 self.initialize_ollama()
+            
             file_path_obj = Path(file_path)
             filename = file_path_obj.name
-            # recommended_folders = self.ollama_client.classify_file(filename, target_folders)
+            source_file_full_path = str(file_path_obj.absolute())
+            
+            print(f"📄 源文件完整路径: {source_file_full_path}")
+            
+            # 使用AI分类获取推荐文件夹
             target_folder, match_reason, success = self.classify_file(str(file_path_obj), target_directory)
             if not success or not target_folder:
                 return False, "无法确定目标文件夹"
-            # target_folder = recommended_folders[0]  # 已由上面获得
-            target_folder_path = Path(target_directory) / target_folder
-            target_folder_path.mkdir(parents=True, exist_ok=True)
-            target_file_path = target_folder_path / filename
+            
+            # 使用存储的推荐路径变量
+            if hasattr(self, 'recommended_folder_path') and self.recommended_folder_path:
+                target_folder_full_path = Path(target_directory) / self.recommended_folder_path
+                print(f"🔧 使用存储的推荐路径: {self.recommended_folder_path}")
+                print(f"🎯 目标文件夹完整路径: {target_folder_full_path}")
+            else:
+                target_folder_full_path = Path(target_directory) / target_folder
+                print(f"⚠️  使用默认路径: {target_folder}")
+                print(f"🎯 目标文件夹完整路径: {target_folder_full_path}")
+            
+            # 构建完整的迁移命令信息
+            migration_info = {
+                'source_file': source_file_full_path,
+                'target_folder': str(target_folder_full_path),
+                'filename': filename,
+                'match_reason': match_reason
+            }
+            
+            print(f"📋 迁移信息: {migration_info}")
+            
+            # 创建目标文件夹
+            target_folder_full_path.mkdir(parents=True, exist_ok=True)
+            
+            # 构建目标文件路径
+            target_file_path = target_folder_full_path / filename
             if target_file_path.exists():
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 name_parts = filename.rsplit('.', 1)
@@ -785,22 +1143,29 @@ class FileOrganizer:
                     new_filename = f"{name_parts[0]}_{timestamp}.{name_parts[1]}"
                 else:
                     new_filename = f"{filename}_{timestamp}"
-                target_file_path = target_folder_path / new_filename
-            shutil.copy2(file_path, target_file_path)
-            logging.info(f"文件已复制: {file_path} -> {target_file_path}")
+                target_file_path = target_folder_full_path / new_filename
+                print(f"⚠️  文件名冲突，重命名为: {new_filename}")
+            
+            # 执行文件复制
+            shutil.copy2(source_file_full_path, str(target_file_path))
+            
+            # 记录迁移日志
+            migration_log = f"文件迁移完成: {source_file_full_path} -> {target_file_path}"
+            logging.info(migration_log)
+            print(f"✅ {migration_log}")
+            
             return True, str(target_file_path)
         except Exception as e:
             error_msg = f"整理文件失败: {e}"
             logging.error(error_msg)
             return False, error_msg
-    def organize_files(self, files=None, target_folders=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False, progress_callback=None) -> Dict[str, object]:
+    def organize_files(self, files=None, target_base_dir=None, copy_mode=True, source_directory=None, target_directory=None, dry_run=False, progress_callback=None) -> Dict[str, object]:
         try:
             if source_directory and target_directory:
-                target_folders = self.scan_target_folders(target_directory)
                 files = self.scan_files(source_directory)
                 target_base_dir = target_directory
                 copy_mode = True
-            if not files or not target_folders or not target_base_dir:
+            if not files or not target_base_dir:
                 raise FileOrganizerError("缺少必要参数")
             log_session_name = None
             if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
@@ -810,8 +1175,6 @@ class FileOrganizer:
                     logging.info(f"开始转移日志会话: {session_name}")
                 except Exception as e:
                     logging.warning(f"启动转移日志会话失败: {e}")
-            if not target_folders:
-                raise FileOrganizerError("目标目录中没有文件夹")
             if not files:
                 raise FileOrganizerError("没有文件需要整理")
             results = {
@@ -830,6 +1193,19 @@ class FileOrganizer:
                 'transfer_log_file': log_session_name,
                 'dry_run': dry_run
             }
+            
+            # 初始化AI结果文件
+            ai_result_file = 'ai_organize_result.json'
+            # 不再在内存中保存完整的ai_results列表，只保存必要的迁移信息
+            migration_queue = []  # 只保存源路径和目标路径的简单信息
+            
+            # 确保AI结果文件存在
+            if not os.path.exists(ai_result_file):
+                with open(ai_result_file, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                logging.info(f"创建新的AI结果文件: {ai_result_file}")
+            else:
+                logging.info(f"AI结果文件已存在: {ai_result_file}")
             logging.info(f"开始安全文件整理，共 {len(files)} 个文件")
             print(f"\n=== 开始AI智能文件整理 ===")
             print(f"源目录: {source_directory if source_directory else '指定文件列表'}")
@@ -852,7 +1228,12 @@ class FileOrganizer:
                 try:
                     logging.info(f"正在处理文件 {i}/{len(files)}: {filename}")
                     print(f"  🔍 正在分析文件内容...", end="", flush=True)
-                    target_folder, match_reason, success = self.classify_file(file_path, target_base_dir)
+                    
+                    # 获取详细的分析结果（只调用一次）
+                    analysis_result = self.analyze_and_classify_file(file_path, target_base_dir)
+                    target_folder = analysis_result.get('recommended_folder')
+                    match_reason = analysis_result.get('match_reason', '')
+                    success = analysis_result.get('success', False)
                     
                     results['ai_responses'].append({
                         'file_name': filename,
@@ -860,6 +1241,39 @@ class FileOrganizer:
                         'match_reason': match_reason,
                         'success': success
                     })
+                    
+                    # 实时保存AI分析结果到JSON文件（追加模式）
+                    try:
+                        
+                        # 构建AI结果项
+                        ai_result_item = {
+                            "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            "文件名": filename,
+                            "源文件路径": file_path,
+                            "文件摘要": analysis_result.get('content_summary', ''),
+                            "最匹配的目标目录": analysis_result.get('recommended_folder', ''),
+                            "匹配理由": analysis_result.get('match_reason', ''),
+                            "处理耗时信息": {
+                                "总耗时(秒)": analysis_result.get('timing_info', {}).get('total_processing_time', 0),
+                                "内容提取耗时(秒)": analysis_result.get('timing_info', {}).get('content_extraction_time', 0),
+                                "摘要生成耗时(秒)": analysis_result.get('timing_info', {}).get('summary_generation_time', 0),
+                                "目录推荐耗时(秒)": analysis_result.get('timing_info', {}).get('folder_recommendation_time', 0)
+                            }
+                        }
+                        
+                        # 追加到文件（避免在内存中保存大量数据）
+                        self._append_ai_result_to_file(ai_result_file, ai_result_item)
+                        
+                        # 只保存必要的迁移信息到内存队列
+                        migration_queue.append({
+                            'source_path': file_path,
+                            'target_folder': target_folder,
+                            'filename': filename,
+                            'match_reason': match_reason
+                        })
+                        
+                    except Exception as e:
+                        logging.warning(f"实时保存AI结果失败: {e}")
                     
                     if not success or not target_folder:
                         error_msg = f"文件 {filename} 分类失败: {match_reason}，已跳过，未做任何处理"
@@ -871,6 +1285,14 @@ class FileOrganizer:
                             'source_path': file_path,
                             'error': error_msg
                         })
+                        
+                        # 更新AI结果项的失败状态
+                        if migration_queue:
+                            self._update_last_ai_result(ai_result_file, {
+                                "处理状态": "分类失败",
+                                "错误信息": match_reason
+                            })
+                        
                         continue
                     
                     print(f"\r  ✅ 推荐目录: {target_folder}")
@@ -931,6 +1353,14 @@ class FileOrganizer:
                                 print(f"     ✅ {operation_cn}成功: {filename} -> {target_folder}")
                                 logging.info(f"文件安全{operation_cn}成功: {filename} -> {target_folder} ({match_reason})")
                                 results['successful_moves'] += 1
+                                
+                                # 更新AI结果项的最终路径
+                                if migration_queue:
+                                    self._update_last_ai_result(ai_result_file, {
+                                        "最终目标路径": str(target_file_path),
+                                        "操作类型": operation_cn,
+                                        "处理状态": "成功"
+                                    })
                             else:
                                 error_msg = f"文件{operation_cn}验证失败: {filename}"
                                 logging.error(error_msg)
@@ -956,6 +1386,14 @@ class FileOrganizer:
                         operation_cn = "复制" if copy_mode else "移动"
                         logging.info(f"[试运行] 文件将{operation_cn}: {filename} -> {target_folder} ({match_reason})")
                         results['successful_moves'] += 1
+                        
+                        # 试运行模式下更新AI结果项
+                        if migration_queue:
+                            self._update_last_ai_result(ai_result_file, {
+                                "最终目标路径": str(target_file_path),
+                                "操作类型": operation_cn,
+                                "处理状态": "试运行成功"
+                            })
                     if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                         try:
                             file_size_raw = file_info.get('size', 0)
@@ -1022,39 +1460,9 @@ class FileOrganizer:
             print(f"总耗时: {duration:.1f} 秒")
             print("=" * 50)
             
-            # 生成AI结果JSON文件
-            try:
-                ai_results = []
-                for ai_response in results['ai_responses']:
-                    # 获取对应的详细分析结果
-                    file_name = ai_response['file_name']
-                    file_path = next((f['path'] for f in files if Path(f['path']).name == file_name), None)
-                    
-                    if file_path:
-                        # 重新分析文件以获取完整信息
-                        analysis_result = self.analyze_and_classify_file(str(file_path), target_base_dir)
-                        
-                        ai_result = {
-                            'file_name': file_name,
-                            'file_path': str(file_path),
-                            'extracted_content': analysis_result.get('extracted_content', '')[:200] + "..." if len(analysis_result.get('extracted_content', '')) > 200 else analysis_result.get('extracted_content', ''),
-                            'content_summary': analysis_result.get('content_summary', ''),
-                            'recommended_folder': analysis_result.get('recommended_folder', ''),
-                            'match_reason': analysis_result.get('match_reason', ''),
-                            'success': analysis_result.get('success', False),
-                            'timing_info': analysis_result.get('timing_info', {})
-                        }
-                        ai_results.append(ai_result)
-                
-                # 保存AI结果到JSON文件
-                ai_result_file = 'ai_organize_result.json'
-                with open(ai_result_file, 'w', encoding='utf-8') as f:
-                    json.dump(ai_results, f, ensure_ascii=False, indent=2)
-                logging.info(f"AI分析结果已保存到: {ai_result_file}")
-                results['ai_result_file'] = ai_result_file
-                
-            except Exception as e:
-                logging.warning(f"生成AI结果文件失败: {e}")
+            # AI结果已在处理过程中实时保存
+            results['ai_result_file'] = ai_result_file
+            logging.info(f"AI分析结果已实时保存到: {ai_result_file}")
             
             if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                 try:
@@ -1092,6 +1500,63 @@ class FileOrganizer:
         if not self.enable_transfer_log or not self.transfer_log_manager:
             raise FileOrganizerError("转移日志功能未启用")
         return self.transfer_log_manager.cleanup_old_logs(days_to_keep)
+    def _append_ai_result_to_file(self, ai_result_file: str, ai_result_item: dict) -> None:
+        """追加AI结果到文件，避免在内存中保存大量数据"""
+        try:
+            # 读取现有数据
+            existing_data = []
+            if os.path.exists(ai_result_file):
+                try:
+                    with open(ai_result_file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            existing_data = json.loads(content)
+                        else:
+                            existing_data = []  # 空文件时初始化为空列表
+                except json.JSONDecodeError:
+                    # 如果JSON解析失败，初始化为空列表
+                    existing_data = []
+                    logging.warning(f"AI结果文件格式错误，重新初始化: {ai_result_file}")
+            
+            # 追加新数据
+            existing_data.append(ai_result_item)
+            
+            # 写回文件
+            with open(ai_result_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, ensure_ascii=False, indent=2)
+                
+        except Exception as e:
+            logging.error(f"追加AI结果到文件失败: {e}")
+    
+    def _update_last_ai_result(self, ai_result_file: str, updates: dict) -> None:
+        """更新文件中最后一条AI结果记录"""
+        try:
+            # 读取现有数据
+            existing_data = []
+            if os.path.exists(ai_result_file):
+                try:
+                    with open(ai_result_file, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            existing_data = json.loads(content)
+                        else:
+                            existing_data = []  # 空文件时初始化为空列表
+                except json.JSONDecodeError:
+                    # 如果JSON解析失败，初始化为空列表
+                    existing_data = []
+                    logging.warning(f"AI结果文件格式错误，重新初始化: {ai_result_file}")
+            
+            # 更新最后一条记录
+            if existing_data:
+                existing_data[-1].update(updates)
+                
+                # 写回文件
+                with open(ai_result_file, 'w', encoding='utf-8') as f:
+                    json.dump(existing_data, f, ensure_ascii=False, indent=2)
+                    
+        except Exception as e:
+            logging.error(f"更新AI结果文件失败: {e}")
+
     def get_file_summary(self, file_path: str, max_length: int = 50, max_pages: int = 2, max_seconds: int = 10) -> str:
         """
         自动适配 txt/pdf/docx 格式，返回前max_length字摘要，PDF/Word只取前max_pages页，单文件处理超时max_seconds秒。
@@ -1135,3 +1600,186 @@ class FileOrganizer:
             if (time.time() - start_time) > max_seconds:
                 return '提取超时，已跳过'
             return f'摘要获取失败: {e}'
+    
+    def batch_read_documents(self, folder_path: str, progress_callback=None, summary_length: int = 200) -> Dict[str, Any]:
+        """
+        批量解读文件夹下所有文档，生成摘要并保存到AI结果文件
+        
+        Args:
+            folder_path: 要解读的文件夹路径
+            progress_callback: 进度回调函数，接收 (current, total, filename) 参数
+            summary_length: 摘要长度（字数），默认200字
+            
+        Returns:
+            包含处理结果的字典
+        """
+        start_time = time.time()
+        timing_info = {}
+        
+        try:
+            if not self.ollama_client:
+                init_start = time.time()
+                self.initialize_ollama()
+                timing_info['ollama_init_time'] = round(time.time() - init_start, 3)
+            
+            folder_path = Path(folder_path)
+            if not folder_path.exists() or not folder_path.is_dir():
+                raise FileOrganizerError(f"文件夹不存在或不是有效目录: {folder_path}")
+            
+            # 支持的文档格式
+            supported_extensions = {'.txt', '.pdf', '.docx', '.doc', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
+            
+            # 扫描文件夹获取所有支持的文档文件
+            document_files = []
+            for file_path in folder_path.rglob('*'):
+                if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                    document_files.append(file_path)
+            
+            if not document_files:
+                return {
+                    'total_files': 0,
+                    'processed_files': 0,
+                    'successful_reads': 0,
+                    'failed_reads': 0,
+                    'errors': [],
+                    'timing_info': timing_info,
+                    'start_time': datetime.now(),
+                    'end_time': datetime.now()
+                }
+            
+            # 初始化结果统计
+            results = {
+                'total_files': len(document_files),
+                'processed_files': 0,
+                'successful_reads': 0,
+                'failed_reads': 0,
+                'errors': [],
+                'timing_info': timing_info,
+                'start_time': datetime.now(),
+                'end_time': None
+            }
+            
+            # 初始化AI结果文件
+            ai_result_file = 'ai_organize_result.json'
+            if not os.path.exists(ai_result_file):
+                with open(ai_result_file, 'w', encoding='utf-8') as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                logging.info(f"创建新的AI结果文件: {ai_result_file}")
+            
+            logging.info(f"开始批量文档解读，共 {len(document_files)} 个文件")
+            print(f"\n=== 开始批量文档解读 ===")
+            print(f"源文件夹: {folder_path}")
+            print(f"待处理文件总数: {len(document_files)}")
+            print("=" * 50)
+            
+            # 逐个处理文档文件
+            for i, file_path in enumerate(document_files, 1):
+                filename = file_path.name
+                
+                # 调用进度回调
+                if progress_callback:
+                    progress_callback(i, len(document_files), filename)
+                
+                # 控制台输出当前处理进度
+                print(f"\n[{i}/{len(document_files)}] 正在解读: {filename}")
+                
+                try:
+                    logging.info(f"正在解读文件 {i}/{len(document_files)}: {filename}")
+                    print(f"  📖 正在提取文件内容...", end="", flush=True)
+                    
+                    # 提取文件内容
+                    extract_start = time.time()
+                    extracted_content = self._extract_file_content(str(file_path))
+                    extract_time = round(time.time() - extract_start, 3)
+                    
+                    # 根据设置截取内容用于AI处理
+                    truncate_length = self.content_truncate if self.content_truncate < 2000 else len(extracted_content)
+                    content_for_ai = extracted_content[:truncate_length] if extracted_content else ""
+                    
+                    print(f"\r  📖 正在生成摘要...", end="", flush=True)
+                    
+                    # 生成摘要
+                    summary_start = time.time()
+                    summary = self._generate_content_summary(content_for_ai, filename, summary_length)
+                    summary_time = round(time.time() - summary_start, 3)
+                    
+                    print(f"\r  ✅ 解读完成")
+                    print(f"     摘要: {summary[:100]}{'...' if len(summary) > 100 else ''}")
+                    
+                    # 构建AI结果项（与迁移功能格式兼容）
+                    ai_result_item = {
+                        "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "文件名": filename,
+                        "源文件路径": str(file_path),  # 这里作为目标路径，因为文件已在目标位置
+                        "文件摘要": summary,
+                        "最匹配的目标目录": str(file_path.parent),  # 当前文件夹作为目标目录
+                        "匹配理由": "批量文档解读",
+                        "处理耗时信息": {
+                            "总耗时(秒)": round(extract_time + summary_time, 3),
+                            "内容提取耗时(秒)": extract_time,
+                            "摘要生成耗时(秒)": summary_time,
+                            "目录推荐耗时(秒)": 0
+                        },
+                        "最终目标路径": str(file_path),  # 文件当前位置就是最终位置
+                        "操作类型": "文档解读",
+                        "处理状态": "解读成功"
+                    }
+                    
+                    # 保存到AI结果文件
+                    self._append_ai_result_to_file(ai_result_file, ai_result_item)
+                    
+                    results['successful_reads'] += 1
+                    logging.info(f"文档解读成功: {filename}，摘要长度: {len(summary)} 字符")
+                    
+                except Exception as e:
+                    error_msg = f"解读文件 {filename} 时出错: {str(e)}"
+                    print(f"\r  ❌ 解读失败: {str(e)}")
+                    logging.error(error_msg)
+                    results['errors'].append(error_msg)
+                    results['failed_reads'] += 1
+                    
+                    # 保存失败记录
+                    try:
+                        ai_result_item = {
+                            "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            "文件名": filename,
+                            "源文件路径": str(file_path),
+                            "文件摘要": "",
+                            "最匹配的目标目录": str(file_path.parent),
+                            "匹配理由": "批量文档解读",
+                            "处理耗时信息": {
+                                "总耗时(秒)": 0,
+                                "内容提取耗时(秒)": 0,
+                                "摘要生成耗时(秒)": 0,
+                                "目录推荐耗时(秒)": 0
+                            },
+                            "最终目标路径": str(file_path),
+                            "操作类型": "文档解读",
+                            "处理状态": "解读失败",
+                            "错误信息": str(e)
+                        }
+                        self._append_ai_result_to_file(ai_result_file, ai_result_item)
+                    except Exception as save_error:
+                        logging.warning(f"保存失败记录时出错: {save_error}")
+                
+                finally:
+                    results['processed_files'] += 1
+            
+            results['end_time'] = datetime.now()
+            
+            # 输出处理完成总结
+            print(f"\n=== 批量文档解读完成 ===")
+            print(f"总文件数: {results['total_files']}")
+            print(f"成功解读: {results['successful_reads']} 个")
+            print(f"解读失败: {results['failed_reads']} 个")
+            duration = (results['end_time'] - results['start_time']).total_seconds()
+            print(f"总耗时: {duration:.1f} 秒")
+            print("=" * 50)
+            
+            logging.info(f"批量文档解读完成: 成功 {results['successful_reads']}, 失败 {results['failed_reads']}")
+            logging.info(f"解读结果已保存到: {ai_result_file}")
+            
+            return results
+            
+        except Exception as e:
+            raise FileOrganizerError(f"批量文档解读失败: {e}")

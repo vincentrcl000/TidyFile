@@ -6,12 +6,14 @@
 
 - 🤖 **AI 智能分析**: 使用本地 Ollama 模型分析文件内容
 - 📁 **自动分类**: 根据文件内容自动分类到合适的文件夹
-- 🖥️ **友好界面**: 提供直观的图形用户界面
+- 🖥️ **分页界面**: 提供智能分类、文件分类和工具三个分页
 - 🔒 **隐私保护**: 完全本地化处理，不上传任何数据
 - 📊 **批量处理**: 支持大量文件的批量整理
 - 🔄 **文件恢复**: 支持操作回滚和文件恢复
 - 🗂️ **重复文件删除**: 智能检测和删除重复文件
 - 📝 **操作日志**: 详细记录所有操作，便于追踪
+- 📖 **文件解读**: 支持多种文档格式的内容解读
+- 🔧 **参数调节**: 可调节AI摘要长度和内容截取参数
 
 ## 系统要求
 
@@ -48,12 +50,13 @@ pip install -r requirements.txt
 ```bash
 # 访问 https://ollama.com 下载安装
 # 下载模型
-ollama pull gemma2:2b
+ollama pull qwen3:0.6b
 ```
 
 4. 启动程序
 ```bash
 python start.py
+# 或双击 启动文件整理器.bat
 ```
 
 ## 构建可执行文件
@@ -93,22 +96,34 @@ python build_exe.py
 
 ```
 文件整理/
-├── start.py              # 程序入口
-├── gui_app.py            # 图形界面
-├── file_organizer.py     # 核心逻辑
-├── transfer_log_manager.py # 日志管理
-├── build_exe.py          # 构建脚本
-├── requirements.txt      # 依赖列表
-├── tests/               # 测试文件
-└── README.md            # 说明文档
+├── start.py                    # 程序入口
+├── gui_app_tabbed.py          # 分页图形界面
+├── file_organizer_ai.py       # AI智能分类核心逻辑
+├── file_organizer_simple.py   # 简单分类核心逻辑
+├── ai_file_classifier.py      # AI文件分类器
+├── file_reader.py             # 文件解读器
+├── document_converter.py      # 文档转换器
+├── file_duplicate_cleaner.py  # 重复文件清理器
+├── transfer_log_manager.py    # 转移日志管理器
+├── migration_executor.py      # 迁移执行器
+├── migration_planner.py       # 迁移规划器
+├── directory_manager.py       # 目录管理器
+├── build_exe.py              # 构建脚本
+├── install_dependencies.py    # 依赖安装脚本
+├── requirements.txt          # 依赖列表
+├── 启动文件整理器.bat         # Windows启动脚本
+├── 用户手册.md               # 详细用户手册
+└── README.md                 # 项目说明
 ```
 
 ## 技术栈
 
-- **界面**: Tkinter
-- **AI模型**: Ollama (本地部署)
+- **界面**: Tkinter (分页式界面)
+- **AI模型**: Ollama (本地部署，支持qwen2:0.5b等模型)
 - **HTTP客户端**: requests
 - **文件处理**: pathlib, shutil
+- **文档解析**: PyPDF2, python-docx, Pillow
+- **重复检测**: hashlib (MD5)
 - **打包工具**: PyInstaller
 
 ## 贡献指南
@@ -140,6 +155,16 @@ python build_exe.py
 - 检查杀毒软件是否误报
 
 ## 更新日志
+
+### v2.0.0
+- 全新分页式界面设计
+- 智能分类和文件分类功能分离
+- 新增文件解读功能
+- 新增文档转换功能
+- AI参数可调节（摘要长度、内容截取）
+- 优化过程数据输出到JSON文件
+- 简化启动流程，统一使用gui_app_tabbed.py
+- 移除旧版本冗余代码和测试文件
 
 ### v1.0.0
 - 初始版本发布

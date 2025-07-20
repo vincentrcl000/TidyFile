@@ -31,14 +31,11 @@ class FileOrganizer:
                 self.enable_transfer_log = False
         self.setup_logging()
     def setup_logging(self) -> None:
-        log_filename = f"file_organizer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log_path = os.path.join(os.path.dirname(__file__), "logs", log_filename)
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        """设置日志配置，仅输出到控制台"""
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_path, encoding='utf-8'),
                 logging.StreamHandler()
             ]
         )
@@ -118,10 +115,10 @@ class FileOrganizer:
             if not source_files:
                 raise FileOrganizerError("源目录中没有找到文件")
             preview_results = []
-            logging.info(f"开始预览分类，共 {len(source_files)} 个文件，仅分析前10个")
-            preview_count = min(10, len(source_files))
+            logging.info(f"开始预览分类，共 {len(source_files)} 个文件")
+            preview_count = len(source_files)
             target_folders = self.scan_target_folders(target_directory)
-            for i, file_path in enumerate(source_files[:preview_count], 1):
+            for i, file_path in enumerate(source_files, 1):
                 file_name = Path(file_path).name
                 try:
                     logging.info(f"正在处理文件 {i}/{preview_count}: {file_name}")

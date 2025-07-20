@@ -5,8 +5,10 @@
 将智能分类和文件分类功能分离到不同的分页中
 """
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+import ttkbootstrap as tb
+from ttkbootstrap.constants import *
+from tkinter import filedialog, messagebox
+from ttkbootstrap.scrolled import ScrolledText
 import threading
 import json
 import os
@@ -22,18 +24,18 @@ class FileOrganizerTabGUI:
     
     def __init__(self):
         """初始化 GUI 应用"""
-        self.root = tk.Tk()
-        self.root.title("智能文件整理器 v2.0 - 分页版")
-        self.root.geometry("900x700")
+        self.root = tb.Window(themename="flatly")
+        self.root.title("智能文件管理器 v2.0 - 分页版")
+        self.root.geometry("1200x1000")
         self.root.resizable(True, True)
         
         # 初始化变量
-        self.source_directory = tk.StringVar()  # 源目录路径
-        self.target_directory = tk.StringVar()  # 目标目录路径
+        self.source_directory = tb.StringVar()  # 源目录路径
+        self.target_directory = tb.StringVar()  # 目标目录路径
         
         # AI分类参数
-        self.summary_length = tk.IntVar(value=100)  # 摘要长度，默认100字符
-        self.content_truncate = tk.IntVar(value=500)  # 内容截取，默认500字符
+        self.summary_length = tb.IntVar(value=100)  # 摘要长度，默认100字符
+        self.content_truncate = tb.IntVar(value=500)  # 内容截取，默认500字符
         
         # 文件整理器实例
         self.ai_organizer = None
@@ -75,8 +77,8 @@ class FileOrganizerTabGUI:
     def create_widgets(self):
         """创建界面组件"""
         # 创建主框架
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        main_frame = tb.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(W, E, N, S))
         
         # 配置网格权重
         self.root.columnconfigure(0, weight=1)
@@ -85,16 +87,22 @@ class FileOrganizerTabGUI:
         main_frame.rowconfigure(1, weight=1)
         
         # 标题
-        title_label = ttk.Label(
+        title_label = tb.Label(
             main_frame, 
-            text="智能文件整理器 v2.0", 
+            text="智能文件管理器 v2.0", 
             font=('Arial', 16, 'bold')
         )
         title_label.grid(row=0, column=0, pady=(0, 20))
         
         # 创建分页控件
-        self.notebook = ttk.Notebook(main_frame)
-        self.notebook.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.notebook = tb.Notebook(main_frame)
+        self.notebook.grid(row=1, column=0, sticky=(W, E, N, S))
+        
+        # 创建文件解读页面
+        self.create_file_reader_tab()
+        
+        # 创建文章阅读助手页面
+        self.create_article_reader_tab()
         
         # 创建智能分类页面
         self.create_ai_classification_tab()
@@ -106,17 +114,17 @@ class FileOrganizerTabGUI:
         self.create_tools_tab()
         
         # 日志显示区域
-        log_frame = ttk.LabelFrame(main_frame, text="操作日志", padding="5")
-        log_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        log_frame = tb.LabelFrame(main_frame, text="操作日志", padding="5")
+        log_frame.grid(row=2, column=0, sticky=(W, E, N, S), pady=10)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
-        self.log_text = scrolledtext.ScrolledText(
+        self.log_text = ScrolledText(
             log_frame,
             height=8,
-            wrap=tk.WORD
+            wrap=WORD
         )
-        self.log_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.log_text.grid(row=0, column=0, sticky=(W, E, N, S))
         
         # 配置主框架的行权重
         main_frame.rowconfigure(2, weight=0)
@@ -124,15 +132,226 @@ class FileOrganizerTabGUI:
         # 初始化日志
         self.log_message("程序启动完成，请选择文件目录开始整理")
         
+    def create_file_reader_tab(self):
+        """创建文件解读页面"""
+        reader_frame = tb.Frame(self.notebook, padding="10")
+        self.notebook.add(reader_frame, text="文件解读")
+        
+        reader_frame.columnconfigure(1, weight=1)
+        
+        # 说明文字
+        desc_label = tb.Label(
+            reader_frame,
+            text="选择文件夹，批量解读其中的所有文档，生成摘要并保存到AI结果文件",
+            font=('Arial', 10)
+        )
+        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        
+        # 文件夹选择
+        tb.Label(reader_frame, text="选择文件夹:").grid(row=1, column=0, sticky=W, pady=5)
+        self.reader_folder_var = tb.StringVar()
+        tb.Entry(
+            reader_frame, 
+            textvariable=self.reader_folder_var, 
+            width=50
+        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+        
+        def select_reader_folder():
+            directory = filedialog.askdirectory(title="选择要批量解读的文件夹")
+            if directory:
+                self.reader_folder_var.set(directory)
+                # 扫描文件夹并显示文件数量
+                try:
+                    from pathlib import Path
+                    folder_path = Path(directory)
+                    supported_extensions = {'.txt', '.pdf', '.docx', '.doc', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
+                    document_files = []
+                    for file_path in folder_path.rglob('*'):
+                        if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                            document_files.append(file_path)
+                    file_count = len(document_files)
+                    self.reader_status_label.config(text=f"已选择文件夹，发现 {file_count} 个可解读文档")
+                    self.log_message(f"已选择解读文件夹: {directory}，发现 {file_count} 个可解读文档")
+                except Exception as e:
+                    self.reader_status_label.config(text="文件夹扫描失败")
+                    self.log_message(f"扫描文件夹失败: {e}")
+        
+        tb.Button(
+            reader_frame, 
+            text="浏览", 
+            command=select_reader_folder
+        ).grid(row=1, column=2, pady=5)
+        
+        # 摘要参数设置
+        params_frame = tb.LabelFrame(reader_frame, text="摘要参数设置", padding="10")
+        params_frame.grid(row=2, column=0, columnspan=3, sticky=(W, E), pady=10)
+        params_frame.columnconfigure(1, weight=1)
+        
+        # 摘要长度调节
+        tb.Label(params_frame, text="文章摘要长度:").grid(row=0, column=0, sticky=W, pady=5)
+        summary_frame = tb.Frame(params_frame)
+        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(10, 0), pady=5)
+        summary_frame.columnconfigure(1, weight=1)
+        
+        self.reader_summary_length = tb.IntVar(value=200)
+        
+        tb.Label(summary_frame, text="100字").grid(row=0, column=0)
+        reader_summary_scale = tb.Scale(
+            summary_frame, 
+            from_=100, 
+            to=500, 
+            variable=self.reader_summary_length,
+            orient=HORIZONTAL
+        )
+        reader_summary_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
+        tb.Label(summary_frame, text="500字").grid(row=0, column=2)
+        self.reader_summary_value_label = tb.Label(summary_frame, text="200字符")
+        self.reader_summary_value_label.grid(row=0, column=3, padx=(10, 0))
+        
+        # 绑定摘要长度变化事件
+        def update_reader_summary_label(*args):
+            value = self.reader_summary_length.get()
+            self.reader_summary_value_label.config(text=f"{int(value)}字符")
+        
+        self.reader_summary_length.trace_add('write', update_reader_summary_label)
+        
+        # 操作按钮
+        button_frame = tb.Frame(reader_frame)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=20)
+        
+        def start_batch_reading():
+            folder_path = self.reader_folder_var.get().strip()
+            if not folder_path:
+                messagebox.showwarning("提示", "请先选择要解读的文件夹")
+                return
+            
+            if not os.path.exists(folder_path):
+                messagebox.showerror("错误", "选择的文件夹不存在")
+                return
+            
+            self.log_message("开始批量文档解读...")
+            self.reader_status_label.config(text="正在解读文档...")
+            self.reader_start_button.config(state='disabled')
+            
+            # 在新线程中执行批量解读
+            threading.Thread(target=self._batch_read_worker, args=(folder_path,), daemon=True).start()
+        
+        self.reader_start_button = tb.Button(
+            button_frame,
+            text="开始批量解读",
+            command=start_batch_reading,
+            bootstyle=SUCCESS
+        )
+        self.reader_start_button.pack(side=LEFT, padx=5)
+        
+        # 进度条
+        self.reader_progress_var = tb.DoubleVar()
+        self.reader_progress_bar = tb.Progressbar(
+            reader_frame,
+            variable=self.reader_progress_var,
+            maximum=100
+        )
+        self.reader_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(W, E), pady=10)
+        
+        # 状态标签
+        self.reader_status_label = tb.Label(reader_frame, text="请选择要解读的文件夹")
+        self.reader_status_label.grid(row=5, column=0, columnspan=3, pady=5)
+        
+    def create_article_reader_tab(self):
+        """创建文章阅读助手页面"""
+        article_frame = tb.Frame(self.notebook, padding="10")
+        self.notebook.add(article_frame, text="文章阅读助手")
+        
+        # 说明文字
+        desc_label = tb.Label(
+            article_frame,
+            text="启动文章阅读助手服务器，在浏览器中查看和管理AI分析结果",
+            font=('Arial', 10)
+        )
+        desc_label.pack(pady=(0, 20))
+        
+        # 功能说明
+        features_frame = tb.LabelFrame(article_frame, text="功能特性", padding="10")
+        features_frame.pack(fill=X, pady=(0, 20))
+        
+        features_text = [
+            "• 查看AI分析结果和文件摘要",
+            "• 直接打开文件进行查看",
+            "• 重复解读后点击刷新删除重复记录",
+            "• 友好的Web界面"
+        ]
+        
+        for feature in features_text:
+            tb.Label(features_frame, text=feature, font=('Arial', 9)).pack(anchor=W, pady=2)
+        
+        # 操作按钮
+        button_frame = tb.Frame(article_frame)
+        button_frame.pack(pady=20)
+        
+        def start_article_reader():
+            try:
+                import subprocess
+                import sys
+                import webbrowser
+                import time
+                import threading
+                
+                # 启动查看器服务器
+                process = subprocess.Popen([sys.executable, "start_viewer_server.py"], 
+                                         cwd=os.getcwd(), 
+                                         creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+                
+                # 存储进程引用以便后续管理
+                if not hasattr(self, 'article_reader_processes'):
+                    self.article_reader_processes = []
+                self.article_reader_processes.append(process)
+                
+                # 延迟打开浏览器，确保服务器启动完成
+                def open_browser():
+                    time.sleep(2)  # 等待服务器启动
+                    try:
+                        webbrowser.open('http://localhost:8000/ai_result_viewer.html')
+                    except Exception as e:
+                        self.log_message(f"自动打开浏览器失败: {e}")
+                
+                threading.Thread(target=open_browser, daemon=True).start()
+                
+                self.log_message("已启动文章阅读助手服务器")
+                messagebox.showinfo("提示", "文章阅读助手已启动！\n\n服务器正在启动中，浏览器将自动打开。\n关闭浏览器时服务器会自动停止。")
+            except Exception as e:
+                self.log_message(f"启动文章阅读助手失败: {e}")
+                messagebox.showerror("错误", f"启动文章阅读助手失败: {e}")
+        
+        tb.Button(
+            button_frame,
+            text="启动文章阅读助手",
+            command=start_article_reader,
+            bootstyle=SUCCESS
+        ).pack()
+        
+        # 状态信息
+        status_frame = tb.LabelFrame(article_frame, text="使用说明", padding="10")
+        status_frame.pack(fill=X, pady=(20, 0))
+        
+        instructions = [
+            "1. 点击上方按钮启动文章阅读助手",
+            "2. 服务器将在新的控制台窗口中运行",
+            "3. 浏览器会自动打开AI结果查看页面",
+            "4. 使用完毕后，直接关闭浏览器即可自动停止服务器"
+        ]
+        
+        for instruction in instructions:
+            tb.Label(status_frame, text=instruction, font=('Arial', 9)).pack(anchor=W, pady=2)
+        
     def create_ai_classification_tab(self):
         """创建智能分类页面"""
-        ai_frame = ttk.Frame(self.notebook, padding="10")
+        ai_frame = tb.Frame(self.notebook, padding="10")
         self.notebook.add(ai_frame, text="智能分类")
         
         ai_frame.columnconfigure(1, weight=1)
         
         # 说明文字
-        desc_label = ttk.Label(
+        desc_label = tb.Label(
             ai_frame,
             text="使用 AI 智能分析文件内容，自动将文件分类到合适的文件夹中",
             font=('Arial', 10)
@@ -140,123 +359,123 @@ class FileOrganizerTabGUI:
         desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
         
         # 源目录选择
-        ttk.Label(ai_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(
+        tb.Label(ai_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=W, pady=5)
+        tb.Entry(
             ai_frame, 
             textvariable=self.source_directory, 
             width=50
-        ).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
-        ttk.Button(
+        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+        tb.Button(
             ai_frame, 
             text="浏览", 
             command=self.select_source_directory
         ).grid(row=1, column=2, pady=5)
         
         # 目标目录选择
-        ttk.Label(ai_frame, text="目标分类目录:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(
+        tb.Label(ai_frame, text="目标分类目录:").grid(row=2, column=0, sticky=W, pady=5)
+        tb.Entry(
             ai_frame, 
             textvariable=self.target_directory, 
             width=50
-        ).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
-        ttk.Button(
+        ).grid(row=2, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+        tb.Button(
             ai_frame, 
             text="浏览", 
             command=self.select_target_directory
         ).grid(row=2, column=2, pady=5)
         
         # AI参数调节区域
-        params_frame = ttk.LabelFrame(ai_frame, text="AI参数设置", padding="10")
-        params_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        params_frame = tb.LabelFrame(ai_frame, text="AI参数设置", padding="10")
+        params_frame.grid(row=3, column=0, columnspan=3, sticky=(W, E), pady=10)
         params_frame.columnconfigure(1, weight=1)
         
         # 摘要长度调节
-        ttk.Label(params_frame, text="摘要长度:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        summary_frame = ttk.Frame(params_frame)
-        summary_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
+        tb.Label(params_frame, text="摘要长度:").grid(row=0, column=0, sticky=W, pady=5)
+        summary_frame = tb.Frame(params_frame)
+        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(10, 0), pady=5)
         summary_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(summary_frame, text="50").grid(row=0, column=0)
-        self.summary_scale = ttk.Scale(
+        tb.Label(summary_frame, text="50").grid(row=0, column=0)
+        self.summary_scale = tb.Scale(
             summary_frame, 
             from_=50, 
             to=200, 
             variable=self.summary_length,
-            orient=tk.HORIZONTAL
+            orient=HORIZONTAL
         )
-        self.summary_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
-        ttk.Label(summary_frame, text="200").grid(row=0, column=2)
-        self.summary_value_label = ttk.Label(summary_frame, text="100字符")
+        self.summary_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
+        tb.Label(summary_frame, text="200").grid(row=0, column=2)
+        self.summary_value_label = tb.Label(summary_frame, text="100字符")
         self.summary_value_label.grid(row=0, column=3, padx=(10, 0))
         
         # 绑定摘要长度变化事件
         self.summary_length.trace_add('write', self.update_summary_label)
         
         # 字符截取调节
-        ttk.Label(params_frame, text="内容截取:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        truncate_frame = ttk.Frame(params_frame)
-        truncate_frame.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
+        tb.Label(params_frame, text="内容截取:").grid(row=1, column=0, sticky=W, pady=5)
+        truncate_frame = tb.Frame(params_frame)
+        truncate_frame.grid(row=1, column=1, sticky=(W, E), padx=(10, 0), pady=5)
         truncate_frame.columnconfigure(1, weight=1)
         
-        ttk.Label(truncate_frame, text="200").grid(row=0, column=0)
-        self.truncate_scale = ttk.Scale(
+        tb.Label(truncate_frame, text="200").grid(row=0, column=0)
+        self.truncate_scale = tb.Scale(
             truncate_frame, 
             from_=200, 
             to=2000, 
             variable=self.content_truncate,
-            orient=tk.HORIZONTAL
+            orient=HORIZONTAL
         )
-        self.truncate_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
-        ttk.Label(truncate_frame, text="全文").grid(row=0, column=2)
-        self.truncate_value_label = ttk.Label(truncate_frame, text="500字符")
+        self.truncate_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
+        tb.Label(truncate_frame, text="全文").grid(row=0, column=2)
+        self.truncate_value_label = tb.Label(truncate_frame, text="500字符")
         self.truncate_value_label.grid(row=0, column=3, padx=(10, 0))
         
         # 绑定字符截取变化事件
         self.content_truncate.trace_add('write', self.update_truncate_label)
         
         # 操作按钮框架
-        ai_button_frame = ttk.Frame(ai_frame)
+        ai_button_frame = tb.Frame(ai_frame)
         ai_button_frame.grid(row=4, column=0, columnspan=3, pady=20)
         
         # 预览按钮
-        self.ai_preview_button = ttk.Button(
+        self.ai_preview_button = tb.Button(
             ai_button_frame,
             text="预览AI分类结果",
             command=self.ai_preview_classification
         )
-        self.ai_preview_button.pack(side=tk.LEFT, padx=5)
+        self.ai_preview_button.pack(side=LEFT, padx=5)
         
         # 开始整理按钮
-        self.ai_organize_button = ttk.Button(
+        self.ai_organize_button = tb.Button(
             ai_button_frame,
             text="开始AI智能整理",
             command=self.ai_start_organize,
-            style='Accent.TButton'
+            bootstyle=SUCCESS
         )
-        self.ai_organize_button.pack(side=tk.LEFT, padx=5)
+        self.ai_organize_button.pack(side=LEFT, padx=5)
         
         # 进度条
-        self.ai_progress_var = tk.DoubleVar()
-        self.ai_progress_bar = ttk.Progressbar(
+        self.ai_progress_var = tb.DoubleVar()
+        self.ai_progress_bar = tb.Progressbar(
             ai_frame,
             variable=self.ai_progress_var,
             maximum=100
         )
-        self.ai_progress_bar.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        self.ai_progress_bar.grid(row=5, column=0, columnspan=3, sticky=(W, E), pady=10)
         
         # 状态标签
-        self.ai_status_label = ttk.Label(ai_frame, text="请选择源目录和目标目录")
+        self.ai_status_label = tb.Label(ai_frame, text="请选择源目录和目标目录")
         self.ai_status_label.grid(row=6, column=0, columnspan=3, pady=5)
         
     def create_simple_classification_tab(self):
         """创建文件分类页面"""
-        simple_frame = ttk.Frame(self.notebook, padding="10")
+        simple_frame = tb.Frame(self.notebook, padding="10")
         self.notebook.add(simple_frame, text="文件分类")
         
         simple_frame.columnconfigure(1, weight=1)
         
         # 说明文字
-        desc_label = ttk.Label(
+        desc_label = tb.Label(
             simple_frame,
             text="基于文件名和扩展名进行快速分类，适合简单的文件整理需求",
             font=('Arial', 10)
@@ -264,113 +483,97 @@ class FileOrganizerTabGUI:
         desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
         
         # 源目录选择
-        ttk.Label(simple_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(
+        tb.Label(simple_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=W, pady=5)
+        tb.Entry(
             simple_frame, 
             textvariable=self.source_directory, 
             width=50
-        ).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
-        ttk.Button(
+        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+        tb.Button(
             simple_frame, 
             text="浏览", 
             command=self.select_source_directory
         ).grid(row=1, column=2, pady=5)
         
         # 目标目录选择
-        ttk.Label(simple_frame, text="目标分类目录:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        ttk.Entry(
+        tb.Label(simple_frame, text="目标分类目录:").grid(row=2, column=0, sticky=W, pady=5)
+        tb.Entry(
             simple_frame, 
             textvariable=self.target_directory, 
             width=50
-        ).grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 5), pady=5)
-        ttk.Button(
+        ).grid(row=2, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+        tb.Button(
             simple_frame, 
             text="浏览", 
             command=self.select_target_directory
         ).grid(row=2, column=2, pady=5)
         
         # 操作按钮框架
-        simple_button_frame = ttk.Frame(simple_frame)
+        simple_button_frame = tb.Frame(simple_frame)
         simple_button_frame.grid(row=3, column=0, columnspan=3, pady=20)
         
         # 预览按钮
-        self.simple_preview_button = ttk.Button(
+        self.simple_preview_button = tb.Button(
             simple_button_frame,
             text="预览文件分类结果",
             command=self.simple_preview_classification
         )
-        self.simple_preview_button.pack(side=tk.LEFT, padx=5)
+        self.simple_preview_button.pack(side=LEFT, padx=5)
         
         # 开始整理按钮
-        self.simple_organize_button = ttk.Button(
+        self.simple_organize_button = tb.Button(
             simple_button_frame,
             text="开始文件分类整理",
             command=self.simple_start_organize,
-            style='Accent.TButton'
+            bootstyle=SUCCESS
         )
-        self.simple_organize_button.pack(side=tk.LEFT, padx=5)
+        self.simple_organize_button.pack(side=LEFT, padx=5)
         
         # 进度条
-        self.simple_progress_var = tk.DoubleVar()
-        self.simple_progress_bar = ttk.Progressbar(
+        self.simple_progress_var = tb.DoubleVar()
+        self.simple_progress_bar = tb.Progressbar(
             simple_frame,
             variable=self.simple_progress_var,
             maximum=100
         )
-        self.simple_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        self.simple_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(W, E), pady=10)
         
         # 状态标签
-        self.simple_status_label = ttk.Label(simple_frame, text="请选择源目录和目标目录")
+        self.simple_status_label = tb.Label(simple_frame, text="请选择源目录和目标目录")
         self.simple_status_label.grid(row=5, column=0, columnspan=3, pady=5)
         
     def create_tools_tab(self):
         """创建工具页面"""
-        tools_frame = ttk.Frame(self.notebook, padding="10")
+        tools_frame = tb.Frame(self.notebook, padding="10")
         self.notebook.add(tools_frame, text="工具")
         
         # 工具按钮框架
-        tools_button_frame = ttk.Frame(tools_frame)
+        tools_button_frame = tb.Frame(tools_frame)
         tools_button_frame.grid(row=0, column=0, pady=20)
         
-        # 转移日志按钮
-        self.log_button = ttk.Button(
-            tools_button_frame,
-            text="转移日志",
-            command=self.show_transfer_logs
-        )
-        self.log_button.pack(side=tk.LEFT, padx=5)
-        
-        # 文件恢复按钮
-        self.restore_button = ttk.Button(
-            tools_button_frame,
-            text="文件恢复",
-            command=self.show_restore_dialog
-        )
-        self.restore_button.pack(side=tk.LEFT, padx=5)
-        
-        # 重复文件删除按钮
-        self.duplicate_button = ttk.Button(
+        # 重复文件删除按钮（第一个）
+        self.duplicate_button = tb.Button(
             tools_button_frame,
             text="删除重复文件",
             command=self.show_duplicate_removal_dialog
         )
-        self.duplicate_button.pack(side=tk.LEFT, padx=5)
+        self.duplicate_button.pack(side=LEFT, padx=5)
         
-        # 文件解读按钮
-        self.file_reader_button = ttk.Button(
+        # 文件恢复按钮（第二个）
+        self.restore_button = tb.Button(
             tools_button_frame,
-            text="文件解读",
-            command=self.show_file_reader_dialog
+            text="文件恢复",
+            command=self.show_restore_dialog
         )
-        self.file_reader_button.pack(side=tk.LEFT, padx=5)
+        self.restore_button.pack(side=LEFT, padx=5)
         
-        # 文档转换状态按钮
-        self.conversion_status_button = ttk.Button(
+        # 日志按钮（第三个，重命名为"日志"）
+        self.log_button = tb.Button(
             tools_button_frame,
-            text="转换状态",
-            command=self.show_conversion_status_dialog
+            text="日志",
+            command=self.show_transfer_logs
         )
-        self.conversion_status_button.pack(side=tk.LEFT, padx=5)
+        self.log_button.pack(side=LEFT, padx=5)
         
     def update_summary_label(self, *args):
         """更新摘要长度标签"""
@@ -403,8 +606,8 @@ class FileOrganizerTabGUI:
         """记录日志消息"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         log_entry = f"[{timestamp}] {message}\n"
-        self.log_text.insert(tk.END, log_entry)
-        self.log_text.see(tk.END)
+        self.log_text.insert(END, log_entry)
+        self.log_text.see(END)
         
     def ai_preview_classification(self):
         """AI预览分类结果"""
@@ -437,13 +640,17 @@ class FileOrganizerTabGUI:
                 self.root.after(0, lambda: messagebox.showinfo("提示", "源目录中没有找到文件"))
                 return
                 
-            # 预览前几个文件
-            preview_count = min(10, len(source_files))
+            # 限制预览文件数量为5个
+            max_preview_files = 5
+            preview_files = source_files[:max_preview_files]
+            preview_count = len(preview_files)
             preview_results = []
             ai_result_list = []
             ai_result_json_path = "preview_ai_result.json"
             
-            for i, file_info in enumerate(source_files[:preview_count]):
+            self.root.after(0, lambda: self.log_message(f"将预览前{preview_count}个文件（共{len(source_files)}个文件）"))
+            
+            for i, file_info in enumerate(preview_files):
                 file_path = str(file_info['path'])
                 filename = str(file_info['name'])
                 
@@ -455,7 +662,7 @@ class FileOrganizerTabGUI:
                 success = result.get('success', False)
                 folder = result.get('recommended_folder', '')
                 reason = result.get('match_reason', '')
-                summary = result.get('summary', '')
+                summary = result.get('content_summary', '')  # 修正字段名
                 timing_info = result.get('timing_info', {})
                 
                 # 构建AI结果JSON条目
@@ -463,7 +670,7 @@ class FileOrganizerTabGUI:
                     "源文件路径": file_path,
                     "文件摘要": summary,
                     "最匹配的目标目录": folder if success else "无推荐",
-                    "匹配理由": reason[:20] if reason else ""
+                    "匹配理由": reason if reason else ""
                 }
                 
                 # 添加时间信息
@@ -494,7 +701,7 @@ class FileOrganizerTabGUI:
             with open(ai_result_json_path, 'w', encoding='utf-8') as f:
                 json.dump(ai_result_list, f, ensure_ascii=False, indent=2)
                 
-            self.root.after(0, lambda: self._show_preview_results(preview_results, len(source_files), "AI分类"))
+            self.root.after(0, lambda: self._show_preview_results(preview_results, preview_count, "AI分类"))
             
         except Exception as e:
             error_msg = str(e)
@@ -533,11 +740,11 @@ class FileOrganizerTabGUI:
                 self.root.after(0, lambda: messagebox.showinfo("提示", "源目录中没有找到文件"))
                 return
                 
-            # 预览前几个文件
-            preview_count = min(10, len(source_files))
+            # 预览所有文件，不限制数量
+            preview_count = len(source_files)
             preview_results = []
             
-            for i, file_info in enumerate(source_files[:preview_count]):
+            for i, file_info in enumerate(source_files):
                 file_path = str(file_info['path'])
                 filename = str(file_info['name'])
                 
@@ -567,6 +774,43 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda: self.simple_progress_var.set(0))
             self.root.after(0, lambda: self.simple_status_label.config(text="预览完成"))
             self.root.after(0, lambda: self.simple_preview_button.config(state='normal'))
+            
+    def _batch_read_worker(self, folder_path):
+        """批量解读工作线程"""
+        try:
+            # 初始化AI文件整理器
+            if not self.ai_organizer:
+                self.initialize_organizers()
+            
+            # 定义进度回调函数
+            def progress_callback(current, total, filename):
+                progress = (current / total) * 100 if total > 0 else 0
+                self.root.after(0, lambda: self.reader_progress_var.set(progress))
+                self.root.after(0, lambda: self.reader_status_label.config(text=f"正在解读 ({current}/{total}): {filename}"))
+            
+            # 调用批量文档解读方法
+            batch_results = self.ai_organizer.batch_read_documents(
+                folder_path=folder_path,
+                progress_callback=progress_callback,
+                summary_length=self.reader_summary_length.get()
+            )
+            
+            # 显示结果
+            def show_results():
+                self.reader_status_label.config(text="批量解读完成")
+                self.log_message(f"批量文档解读完成: 成功 {batch_results['successful_reads']}, 失败 {batch_results['failed_reads']}")
+                messagebox.showinfo("完成", f"批量解读完成！\n\n成功解读: {batch_results['successful_reads']} 个\n解读失败: {batch_results['failed_reads']} 个\n\n结果已保存到: ai_organize_result.json")
+            
+            self.root.after(0, show_results)
+            
+        except Exception as e:
+            error_msg = str(e)
+            self.root.after(0, lambda: self.log_message(f"批量文档解读失败: {error_msg}"))
+            self.root.after(0, lambda: messagebox.showerror("错误", f"批量文档解读失败: {error_msg}"))
+            self.root.after(0, lambda: self.reader_status_label.config(text="解读失败"))
+        finally:
+            self.root.after(0, lambda: self.reader_progress_var.set(0))
+            self.root.after(0, lambda: self.reader_start_button.config(state='normal'))
             
     def _apply_ai_parameters(self):
         """应用AI参数设置"""
@@ -750,7 +994,7 @@ class FileOrganizerTabGUI:
             
     def _show_preview_results(self, preview_results, total_files, classification_type):
         """显示预览结果"""
-        preview_window = tk.Toplevel(self.root)
+        preview_window = tb.Toplevel(self.root)
         preview_window.title(f"{classification_type}预览结果")
         preview_window.geometry("700x500")
         preview_window.transient(self.root)
@@ -758,7 +1002,7 @@ class FileOrganizerTabGUI:
         
         # 创建预览内容
         frame = ttk.Frame(preview_window, padding="10")
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=BOTH, expand=True)
         
         ttk.Label(
             frame,
@@ -767,16 +1011,16 @@ class FileOrganizerTabGUI:
         ).pack(pady=(0, 10))
         
         # 创建结果显示区域
-        result_text = scrolledtext.ScrolledText(frame, height=18, wrap=tk.WORD)
-        result_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        result_text = scrolledtext.ScrolledText(frame, height=18, wrap=WORD)
+        result_text.pack(fill=BOTH, expand=True, pady=(0, 10))
         
         # 统计信息
         successful_count = sum(1 for result in preview_results if result['success'])
         failed_count = len(preview_results) - successful_count
         
-        result_text.insert(tk.END, f"=== {classification_type}预览统计 ===\n")
-        result_text.insert(tk.END, f"成功推荐: {successful_count} 个文件\n")
-        result_text.insert(tk.END, f"需要手动处理: {failed_count} 个文件\n\n")
+        result_text.insert(END, f"=== {classification_type}预览统计 ===\n")
+        result_text.insert(END, f"成功推荐: {successful_count} 个文件\n")
+        result_text.insert(END, f"需要手动处理: {failed_count} 个文件\n\n")
         
         for i, result in enumerate(preview_results, 1):
             filename = result['filename']
@@ -785,15 +1029,15 @@ class FileOrganizerTabGUI:
             success = result['success']
             timing_info = result.get('timing_info', {})
             
-            result_text.insert(tk.END, f"[{i}] 文件: {filename}\n")
+            result_text.insert(END, f"[{i}] 文件: {filename}\n")
             
             if success:
-                result_text.insert(tk.END, f"✓ 推荐文件夹: {folder}\n")
-                result_text.insert(tk.END, f"  {reason}\n")
+                result_text.insert(END, f"✓ 推荐文件夹: {folder}\n")
+                result_text.insert(END, f"  {reason}\n")
             else:
-                result_text.insert(tk.END, f"⚠ 分类结果: {reason}\n")
+                result_text.insert(END, f"⚠ 分类结果: {reason}\n")
                 if "建议创建新文件夹" in reason:
-                    result_text.insert(tk.END, f"  建议操作：在目标目录中创建合适的文件夹后重新分类\n")
+                    result_text.insert(END, f"  建议操作：在目标目录中创建合适的文件夹后重新分类\n")
             
             # 显示时间信息（仅AI分类）
             if timing_info and classification_type == "AI分类":
@@ -802,25 +1046,25 @@ class FileOrganizerTabGUI:
                 summary_time = timing_info.get('summary_generation_time', 0)
                 recommend_time = timing_info.get('folder_recommendation_time', 0)
                 
-                result_text.insert(tk.END, f"  ⏱ 处理耗时: 总计{total_time}秒 (提取{extract_time}s + 摘要{summary_time}s + 推荐{recommend_time}s)\n")
+                result_text.insert(END, f"  ⏱ 处理耗时: 总计{total_time}秒 (提取{extract_time}s + 摘要{summary_time}s + 推荐{recommend_time}s)\n")
                 
                 if 'ollama_init_time' in timing_info:
                     init_time = timing_info['ollama_init_time']
-                    result_text.insert(tk.END, f"  🔧 Ollama初始化: {init_time}秒\n")
+                    result_text.insert(END, f"  🔧 Ollama初始化: {init_time}秒\n")
             
-            result_text.insert(tk.END, "\n")
+            result_text.insert(END, "\n")
             
         result_text.config(state='disabled')
         
         # 按钮框架
         button_frame = ttk.Frame(frame)
-        button_frame.pack(fill=tk.X)
+        button_frame.pack(fill=X)
         
         ttk.Button(
             button_frame,
             text="确定",
             command=preview_window.destroy
-        ).pack(side=tk.RIGHT)
+        ).pack(side=RIGHT)
         
     def _show_organize_results(self, operation_type):
         """显示整理结果"""
@@ -830,7 +1074,7 @@ class FileOrganizerTabGUI:
         results = self.organize_results
         
         # 创建结果窗口
-        result_window = tk.Toplevel(self.root)
+        result_window = tb.Toplevel(self.root)
         result_window.title(f"{operation_type}结果")
         result_window.geometry("600x400")
         result_window.transient(self.root)
@@ -838,7 +1082,7 @@ class FileOrganizerTabGUI:
         
         # 创建结果内容
         frame = ttk.Frame(result_window, padding="10")
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack(fill=BOTH, expand=True)
         
         ttk.Label(
             frame,
@@ -856,28 +1100,28 @@ class FileOrganizerTabGUI:
         ttk.Label(frame, text=stats_text, font=('Arial', 10)).pack(pady=(0, 10))
         
         # 详细结果
-        result_text = scrolledtext.ScrolledText(frame, height=15, wrap=tk.WORD)
-        result_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        result_text = scrolledtext.ScrolledText(frame, height=15, wrap=WORD)
+        result_text.pack(fill=BOTH, expand=True, pady=(0, 10))
         
         # 显示成功的移动
         if results['success']:
-            result_text.insert(tk.END, "=== 成功移动的文件 ===\n")
+            result_text.insert(END, "=== 成功移动的文件 ===\n")
             for item in results['success']:
-                result_text.insert(tk.END, f"✓ {Path(item['source_path']).name} -> {item['target_folder']}\n")
-            result_text.insert(tk.END, "\n")
+                result_text.insert(END, f"✓ {Path(item['source_path']).name} -> {item['target_folder']}\n")
+            result_text.insert(END, "\n")
         
         # 显示失败的移动
         if results['failed']:
-            result_text.insert(tk.END, "=== 失败的文件 ===\n")
+            result_text.insert(END, "=== 失败的文件 ===\n")
             for item in results['failed']:
-                result_text.insert(tk.END, f"✗ {Path(item['source_path']).name}: {item['error']}\n")
-            result_text.insert(tk.END, "\n")
+                result_text.insert(END, f"✗ {Path(item['source_path']).name}: {item['error']}\n")
+            result_text.insert(END, "\n")
         
         # 显示错误信息
         if results['errors']:
-            result_text.insert(tk.END, "=== 错误信息 ===\n")
+            result_text.insert(END, "=== 错误信息 ===\n")
             for error in results['errors']:
-                result_text.insert(tk.END, f"⚠ {error}\n")
+                result_text.insert(END, f"⚠ {error}\n")
         
         result_text.config(state='disabled')
         
@@ -1204,6 +1448,59 @@ class FileOrganizerTabGUI:
                                         ctime_str = datetime.fromtimestamp(file_info['ctime']).strftime('%Y-%m-%d %H:%M:%S') if 'ctime' in file_info else ''
                                         result_text.insert(tk.END, f"  - {file_info['relative_path']} {keep_flag} 创建时间: {ctime_str}\n")
                                     result_text.insert(tk.END, "\n")
+                                
+                                # 如果是试运行模式且发现重复文件，添加删除按钮
+                                if dry_run and results['total_duplicates_found'] > 0:
+                                    # 清除现有的删除按钮（如果有）
+                                    for widget in button_frame.winfo_children():
+                                        if hasattr(widget, 'delete_button_flag'):
+                                            widget.destroy()
+                                    
+                                    # 添加删除重复文件按钮
+                                    def delete_duplicates():
+                                        if messagebox.askyesno("确认删除", f"确定要删除 {results['total_duplicates_found']} 个重复文件吗？\n\n此操作不可撤销！"):
+                                            result_text.delete(1.0, tk.END)
+                                            result_text.insert(tk.END, "正在删除重复文件...\n")
+                                            
+                                            def delete_worker():
+                                                try:
+                                                    delete_results = remove_duplicate_files(
+                                                        target_folder_path=folder_path,
+                                                        dry_run=False
+                                                    )
+                                                    
+                                                    def show_delete_results():
+                                                        result_text.delete(1.0, tk.END)
+                                                        result_text.insert(tk.END, f"删除完成！\n\n")
+                                                        result_text.insert(tk.END, f"成功删除: {len(delete_results.get('files_deleted', []))} 个重复文件\n")
+                                                        result_text.insert(tk.END, f"释放空间: {delete_results.get('space_freed', 0):,} 字节\n\n")
+                                                        
+                                                        if delete_results.get('files_deleted'):
+                                                            result_text.insert(tk.END, "已删除的文件:\n")
+                                                            for file_path in delete_results['files_deleted']:
+                                                                result_text.insert(tk.END, f"  - {file_path}\n")
+                                                        
+                                                        self.root.after(0, lambda: self.log_message(f"重复文件删除完成: 删除 {len(delete_results.get('files_deleted', []))} 个文件"))
+                                                    
+                                                    duplicate_window.after(0, show_delete_results)
+                                                    
+                                                except Exception as e:
+                                                    def show_delete_error():
+                                                        result_text.delete(1.0, tk.END)
+                                                        result_text.insert(tk.END, f"删除失败: {e}")
+                                                        messagebox.showerror("错误", f"删除失败: {e}")
+                                                    
+                                                    duplicate_window.after(0, show_delete_error)
+                                            
+                                            threading.Thread(target=delete_worker, daemon=True).start()
+                                    
+                                    delete_btn = ttk.Button(
+                                        button_frame,
+                                        text=f"删除 {results['total_duplicates_found']} 个重复文件",
+                                        command=delete_duplicates
+                                    )
+                                    delete_btn.delete_button_flag = True  # 标记为删除按钮
+                                    delete_btn.pack(side=tk.LEFT, padx=5)
                             else:
                                 result_text.insert(tk.END, "未发现可删除的重复文件。\n")
                             result_text.config(state='normal')
@@ -1243,140 +1540,135 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda err=e: self.log_message(f"显示重复文件删除对话框失败: {err}"))
             self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示重复文件删除对话框失败: {err}"))
         
-    def show_file_reader_dialog(self):
-        """显示文件解读对话框"""
-        try:
-            # 创建文件解读对话框
-            reader_window = tk.Toplevel(self.root)
-            reader_window.title("文件解读")
-            reader_window.geometry("800x700")
-            reader_window.transient(self.root)
-            reader_window.grab_set()
+
             
-            # 创建主框架
-            main_frame = ttk.Frame(reader_window, padding="10")
-            main_frame.pack(fill=tk.BOTH, expand=True)
+            # 摘要长度设置框架
+            summary_frame = ttk.LabelFrame(main_frame, text="摘要参数设置", padding="10")
+            summary_frame.pack(fill=tk.X, pady=(0, 15))
             
-            # 标题
-            ttk.Label(
-                main_frame,
-                text="文件解读",
-                font=('Arial', 12, 'bold')
-            ).pack(pady=(0, 10))
+            # 摘要长度调节
+            ttk.Label(summary_frame, text="文章摘要长度:").grid(row=0, column=0, sticky=tk.W, pady=5)
+            summary_length_frame = ttk.Frame(summary_frame)
+            summary_length_frame.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
+            summary_frame.columnconfigure(1, weight=1)
+            summary_length_frame.columnconfigure(1, weight=1)
             
-            # 说明文字
-            ttk.Label(
-                main_frame,
-                text="选择要解读的文件，支持文本文件、PDF、Word文档等格式",
-                font=('Arial', 10)
-            ).pack(pady=(0, 15))
+            # 创建摘要长度变量，默认200字
+            summary_length_var = tk.IntVar(value=200)
             
-            # 文件选择框架
-            file_frame = ttk.Frame(main_frame)
-            file_frame.pack(fill=tk.X, pady=(0, 15))
+            ttk.Label(summary_length_frame, text="100字").grid(row=0, column=0)
+            summary_length_scale = ttk.Scale(
+                summary_length_frame, 
+                from_=100, 
+                to=500, 
+                variable=summary_length_var,
+                orient=tk.HORIZONTAL
+            )
+            summary_length_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+            ttk.Label(summary_length_frame, text="500字").grid(row=0, column=2)
             
-            ttk.Label(file_frame, text="选择文件:").pack(anchor=tk.W)
+            # 显示当前值
+            summary_value_label = ttk.Label(summary_length_frame, text=f"当前: {summary_length_var.get()}字")
+            summary_value_label.grid(row=0, column=3, padx=(10, 0))
             
-            file_var = tk.StringVar()
-            file_entry = ttk.Entry(file_frame, textvariable=file_var, width=50)
-            file_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+            # 更新显示值的回调函数
+            def update_summary_label(*args):
+                summary_value_label.config(text=f"当前: {int(summary_length_var.get())}字")
             
-            def select_file():
-                file_path = filedialog.askopenfilename(
-                    title="选择要解读的文件",
-                    filetypes=[
-                        ("所有支持的文件", "*.txt;*.md;*.pdf;*.docx;*.doc;*.rtf;*.odt;*.pages;*.epub;*.mobi;*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tiff;*.webp"),
-                        ("文本文件", "*.txt;*.md"),
-                        ("PDF文件", "*.pdf"),
-                        ("Word文档", "*.docx;*.doc"),
-                        ("RTF文档", "*.rtf"),
-                        ("其他文档", "*.odt;*.pages;*.epub;*.mobi"),
-                        ("图像文件", "*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.tiff;*.webp"),
-                        ("所有文件", "*.*")
-                    ],
+            summary_length_var.trace('w', update_summary_label)
+            
+            def select_folder():
+                folder_path = filedialog.askdirectory(
+                    title="选择要批量解读的文件夹",
                     initialdir=self.target_directory.get() or os.path.expanduser("~")
                 )
-                if file_path:
-                    file_var.set(file_path)
-                    update_file_info()
+                if folder_path:
+                    folder_var.set(folder_path)
+                    update_folder_info()
             
-            # 开始解读按钮
-            def start_reading():
-                file_path = file_var.get().strip()
-                if not file_path:
-                    messagebox.showwarning("提示", "请先选择要解读的文件")
+            # 开始批量解读按钮
+            def start_batch_reading():
+                folder_path = folder_var.get().strip()
+                if not folder_path:
+                    messagebox.showwarning("提示", "请先选择要解读的文件夹")
                     return
                 
-                if not os.path.exists(file_path):
-                    messagebox.showerror("错误", "选择的文件不存在")
+                if not os.path.exists(folder_path):
+                    messagebox.showerror("错误", "选择的文件夹不存在")
                     return
                 
                 # 清空结果显示
-                original_text.delete(1.0, tk.END)
-                summary_text.delete(1.0, tk.END)
-                progress_var.set("正在解读文件...")
+                result_text.delete(1.0, tk.END)
+                progress_var.set("正在扫描文件夹...")
                 
-                # 在新线程中执行文件解读
-                def read_worker():
+                # 在新线程中执行批量文档解读
+                def batch_read_worker():
                     try:
-                        # 初始化文件解读器
-                        progress_var.set("正在初始化Ollama...")
-                        print(f"\n=== 开始文件解读流程 ===")
-                        print(f"目标文件: {file_path}")
-                        print(f"正在初始化FileReader...")
+                        # 初始化AI文件整理器
+                        progress_var.set("正在初始化AI整理器...")
+                        print(f"\n=== 开始批量文档解读流程 ===")
+                        print(f"目标文件夹: {folder_path}")
+                        print(f"正在初始化FileOrganizer...")
                         
-                        reader = FileReader()
-                        print(f"FileReader初始化完成")
+                        if not self.ai_organizer:
+                            self.initialize_organizers()
                         
-                        print(f"正在初始化Ollama客户端...")
-                        reader.initialize_ollama()
-                        print(f"Ollama客户端初始化完成，可用模型: {reader.available_models}")
-                        print(f"当前使用模型: {reader.model_name}")
+                        print(f"FileOrganizer初始化完成")
                         
-                        # 直接调用generate_summary，它会同时提取内容和生成摘要
-                        progress_var.set("正在解读文件...")
-                        summary_length = int(summary_length_var.get())
-                        print(f"\n=== 开始文件解读 ===")
-                        print(f"文件路径: {file_path}")
-                        print(f"摘要长度设置: {summary_length}")
+                        # 定义进度回调函数
+                        def progress_callback(current, total, filename):
+                            progress_text = f"正在解读 ({current}/{total}): {filename}"
+                            reader_window.after(0, lambda: progress_var.set(progress_text))
                         
-                        # 调用generate_summary方法，它会返回原始文本和摘要
-                        summary_result = reader.generate_summary(file_path, max_summary_length=summary_length)
+                        # 调用批量文档解读方法
+                        progress_var.set("开始批量解读...")
+                        print(f"\n=== 开始批量文档解读 ===")
+                        print(f"文件夹路径: {folder_path}")
                         
-                        print(f"文件解读结果: {summary_result}")
+                        # 调用batch_read_documents方法，传递摘要长度参数
+                        batch_results = self.ai_organizer.batch_read_documents(
+                            folder_path=folder_path,
+                            progress_callback=progress_callback,
+                            summary_length=summary_length_var.get()
+                        )
                         
-                        # 获取原始文本和摘要
-                        original_content = summary_result.get('extracted_text', '无法提取文件内容')
+                        print(f"批量解读结果: {batch_results}")
                         
-                        if summary_result.get('success', False):
-                            ai_summary = summary_result.get('summary', '摘要生成失败')
-                            print(f"文件解读成功: {ai_summary[:100]}...")
-                        else:
-                            error_msg = summary_result.get('error', '未知错误')
-                            print(f"文件解读失败: {error_msg}")
-                            ai_summary = f"文件解读失败: {error_msg}"
-                        
-                        # 同时显示原始文本和摘要
-                        def show_results():
-                            # 显示原始文本
-                            original_text.delete(1.0, tk.END)
-                            original_text.insert(tk.END, original_content)
+                        # 显示批量解读结果
+                        def show_batch_results():
+                            result_text.delete(1.0, tk.END)
                             
-                            # 显示AI摘要
-                            summary_text.delete(1.0, tk.END)
-                            summary_text.insert(tk.END, ai_summary)
+                            # 显示统计信息
+                            result_text.insert(tk.END, "=== 批量文档解读完成 ===\n\n")
+                            result_text.insert(tk.END, f"总文件数: {batch_results['total_files']}\n")
+                            result_text.insert(tk.END, f"成功解读: {batch_results['successful_reads']} 个\n")
+                            result_text.insert(tk.END, f"解读失败: {batch_results['failed_reads']} 个\n")
                             
-                            progress_var.set("解读完成")
+                            if batch_results['end_time'] and batch_results['start_time']:
+                                duration = (batch_results['end_time'] - batch_results['start_time']).total_seconds()
+                                result_text.insert(tk.END, f"总耗时: {duration:.1f} 秒\n")
+                            
+                            result_text.insert(tk.END, "\n结果已保存到: ai_organize_result.json\n")
+                            result_text.insert(tk.END, "可通过 '查看AI结果' 功能查看详细解读结果\n")
+                            
+                            # 显示错误信息（如果有）
+                            if batch_results.get('errors'):
+                                result_text.insert(tk.END, "\n=== 错误信息 ===\n")
+                                for error in batch_results['errors']:
+                                    result_text.insert(tk.END, f"• {error}\n")
+                            
+                            progress_var.set("批量解读完成")
                             
                             # 记录日志
-                            filename = os.path.basename(file_path)
-                            self.root.after(0, lambda: self.log_message(f"文件解读完成: {filename}"))
+                            self.root.after(0, lambda: self.log_message(
+                                f"批量文档解读完成: 成功 {batch_results['successful_reads']}, 失败 {batch_results['failed_reads']}"
+                            ))
                         
-                        reader_window.after(0, show_results)
+                        reader_window.after(0, show_batch_results)
                         
                     except Exception as e:
                         error_exception = e  # 保存异常对象到局部变量
-                        print(f"\n=== 文件解读过程中发生错误 ===")
+                        print(f"\n=== 批量文档解读过程中发生错误 ===")
                         print(f"错误类型: {type(error_exception).__name__}")
                         print(f"错误信息: {str(error_exception)}")
                         import traceback
@@ -1384,109 +1676,77 @@ class FileOrganizerTabGUI:
                         print("=" * 50)
                         
                         def show_error():
-                            progress_var.set("解读失败")
-                            error_msg = f"文件解读失败: {error_exception}"
-                            summary_text.delete(1.0, tk.END)
-                            summary_text.insert(tk.END, error_msg)
-                            self.root.after(0, lambda: self.log_message(f"文件解读失败: {error_exception}"))
+                            progress_var.set("批量解读失败")
+                            error_msg = f"批量文档解读失败: {error_exception}"
+                            result_text.delete(1.0, tk.END)
+                            result_text.insert(tk.END, error_msg)
+                            self.root.after(0, lambda: self.log_message(f"批量文档解读失败: {error_exception}"))
                             messagebox.showerror("错误", error_msg)
                         
                         reader_window.after(0, show_error)
                 
-                threading.Thread(target=read_worker, daemon=True).start()
+                threading.Thread(target=batch_read_worker, daemon=True).start()
             
-            ttk.Button(file_frame, text="开始解读", command=start_reading).pack(side=tk.RIGHT, padx=(0, 5))
-            ttk.Button(file_frame, text="浏览", command=select_file).pack(side=tk.RIGHT)
+            ttk.Button(folder_frame, text="开始批量解读", command=start_batch_reading).pack(side=tk.RIGHT, padx=(0, 5))
+            ttk.Button(folder_frame, text="浏览", command=select_folder).pack(side=tk.RIGHT)
             
-            # 文件信息显示
-            info_frame = ttk.LabelFrame(main_frame, text="文件信息", padding="5")
+            # 文件夹信息显示
+            info_frame = ttk.LabelFrame(main_frame, text="文件夹信息", padding="5")
             info_frame.pack(fill=tk.X, pady=(0, 15))
             
             info_text = tk.Text(info_frame, height=3, wrap=tk.WORD)
             info_text.pack(fill=tk.X)
             
-            def update_file_info():
-                file_path = file_var.get()
-                if file_path and os.path.exists(file_path):
+            def update_folder_info():
+                folder_path = folder_var.get()
+                if folder_path and os.path.exists(folder_path):
                     try:
-                        stat = os.stat(file_path)
-                        size = stat.st_size
-                        size_str = f"{size:,} 字节"
-                        if size > 1024:
-                            size_str += f" ({size/1024:.1f} KB)"
-                        if size > 1024*1024:
-                            size_str += f" ({size/(1024*1024):.1f} MB)"
+                        # 统计文件夹中的文档文件
+                        from pathlib import Path
+                        supported_extensions = {'.txt', '.pdf', '.docx', '.doc', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv'}
                         
-                        from datetime import datetime
-                        mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                        folder_path_obj = Path(folder_path)
+                        document_files = []
+                        for file_path in folder_path_obj.rglob('*'):
+                            if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                                document_files.append(file_path)
+                        
+                        total_size = sum(f.stat().st_size for f in document_files if f.exists())
+                        size_str = f"{total_size:,} 字节"
+                        if total_size > 1024:
+                            size_str += f" ({total_size/1024:.1f} KB)"
+                        if total_size > 1024*1024:
+                            size_str += f" ({total_size/(1024*1024):.1f} MB)"
                         
                         info_text.delete(1.0, tk.END)
-                        info_text.insert(tk.END, f"文件名: {os.path.basename(file_path)}\n")
-                        info_text.insert(tk.END, f"大小: {size_str}\n")
-                        info_text.insert(tk.END, f"修改时间: {mtime}")
+                        info_text.insert(tk.END, f"文件夹: {os.path.basename(folder_path)}\n")
+                        info_text.insert(tk.END, f"支持的文档文件: {len(document_files)} 个\n")
+                        info_text.insert(tk.END, f"总大小: {size_str}")
                     except Exception as e:
                         info_text.delete(1.0, tk.END)
-                        info_text.insert(tk.END, f"无法获取文件信息: {e}")
+                        info_text.insert(tk.END, f"无法获取文件夹信息: {e}")
                 else:
                     info_text.delete(1.0, tk.END)
             
-            # 解读选项框架
-            options_frame = ttk.LabelFrame(main_frame, text="解读选项", padding="5")
-            options_frame.pack(fill=tk.X, pady=(0, 15))
+            # 进度显示
+            progress_frame = ttk.Frame(main_frame)
+            progress_frame.pack(fill=tk.X, pady=(0, 15))
             
-            # 摘要长度调节
-            summary_frame = ttk.Frame(options_frame)
-            summary_frame.pack(fill=tk.X, pady=5)
-            
-            ttk.Label(summary_frame, text="摘要长度:").pack(side=tk.LEFT)
-            
-            summary_length_var = tk.IntVar(value=200)
-            summary_scale = ttk.Scale(
-                summary_frame,
-                from_=50,
-                to=500,
-                variable=summary_length_var,
-                orient=tk.HORIZONTAL,
-                length=200
-            )
-            summary_scale.pack(side=tk.LEFT, padx=(10, 5))
-            
-            summary_length_label = ttk.Label(summary_frame, text="200字")
-            summary_length_label.pack(side=tk.LEFT)
-            
-            def update_summary_length(event=None):
-                length = int(summary_length_var.get())
-                summary_length_label.config(text=f"{length}字")
-            
-            summary_scale.config(command=update_summary_length)
+            progress_var = tk.StringVar(value="等待开始...")
+            progress_label = ttk.Label(progress_frame, textvariable=progress_var)
+            progress_label.pack()
             
             # 结果显示区域
-            result_frame = ttk.LabelFrame(main_frame, text="解读结果", padding="5")
+            result_frame = ttk.LabelFrame(main_frame, text="批量解读结果", padding="5")
             result_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
             
-            # 创建Notebook来分页显示结果
-            result_notebook = ttk.Notebook(result_frame)
-            result_notebook.pack(fill=tk.BOTH, expand=True)
-            
-            # 原始文本页面
-            original_frame = ttk.Frame(result_notebook)
-            result_notebook.add(original_frame, text="原始文本")
-            
-            original_text = scrolledtext.ScrolledText(
-                original_frame,
-                wrap=tk.WORD
+            # 结果文本显示
+            result_text = scrolledtext.ScrolledText(
+                result_frame,
+                wrap=tk.WORD,
+                height=15
             )
-            original_text.pack(fill=tk.BOTH, expand=True)
-            
-            # AI摘要页面
-            summary_frame = ttk.Frame(result_notebook)
-            result_notebook.add(summary_frame, text="AI摘要")
-            
-            summary_text = scrolledtext.ScrolledText(
-                summary_frame,
-                wrap=tk.WORD
-            )
-            summary_text.pack(fill=tk.BOTH, expand=True)
+            result_text.pack(fill=tk.BOTH, expand=True)
             
             # 按钮框架
             button_frame = ttk.Frame(main_frame)
@@ -1496,6 +1756,26 @@ class FileOrganizerTabGUI:
             progress_var = tk.StringVar(value="")
             progress_label = ttk.Label(button_frame, textvariable=progress_var)
             progress_label.pack(side=tk.LEFT, padx=(0, 10))
+            
+            # 查看解读结果按钮
+            def open_viewer():
+                try:
+                    import subprocess
+                    import sys
+                    # 启动查看器服务器
+                    subprocess.Popen([sys.executable, "start_viewer_server.py"], 
+                                   cwd=os.getcwd(), 
+                                   creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+                    self.log_message("已启动文章阅读助手服务器")
+                except Exception as e:
+                    self.log_message(f"启动文章阅读助手失败: {e}")
+                    messagebox.showerror("错误", f"启动文章阅读助手失败: {e}")
+            
+            ttk.Button(
+                button_frame,
+                text="查看解读结果",
+                command=open_viewer
+            ).pack(side=tk.RIGHT, padx=5)
             
             ttk.Button(
                 button_frame,
@@ -1507,371 +1787,23 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda err=e: self.log_message(f"显示文件解读对话框失败: {err}"))
             self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示文件解读对话框失败: {err}"))
     
-    def show_conversion_status_dialog(self):
-        """显示文档转换状态对话框"""
-        try:
-            # 创建转换状态对话框
-            status_window = tk.Toplevel(self.root)
-            status_window.title("文档转换状态")
-            status_window.geometry("900x600")
-            status_window.transient(self.root)
-            status_window.grab_set()
-            
-            # 创建主框架
-            main_frame = ttk.Frame(status_window, padding="10")
-            main_frame.pack(fill=tk.BOTH, expand=True)
-            
-            # 标题
-            ttk.Label(
-                main_frame,
-                text="文档转换状态管理",
-                font=('Arial', 12, 'bold')
-            ).pack(pady=(0, 10))
-            
-            # 创建Notebook来分页显示不同功能
-            notebook = ttk.Notebook(main_frame)
-            notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-            
-            # 支持格式页面
-            formats_frame = ttk.Frame(notebook)
-            notebook.add(formats_frame, text="支持格式")
-            
-            # 转换引擎状态页面
-            engines_frame = ttk.Frame(notebook)
-            notebook.add(engines_frame, text="转换引擎")
-            
-            # 依赖安装页面
-            install_frame = ttk.Frame(notebook)
-            notebook.add(install_frame, text="依赖安装")
-            
-            # 初始化支持格式页面
-            self._init_formats_tab(formats_frame)
-            
-            # 初始化转换引擎状态页面
-            self._init_engines_tab(engines_frame)
-            
-            # 初始化依赖安装页面
-            self._init_install_tab(install_frame)
-            
-            # 按钮框架
-            button_frame = ttk.Frame(main_frame)
-            button_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
-            
-            ttk.Button(
-                button_frame,
-                text="刷新状态",
-                command=lambda: self._refresh_conversion_status(formats_frame, engines_frame)
-            ).pack(side=tk.LEFT, padx=5)
-            
-            ttk.Button(
-                button_frame,
-                text="关闭",
-                command=status_window.destroy
-            ).pack(side=tk.RIGHT, padx=5)
-            
-        except Exception as e:
-             self.log_message(f"显示转换状态对话框失败: {e}")
-             messagebox.showerror("错误", f"显示转换状态对话框失败: {e}")
+
     
-    def _init_formats_tab(self, parent):
-        """初始化支持格式页面"""
-        try:
-            # 说明文字
-            ttk.Label(
-                parent,
-                text="当前文件解读器支持的文件格式列表",
-                font=('Arial', 10)
-            ).pack(pady=(10, 15))
-            
-            # 创建格式显示区域
-            formats_frame = ttk.LabelFrame(parent, text="文件格式支持情况", padding="10")
-            formats_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-            
-            # 创建文本显示区域
-            formats_text = scrolledtext.ScrolledText(
-                formats_frame,
-                wrap=tk.WORD,
-                height=20
-            )
-            formats_text.pack(fill=tk.BOTH, expand=True)
-            
-            # 获取并显示支持格式信息
-            def load_formats():
-                try:
-                    from file_reader import FileReader
-                    reader = FileReader()
-                    formats_info = reader.get_supported_formats()
-                    
-                    formats_text.delete(1.0, tk.END)
-                    formats_text.insert(tk.END, "=== 直接支持的格式 ===\n\n")
-                    
-                    for category, formats in formats_info['direct'].items():
-                        formats_text.insert(tk.END, f"{category.upper()}:\n")
-                        for fmt in formats:
-                            formats_text.insert(tk.END, f"  • {fmt}\n")
-                        formats_text.insert(tk.END, "\n")
-                    
-                    formats_text.insert(tk.END, "\n=== 可转换支持的格式 ===\n\n")
-                    
-                    for category, formats in formats_info['convertible'].items():
-                        formats_text.insert(tk.END, f"{category.upper()}:\n")
-                        for fmt in formats:
-                            formats_text.insert(tk.END, f"  • {fmt} (需要转换)\n")
-                        formats_text.insert(tk.END, "\n")
-                    
-                    formats_text.insert(tk.END, "\n=== 说明 ===\n\n")
-                    formats_text.insert(tk.END, "• 直接支持的格式可以立即处理\n")
-                    formats_text.insert(tk.END, "• 可转换格式需要先转换为支持的格式\n")
-                    formats_text.insert(tk.END, "• 转换过程会创建临时文件，处理完成后自动清理\n")
-                    
-                except Exception as e:
-                    formats_text.delete(1.0, tk.END)
-                    formats_text.insert(tk.END, f"获取格式信息失败: {e}")
-            
-            # 存储引用以便刷新
-            parent.load_formats = load_formats
-            load_formats()
-            
-        except Exception as e:
-            ttk.Label(parent, text=f"初始化格式页面失败: {e}").pack(pady=20)
     
-    def _init_engines_tab(self, parent):
-        """初始化转换引擎状态页面"""
-        try:
-            # 说明文字
-            ttk.Label(
-                parent,
-                text="文档转换引擎的可用状态检查",
-                font=('Arial', 10)
-            ).pack(pady=(10, 15))
-            
-            # 创建引擎状态显示区域
-            engines_frame = ttk.LabelFrame(parent, text="转换引擎状态", padding="10")
-            engines_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-            
-            # 创建文本显示区域
-            engines_text = scrolledtext.ScrolledText(
-                engines_frame,
-                wrap=tk.WORD,
-                height=20
-            )
-            engines_text.pack(fill=tk.BOTH, expand=True)
-            
-            # 获取并显示引擎状态信息
-            def load_engines():
-                try:
-                    from file_reader import FileReader
-                    reader = FileReader()
-                    engines_status = reader.get_conversion_engines_status()
-                    
-                    engines_text.delete(1.0, tk.END)
-                    engines_text.insert(tk.END, "=== 转换引擎状态检查 ===\n\n")
-                    
-                    for engine_name, status in engines_status.items():
-                        status_icon = "✓" if status['available'] else "✗"
-                        engines_text.insert(tk.END, f"{status_icon} {engine_name}\n")
-                        engines_text.insert(tk.END, f"   状态: {'可用' if status['available'] else '不可用'}\n")
-                        
-                        if 'version' in status:
-                            engines_text.insert(tk.END, f"   版本: {status['version']}\n")
-                        
-                        if 'path' in status:
-                            engines_text.insert(tk.END, f"   路径: {status['path']}\n")
-                        
-                        if 'error' in status:
-                            engines_text.insert(tk.END, f"   错误: {status['error']}\n")
-                        
-                        if 'supported_formats' in status:
-                            formats = ', '.join(status['supported_formats'])
-                            engines_text.insert(tk.END, f"   支持格式: {formats}\n")
-                        
-                        engines_text.insert(tk.END, "\n")
-                    
-                    engines_text.insert(tk.END, "\n=== 说明 ===\n\n")
-                    engines_text.insert(tk.END, "• pypandoc: 基于Pandoc的文档转换工具\n")
-                    engines_text.insert(tk.END, "• LibreOffice: 办公套件，支持多种文档格式转换\n")
-                    engines_text.insert(tk.END, "• unoconv: LibreOffice的命令行转换工具\n")
-                    engines_text.insert(tk.END, "• 至少需要一个引擎可用才能进行文档转换\n")
-                    
-                except Exception as e:
-                    engines_text.delete(1.0, tk.END)
-                    engines_text.insert(tk.END, f"获取引擎状态失败: {e}")
-            
-            # 存储引用以便刷新
-            parent.load_engines = load_engines
-            load_engines()
-            
-        except Exception as e:
-            ttk.Label(parent, text=f"初始化引擎页面失败: {e}").pack(pady=20)
     
-    def _init_install_tab(self, parent):
-        """初始化依赖安装页面"""
-        try:
-            # 说明文字
-            ttk.Label(
-                parent,
-                text="安装文档转换所需的依赖库和工具",
-                font=('Arial', 10)
-            ).pack(pady=(10, 15))
-            
-            # 创建安装选项框架
-            install_options_frame = ttk.LabelFrame(parent, text="安装选项", padding="10")
-            install_options_frame.pack(fill=tk.X, padx=10, pady=5)
-            
-            # pypandoc安装按钮
-            pypandoc_frame = ttk.Frame(install_options_frame)
-            pypandoc_frame.pack(fill=tk.X, pady=5)
-            
-            ttk.Label(
-                pypandoc_frame,
-                text="pypandoc (推荐): 基于Pandoc的Python库，支持多种文档格式转换"
-            ).pack(side=tk.LEFT)
-            
-            ttk.Button(
-                pypandoc_frame,
-                text="安装 pypandoc",
-                command=lambda: self._install_dependency("pypandoc", install_log)
-            ).pack(side=tk.RIGHT, padx=5)
-            
-            # LibreOffice安装说明
-            libreoffice_frame = ttk.Frame(install_options_frame)
-            libreoffice_frame.pack(fill=tk.X, pady=5)
-            
-            ttk.Label(
-                libreoffice_frame,
-                text="LibreOffice: 需要手动下载安装 (https://www.libreoffice.org/)"
-            ).pack(side=tk.LEFT)
-            
-            ttk.Button(
-                libreoffice_frame,
-                text="检查状态",
-                command=lambda: self._check_libreoffice_status(install_log)
-            ).pack(side=tk.RIGHT, padx=5)
-            
-            # 全部安装按钮
-            all_install_frame = ttk.Frame(install_options_frame)
-            all_install_frame.pack(fill=tk.X, pady=10)
-            
-            ttk.Button(
-                all_install_frame,
-                text="一键安装所有依赖",
-                command=lambda: self._install_all_dependencies(install_log)
-            ).pack()
-            
-            # 安装日志显示区域
-            log_frame = ttk.LabelFrame(parent, text="安装日志", padding="10")
-            log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-            
-            install_log = scrolledtext.ScrolledText(
-                log_frame,
-                wrap=tk.WORD,
-                height=15
-            )
-            install_log.pack(fill=tk.BOTH, expand=True)
-            
-            # 初始化日志
-            install_log.insert(tk.END, "=== 依赖安装日志 ===\n\n")
-            install_log.insert(tk.END, "点击上方按钮开始安装依赖...\n")
-            
-        except Exception as e:
-            ttk.Label(parent, text=f"初始化安装页面失败: {e}").pack(pady=20)
+
     
-    def _refresh_conversion_status(self, formats_frame, engines_frame):
-        """刷新转换状态信息"""
-        try:
-            if hasattr(formats_frame, 'load_formats'):
-                formats_frame.load_formats()
-            if hasattr(engines_frame, 'load_engines'):
-                engines_frame.load_engines()
-            self.log_message("转换状态信息已刷新")
-        except Exception as e:
-            self.log_message(f"刷新转换状态失败: {e}")
+
     
-    def _install_dependency(self, package_name, log_widget):
-        """安装指定依赖"""
-        def install_worker():
-            try:
-                log_widget.insert(tk.END, f"\n开始安装 {package_name}...\n")
-                log_widget.see(tk.END)
-                
-                from file_reader import FileReader
-                reader = FileReader()
-                result = reader.install_conversion_dependencies([package_name])
-                
-                if result.get('success', False):
-                    log_widget.insert(tk.END, f"✓ {package_name} 安装成功\n")
-                    for msg in result.get('messages', []):
-                        log_widget.insert(tk.END, f"  {msg}\n")
-                else:
-                    log_widget.insert(tk.END, f"✗ {package_name} 安装失败\n")
-                    for error in result.get('errors', []):
-                        log_widget.insert(tk.END, f"  错误: {error}\n")
-                
-                log_widget.see(tk.END)
-                
-            except Exception as e:
-                log_widget.insert(tk.END, f"✗ 安装 {package_name} 时发生异常: {e}\n")
-                log_widget.see(tk.END)
-        
-        threading.Thread(target=install_worker, daemon=True).start()
+
     
-    def _check_libreoffice_status(self, log_widget):
-        """检查LibreOffice状态"""
-        try:
-            log_widget.insert(tk.END, "\n检查 LibreOffice 状态...\n")
-            log_widget.see(tk.END)
-            
-            from document_converter import get_converter
-            converter = get_converter()
-            status = converter._check_libreoffice()
-            
-            if status['available']:
-                log_widget.insert(tk.END, f"✓ LibreOffice 可用\n")
-                if 'version' in status:
-                    log_widget.insert(tk.END, f"  版本: {status['version']}\n")
-                if 'path' in status:
-                    log_widget.insert(tk.END, f"  路径: {status['path']}\n")
-            else:
-                log_widget.insert(tk.END, f"✗ LibreOffice 不可用\n")
-                if 'error' in status:
-                    log_widget.insert(tk.END, f"  错误: {status['error']}\n")
-                log_widget.insert(tk.END, f"  请从 https://www.libreoffice.org/ 下载安装\n")
-            
-            log_widget.see(tk.END)
-            
-        except Exception as e:
-            log_widget.insert(tk.END, f"✗ 检查 LibreOffice 状态时发生异常: {e}\n")
-            log_widget.see(tk.END)
+
     
-    def _install_all_dependencies(self, log_widget):
-        """安装所有依赖"""
-        def install_worker():
-            try:
-                log_widget.insert(tk.END, "\n开始安装所有依赖...\n")
-                log_widget.see(tk.END)
-                
-                from file_reader import FileReader
-                reader = FileReader()
-                result = reader.install_conversion_dependencies()
-                
-                if result.get('success', False):
-                    log_widget.insert(tk.END, "✓ 依赖安装完成\n")
-                    for msg in result.get('messages', []):
-                        log_widget.insert(tk.END, f"  {msg}\n")
-                else:
-                    log_widget.insert(tk.END, "✗ 部分依赖安装失败\n")
-                    for error in result.get('errors', []):
-                        log_widget.insert(tk.END, f"  错误: {error}\n")
-                
-                log_widget.insert(tk.END, "\n注意: LibreOffice 需要手动安装\n")
-                log_widget.insert(tk.END, "下载地址: https://www.libreoffice.org/\n")
-                log_widget.see(tk.END)
-                
-            except Exception as e:
-                log_widget.insert(tk.END, f"✗ 安装依赖时发生异常: {e}\n")
-                log_widget.see(tk.END)
-        
-        threading.Thread(target=install_worker, daemon=True).start()
+
+    
+
+    
+
     
     def _load_transfer_logs(self, tree):
         """加载转移日志数据"""
@@ -1882,26 +1814,47 @@ class FileOrganizerTabGUI:
             
             # 获取日志管理器
             log_manager = TransferLogManager()
-            logs = log_manager.get_all_logs()
+            log_files = log_manager.get_transfer_logs()
             
-            if not logs:
-                tree.insert("", "end", values=("暂无日志记录", "", "", ""))
+            if not log_files:
+                tree.insert("", "end", values=("暂无日志记录", "", "", "", "", ""))
                 return
             
-            # 按时间倒序排列
-            logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
-            
-            for log in logs:
-                timestamp = log.get('timestamp', 'N/A')
-                session_name = log.get('session_name', 'N/A')
-                file_count = len(log.get('files', []))
-                status = "已完成" if log.get('completed', False) else "进行中"
-                
-                tree.insert("", "end", values=(timestamp, session_name, file_count, status))
+            # 加载每个日志文件的信息
+            for log_file_path in log_files:
+                try:
+                    log_data = log_manager.load_transfer_log(log_file_path)
+                    session_info = log_data.get('session_info', {})
+                    
+                    # 提取信息
+                    start_time = session_info.get('start_time', 'N/A')
+                    if start_time != 'N/A':
+                        # 格式化时间显示
+                        from datetime import datetime
+                        try:
+                            dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                            start_time = dt.strftime('%Y-%m-%d %H:%M:%S')
+                        except:
+                            pass
+                    
+                    session_name = session_info.get('session_name', 'N/A')
+                    total_ops = session_info.get('total_operations', 0)
+                    success_ops = session_info.get('successful_operations', 0)
+                    failed_ops = session_info.get('failed_operations', 0)
+                    
+                    tree.insert("", "end", values=(
+                        start_time, session_name, total_ops, success_ops, failed_ops, log_file_path
+                    ))
+                    
+                except Exception as file_error:
+                    # 如果单个文件加载失败，显示错误信息
+                    tree.insert("", "end", values=(
+                        "文件损坏", os.path.basename(log_file_path), "0", "0", "0", log_file_path
+                    ))
                 
         except Exception as e:
             self.log_message(f"加载转移日志失败: {e}")
-            tree.insert("", "end", values=(f"加载失败: {e}", "", "", ""))
+            tree.insert("", "end", values=(f"加载失败: {e}", "", "", "", "", ""))
     
     def _show_log_details(self, tree):
         """显示选中日志的详细信息"""

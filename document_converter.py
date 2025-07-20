@@ -60,16 +60,11 @@ class DocumentConverter:
         }
         
     def setup_logging(self) -> None:
-        """设置日志记录"""
-        log_filename = f"document_converter_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log_path = os.path.join(os.path.dirname(__file__), "logs", log_filename)
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        
+        """设置日志记录，仅输出到控制台"""
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_path, encoding='utf-8'),
                 logging.StreamHandler()
             ]
         )
