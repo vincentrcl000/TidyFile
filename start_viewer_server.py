@@ -120,18 +120,22 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_json_response({'success': False, 'error': f'处理请求失败: {str(e)}'})
     
     def remove_duplicate_files(self, data):
-        """移除重复文件，只保留每个文件的最新记录"""
+        """移除重复文件，只保留每个文件的最新记录
+        - 本地文件：文件名唯一
+        - 网页链接：文件名+源文件路径唯一
+        """
         file_map = {}
-        
         # 按处理时间排序，最新的在前
         data.sort(key=lambda x: datetime.fromisoformat(x.get('处理时间', '1970-01-01 00:00:00')), reverse=True)
-        
-        # 只保留每个文件的最新记录
         for item in data:
             file_name = item.get('文件名')
-            if file_name and file_name not in file_map:
-                file_map[file_name] = item
-        
+            source_path = item.get('源文件路径', '')
+            if source_path.startswith('http://') or source_path.startswith('https://'):
+                unique_key = f"{file_name}|{source_path}"
+            else:
+                unique_key = file_name
+            if unique_key and unique_key not in file_map:
+                file_map[unique_key] = item
         return list(file_map.values())
     
     def send_json_response(self, data):

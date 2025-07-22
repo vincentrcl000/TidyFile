@@ -12,6 +12,7 @@ python-docx>=0.8.11
 
 # Windows文档转换依赖（可选）
 pywin32>=306; sys_platform == "win32"
+pypandoc>=1.11
 
 # 图像处理依赖
 opencv-python>=4.5.0
@@ -24,6 +25,17 @@ chardet>=5.0.0
 # 日志和配置依赖
 pyyaml>=6.0
 coloredlogs>=15.0
+
+# 网络请求依赖
+requests>=2.28.0
+
+# 微信文章内容抓取与AI摘要依赖
+beautifulsoup4>=4.13.0
+html2text>=2025.4.15
+fake-useragent>=2.2.0
+
+# Markdown渲染依赖
+marked>=1.0.0
 
 # 开发和测试依赖（可选）
 pytest>=7.0.0

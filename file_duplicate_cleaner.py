@@ -19,9 +19,15 @@ def _calc_md5(file_path, chunk_size=65536):
             md5.update(chunk)
     return md5.hexdigest()
 
-def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_session_name: str = None) -> dict:
+def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_session_name: str = None, keep_oldest: bool = True) -> dict:
     """
-    删除指定目标文件夹中的重复文件（文件大小+MD5判断，优先保留创建时间最早的），并写入日志
+    删除指定目标文件夹中的重复文件（文件大小+MD5判断），并写入日志
+    
+    Args:
+        target_folder_path: 目标文件夹路径
+        dry_run: 试运行模式，True为只检查不删除
+        log_session_name: 日志会话名称
+        keep_oldest: 保留策略，True为保留最早的文件，False为保留最新的文件
     """
     try:
         transfer_log_manager = TransferLogManager()
@@ -70,7 +76,11 @@ def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_se
                 hash_map[md5].append(file_info)
             for md5, files in hash_map.items():
                 if md5 and len(files) > 1:
-                    files.sort(key=lambda x: x['ctime'])
+                    # 根据保留策略排序文件
+                    if keep_oldest:
+                        files.sort(key=lambda x: x['ctime'])  # 按创建时间升序，最早的在前
+                    else:
+                        files.sort(key=lambda x: x['ctime'], reverse=True)  # 按创建时间降序，最新的在前
                     duplicate_groups.append({
                         'size': filesize,
                         'md5': md5,

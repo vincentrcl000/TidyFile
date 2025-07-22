@@ -262,6 +262,15 @@
             color: white;
         }
 
+        .clickable-bottom {
+            cursor: pointer;
+        }
+
+        .clickable-bottom:hover {
+            background: #007bff;
+            color: white;
+        }
+
         .timing-info {
             display: flex;
             gap: 15px;
@@ -302,6 +311,16 @@
             padding: 15px;
             border-radius: 10px;
             margin: 20px 0;
+        }
+
+        .web-label {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            background-color: #e3f2fd;
+            color: #1565c0;
+            font-size: 0.85em;
+            vertical-align: middle;
         }
 
         @media (max-width: 768px) {
@@ -468,8 +487,9 @@
 
             // 按处理时间倒序排列（最新的在前）
             validData.sort((a, b) => {
-                const timeA = new Date(a['处理时间'] || '1970-01-01');
-                const timeB = new Date(b['处理时间'] || '1970-01-01');
+                // 兼容“处理时间”或“时间”字段
+                const timeA = new Date(a['处理时间'] || a['时间'] || '1970-01-01');
+                const timeB = new Date(b['处理时间'] || b['时间'] || '1970-01-01');
                 return timeB - timeA;
             });
 
@@ -532,12 +552,24 @@
 
         // 绑定点击事件到可点击的路径元素
         function bindClickEvents() {
-            document.querySelectorAll('.clickable-path').forEach(element => {
+            // 绑定头部点击事件
+            document.querySelectorAll('.clickable-header').forEach(element => {
                 element.addEventListener('click', function() {
                     const fileItem = this.closest('.file-item');
-                    const filePath = fileItem.getAttribute('data-file-path');
-                    if (filePath) {
-                        openFile(filePath);
+                    const headerPath = fileItem.getAttribute('data-header-path');
+                    if (headerPath) {
+                        openFile(headerPath);
+                    }
+                });
+            });
+            
+            // 绑定底部点击事件
+            document.querySelectorAll('.clickable-bottom').forEach(element => {
+                element.addEventListener('click', function() {
+                    const fileItem = this.closest('.file-item');
+                    const bottomPath = fileItem.getAttribute('data-bottom-path');
+                    if (bottomPath) {
+                        openFile(bottomPath);
                     }
                 });
             });
@@ -568,53 +600,69 @@
         }
 
         function createFileItemHTML(item) {
-            const status = item['处理状态'] || '未知';
+            const status = 'AI已生成摘要'; // 只要有摘要都显示AI已生成摘要
             const statusClass = getStatusClass(status);
             const itemClass = getItemClass(status);
-            const displayStatus = getDisplayStatus(status);
+            const displayStatus = status;
             
-            const fileName = item['文件名'] || '未知文件';
-            const summary = item['文件摘要'] || '无摘要';
-            const sourcePath = item['源文件路径'] || '';
+            // 兼容文件名和文章标题
+            const fileName = item['文件名'] || item['文章标题'] || '文章标题';
+            // 兼容文件摘要和文章摘要
+            const summary = item['文章摘要'] || item['文件摘要'] || '无摘要';
+            
+            // 头部链接：本地文件指向最终目标路径，网络文章指向源文件路径
+            const headerLink = isWebUrl(item['源文件路径'] || '') ? 
+                (item['源文件路径'] || '') : 
+                (item['最终目标路径'] || item['源文件路径'] || '');
+            // 底部链接显示最终目标路径
+            const bottomLink = item['最终目标路径'] || item['源文件路径'] || '';
             
             // 生成唯一ID用于事件绑定
             const itemId = 'item_' + Math.random().toString(36).substr(2, 9);
+            
+            // 判断头部链接是否为网页链接
+            const isHeaderWebLink = isWebUrl(headerLink);
+            const isBottomWebLink = isWebUrl(bottomLink);
+            
+            const fileIcon = isHeaderWebLink ? '🌐' : '📄';
+            const headerPathIcon = isHeaderWebLink ? '🔗' : '📁';
+            const bottomPathIcon = isBottomWebLink ? '🔗' : '📁';
+            
+            const headerOpenTitle = isHeaderWebLink ? '点击在新标签页打开链接' : '点击打开文件';
+            const bottomOpenTitle = isBottomWebLink ? '点击在新标签页打开链接' : '点击打开文件';
+            
+            // 网页标识
+            const webTag = isHeaderWebLink ? '<span class="web-label" style="background:#e3f2fd;color:#1565c0;border-radius:12px;padding:2px 10px;margin-left:8px;font-size:0.85em;vertical-align:middle;">🌐 网页</span>' : '';
 
             return `
-                <div class="file-item ${itemClass}" id="${itemId}" data-file-path="${sourcePath}">
+                <div class="file-item ${itemClass}" id="${itemId}" data-header-path="${headerLink}" data-bottom-path="${bottomLink}">
                     <div class="file-header">
-                        <div class="file-name clickable-path" title="点击打开文件">
-                            📄 ${fileName}
+                        <div class="file-name clickable-header" title="${headerOpenTitle}">
+                            ${fileIcon} ${fileName}
                         </div>
-                        <div class="file-status ${statusClass}">${displayStatus}</div>
+                        <div class="file-status ${statusClass}">${displayStatus}${webTag}</div>
                     </div>
                     
                     ${summary ? `<div class="file-summary" onclick="toggleSummary(this)" title="点击展开/收起完整摘要">📝 ${summary}</div>` : ''}
                     
-                    ${sourcePath ? `<div class="file-path clickable-path" title="点击打开文件">📁 ${sourcePath}</div>` : ''}
+                    ${bottomLink ? `<div class="file-path clickable-bottom" title="${bottomOpenTitle}">${bottomPathIcon} ${bottomLink}</div>` : ''}
                 </div>
             `;
         }
 
         function getStatusClass(status) {
-            if (status.includes('成功')) return 'status-success';
-            if (status.includes('失败')) return 'status-failed';
-            if (status.includes('试运行')) return 'status-dry-run';
-            return 'status-failed';
+            // 统一返回成功状态样式
+            return 'status-success';
         }
 
         function getDisplayStatus(status) {
-            if (status.includes('成功')) return 'AI已生成摘要';
-            if (status.includes('失败')) return '处理失败';
-            if (status.includes('试运行')) return '试运行';
-            return status;
+            // 统一显示AI已生成摘要
+            return 'AI已生成摘要';
         }
 
         function getItemClass(status) {
-            if (status.includes('成功')) return 'success';
-            if (status.includes('失败')) return 'failed';
-            if (status.includes('试运行')) return 'dry-run';
-            return 'failed';
+            // 统一返回成功样式
+            return 'success';
         }
 
         function updateStats() {
@@ -646,8 +694,33 @@
         function openFile(filePath) {
             if (!filePath) return;
             
-            // 调用本地命令行打开文件
-            openWithCommandLine(filePath);
+            // 检查是否为网页链接
+            if (isWebUrl(filePath)) {
+                // 网页链接：在新标签页中打开
+                window.open(filePath, '_blank');
+            } else if (filePath.endsWith('.json') && filePath.includes('weixin_articles')) {
+                // 微信文章JSON文件：使用静态HTML渲染
+                openWeixinArticle(filePath);
+            } else {
+                // 本地文件：调用本地命令行打开文件
+                openWithCommandLine(filePath);
+            }
+        }
+        
+        function openWeixinArticle(jsonFilePath) {
+            // 直接传递文件路径给渲染器
+            const rendererUrl = `weixin_article_renderer.html?file=${encodeURIComponent(jsonFilePath)}`;
+            
+            // 在新标签页中打开渲染器
+            window.open(rendererUrl, '_blank');
+        }
+        
+
+        
+        function isWebUrl(path) {
+            // 检查是否为网页链接（http/https协议）
+            return path && (path.startsWith('http://') || path.startsWith('https://') || 
+                           path.startsWith('www.') || path.includes('://'));
         }
         
         function openWithCommandLine(filePath) {

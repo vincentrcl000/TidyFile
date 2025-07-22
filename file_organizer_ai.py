@@ -20,7 +20,7 @@ class FileOrganizerError(Exception):
     pass
 
 class OllamaClient:
-    def __init__(self, model_name: Optional[str] = None, host: str = "http://localhost:11434"):
+    def __init__(self, model_name: str = None, host: str = "http://localhost:11434"):
         self.model_name = model_name
         self.host = host
         self.client = ollama.Client(host=host)
@@ -79,13 +79,42 @@ class OllamaClient:
                                 self.available_models.append(model_str)
                         else:
                             self.available_models.append(model_str)
+            
+            # 选择模型 - 优先使用qwen3系列模型
             if not self.available_models:
                 raise FileOrganizerError("没有可用的模型，请先拉取模型")
-            if self.model_name is None or self.model_name not in self.available_models:
-                if self.model_name is not None:
-                    logging.warning(f"模型 {self.model_name} 不可用，使用 {self.available_models[0]}")
-                self.model_name = self.available_models[0]
-                logging.info(f"自动选择模型: {self.model_name}")
+            
+            if self.model_name and self.model_name in self.available_models:
+                logging.info(f"使用指定模型: {self.model_name}")
+            else:
+                # 自动选择模型：优先qwen3系列，其次deepseek系列，最后其他模型
+                preferred_models = []
+                
+                # 查找qwen3系列模型
+                qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
+                if qwen3_models:
+                    preferred_models.extend(qwen3_models)
+                    logging.info(f"找到qwen3系列模型: {qwen3_models}")
+                
+                # 查找deepseek系列模型
+                deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
+                if deepseek_models:
+                    preferred_models.extend(deepseek_models)
+                    logging.info(f"找到deepseek系列模型: {deepseek_models}")
+                
+                # 添加其他可用模型
+                other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
+                preferred_models.extend(other_models)
+                
+                if preferred_models:
+                    self.model_name = preferred_models[0]
+                    if self.model_name is not None:
+                        logging.warning(f"模型 {self.model_name} 不可用，自动选择: {self.model_name}")
+                    logging.info(f"自动选择模型: {self.model_name}")
+                else:
+                    self.model_name = self.available_models[0]
+                    logging.info(f"使用默认模型: {self.model_name}")
+            
             logging.info(f"成功连接到 Ollama，使用模型: {self.model_name}")
             logging.info(f"可用模型列表: {self.available_models}")
         except Exception as e:
@@ -123,24 +152,24 @@ class OllamaClient:
         raise FileOrganizerError(f"所有可用模型都响应失败，最后错误: {last_error}")
 
 class FileOrganizer:
-    def __init__(self, model_name: Optional[str] = None, enable_transfer_log: bool = True):
+    def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
         self.model_name = model_name
         self.ollama_client = None
         self.enable_transfer_log = enable_transfer_log
         self.transfer_log_manager = None
-        
-        # AI参数设置
-        self.summary_length = 100  # 摘要长度，默认100字符
-        self.content_truncate = 500  # 内容截取，默认500字符
+        self.setup_logging()
         
         if self.enable_transfer_log:
-            try:
-                self.transfer_log_manager = TransferLogManager()
-                logging.info("转移日志管理器初始化成功")
-            except Exception as e:
-                logging.warning(f"转移日志管理器初始化失败: {e}")
-                self.enable_transfer_log = False
-        self.setup_logging()
+            self.transfer_log_manager = TransferLogManager()
+        
+        # 初始化AI参数
+        self.ai_parameters = {
+            'similarity_threshold': 0.7,
+            'max_retries': 3,
+            'content_extraction_length': 3000,
+            'summary_length': 200,
+            'classification_prompt_template': None
+        }
     def setup_logging(self) -> None:
         """设置日志配置，仅输出到控制台"""
         logging.basicConfig(
@@ -220,7 +249,7 @@ class FileOrganizer:
             logging.info(f"文件内容提取完成，长度: {len(extracted_content)} 字符，耗时: {extract_time}秒")
             
             # 根据设置截取内容用于后续AI处理，提高处理效率
-            truncate_length = self.content_truncate if self.content_truncate < 2000 else len(extracted_content)
+            truncate_length = self.ai_parameters['content_extraction_length'] if self.ai_parameters['content_extraction_length'] < 2000 else len(extracted_content)
             content_for_ai = extracted_content[:truncate_length] if extracted_content else ""
             if len(extracted_content) > truncate_length:
                 logging.info(f"内容已截取至前{truncate_length}字符用于AI处理（原长度: {len(extracted_content)} 字符）")
@@ -515,7 +544,7 @@ class FileOrganizer:
                 self.initialize_ollama()
             
             # 使用传入的摘要长度，如果没有则使用默认值
-            target_length = summary_length if summary_length is not None else self.summary_length
+            target_length = summary_length if summary_length is not None else self.ai_parameters['summary_length']
             
             # 构建更明确的提示词，避免思考过程输出
             prompt = f"""请为以下文件内容生成一个{target_length}字以内的中文摘要。
@@ -1199,13 +1228,13 @@ class FileOrganizer:
             # 不再在内存中保存完整的ai_results列表，只保存必要的迁移信息
             migration_queue = []  # 只保存源路径和目标路径的简单信息
             
-            # 确保AI结果文件存在
+            # 确保AI结果文件存在，但不清空现有内容
             if not os.path.exists(ai_result_file):
                 with open(ai_result_file, 'w', encoding='utf-8') as f:
                     json.dump([], f, ensure_ascii=False, indent=2)
                 logging.info(f"创建新的AI结果文件: {ai_result_file}")
             else:
-                logging.info(f"AI结果文件已存在: {ai_result_file}")
+                logging.info(f"AI结果文件已存在，将追加新记录: {ai_result_file}")
             logging.info(f"开始安全文件整理，共 {len(files)} 个文件")
             print(f"\n=== 开始AI智能文件整理 ===")
             print(f"源目录: {source_directory if source_directory else '指定文件列表'}")
@@ -1242,38 +1271,30 @@ class FileOrganizer:
                         'success': success
                     })
                     
-                    # 实时保存AI分析结果到JSON文件（追加模式）
-                    try:
-                        
-                        # 构建AI结果项
-                        ai_result_item = {
-                            "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            "文件名": filename,
-                            "源文件路径": file_path,
-                            "文件摘要": analysis_result.get('content_summary', ''),
-                            "最匹配的目标目录": analysis_result.get('recommended_folder', ''),
-                            "匹配理由": analysis_result.get('match_reason', ''),
-                            "处理耗时信息": {
-                                "总耗时(秒)": analysis_result.get('timing_info', {}).get('total_processing_time', 0),
-                                "内容提取耗时(秒)": analysis_result.get('timing_info', {}).get('content_extraction_time', 0),
-                                "摘要生成耗时(秒)": analysis_result.get('timing_info', {}).get('summary_generation_time', 0),
-                                "目录推荐耗时(秒)": analysis_result.get('timing_info', {}).get('folder_recommendation_time', 0)
-                            }
+                    # 构建AI结果项（基础信息）
+                    ai_result_item = {
+                        "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "文件名": filename,
+                        "源文件路径": file_path,
+                        "文件摘要": analysis_result.get('content_summary', ''),
+                        "最匹配的目标目录": analysis_result.get('recommended_folder', ''),
+                        "匹配理由": analysis_result.get('match_reason', ''),
+                        "处理耗时信息": {
+                            "总耗时(秒)": analysis_result.get('timing_info', {}).get('total_processing_time', 0),
+                            "内容提取耗时(秒)": analysis_result.get('timing_info', {}).get('content_extraction_time', 0),
+                            "摘要生成耗时(秒)": analysis_result.get('timing_info', {}).get('summary_generation_time', 0),
+                            "目录推荐耗时(秒)": analysis_result.get('timing_info', {}).get('folder_recommendation_time', 0)
                         }
-                        
-                        # 追加到文件（避免在内存中保存大量数据）
-                        self._append_ai_result_to_file(ai_result_file, ai_result_item)
-                        
-                        # 只保存必要的迁移信息到内存队列
-                        migration_queue.append({
-                            'source_path': file_path,
-                            'target_folder': target_folder,
-                            'filename': filename,
-                            'match_reason': match_reason
-                        })
-                        
-                    except Exception as e:
-                        logging.warning(f"实时保存AI结果失败: {e}")
+                    }
+                    
+                    # 保存到迁移队列，等待迁移成功后写入完整信息
+                    migration_queue.append({
+                        'source_path': file_path,
+                        'target_folder': target_folder,
+                        'filename': filename,
+                        'match_reason': match_reason,
+                        'ai_result_item': ai_result_item
+                    })
                     
                     if not success or not target_folder:
                         error_msg = f"文件 {filename} 分类失败: {match_reason}，已跳过，未做任何处理"
@@ -1286,12 +1307,14 @@ class FileOrganizer:
                             'error': error_msg
                         })
                         
-                        # 更新AI结果项的失败状态
+                        # 更新迁移队列中最后一项的失败状态并立即写入
                         if migration_queue:
-                            self._update_last_ai_result(ai_result_file, {
+                            migration_queue[-1]['ai_result_item'].update({
                                 "处理状态": "分类失败",
                                 "错误信息": match_reason
                             })
+                            # 立即写入失败记录
+                            self._append_ai_result_to_file(ai_result_file, migration_queue[-1]['ai_result_item'])
                         
                         continue
                     
@@ -1354,13 +1377,17 @@ class FileOrganizer:
                                 logging.info(f"文件安全{operation_cn}成功: {filename} -> {target_folder} ({match_reason})")
                                 results['successful_moves'] += 1
                                 
-                                # 更新AI结果项的最终路径
-                                if migration_queue:
-                                    self._update_last_ai_result(ai_result_file, {
-                                        "最终目标路径": str(target_file_path),
-                                        "操作类型": operation_cn,
-                                        "处理状态": "成功"
-                                    })
+                                # 更新迁移队列中对应项的最终路径并立即写入
+                                for queue_item in migration_queue:
+                                    if queue_item['source_path'] == file_path:
+                                        queue_item['ai_result_item'].update({
+                                            "最终目标路径": str(target_file_path),
+                                            "操作类型": operation_cn,
+                                            "处理状态": "成功"
+                                        })
+                                        # 立即写入成功记录
+                                        self._append_ai_result_to_file(ai_result_file, queue_item['ai_result_item'])
+                                        break
                             else:
                                 error_msg = f"文件{operation_cn}验证失败: {filename}"
                                 logging.error(error_msg)
@@ -1387,13 +1414,17 @@ class FileOrganizer:
                         logging.info(f"[试运行] 文件将{operation_cn}: {filename} -> {target_folder} ({match_reason})")
                         results['successful_moves'] += 1
                         
-                        # 试运行模式下更新AI结果项
-                        if migration_queue:
-                            self._update_last_ai_result(ai_result_file, {
-                                "最终目标路径": str(target_file_path),
-                                "操作类型": operation_cn,
-                                "处理状态": "试运行成功"
-                            })
+                        # 试运行模式下更新迁移队列中对应项并立即写入
+                        for queue_item in migration_queue:
+                            if queue_item['source_path'] == file_path:
+                                queue_item['ai_result_item'].update({
+                                    "最终目标路径": str(target_file_path),
+                                    "操作类型": operation_cn,
+                                    "处理状态": "试运行成功"
+                                })
+                                # 立即写入试运行记录
+                                self._append_ai_result_to_file(ai_result_file, queue_item['ai_result_item'])
+                                break
                     if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                         try:
                             file_size_raw = file_info.get('size', 0)
@@ -1460,9 +1491,9 @@ class FileOrganizer:
             print(f"总耗时: {duration:.1f} 秒")
             print("=" * 50)
             
-            # AI结果已在处理过程中实时保存
+            # AI结果已在处理过程中实时写入
             results['ai_result_file'] = ai_result_file
-            logging.info(f"AI分析结果已实时保存到: {ai_result_file}")
+            logging.info(f"AI分析结果已实时写入: {ai_result_file}")
             
             if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                 try:
@@ -1472,6 +1503,11 @@ class FileOrganizer:
                     logging.warning(f"结束转移日志会话失败: {e}")
             
             logging.info(f"安全文件整理完成: 成功 {results['successful_moves']}, 失败 {results['failed_moves']}, 跳过 {results['skipped_files']}")
+            
+            # 删除源文件功能已移至GUI界面，不再在控制台询问
+            if not dry_run and results['successful_moves'] > 0:
+                logging.info(f"成功处理 {results['successful_moves']} 个文件，删除源文件功能请在GUI界面使用")
+            
             return results
         except Exception as e:
             raise FileOrganizerError(f"批量整理文件失败: {e}")
@@ -1556,6 +1592,11 @@ class FileOrganizer:
                     
         except Exception as e:
             logging.error(f"更新AI结果文件失败: {e}")
+
+    # def _ask_delete_source_files(self, successful_moves: List[Dict]) -> None:
+    #     """询问用户是否删除源文件 - 已移至GUI界面，此方法不再使用"""
+    #     # 删除源文件功能已移至GUI界面，不再在控制台询问
+    #     pass
 
     def get_file_summary(self, file_path: str, max_length: int = 50, max_pages: int = 2, max_seconds: int = 10) -> str:
         """
@@ -1665,6 +1706,10 @@ class FileOrganizer:
                 with open(ai_result_file, 'w', encoding='utf-8') as f:
                     json.dump([], f, ensure_ascii=False, indent=2)
                 logging.info(f"创建新的AI结果文件: {ai_result_file}")
+            else:
+                logging.info(f"AI结果文件已存在，将追加新记录: {ai_result_file}")
+            
+
             
             logging.info(f"开始批量文档解读，共 {len(document_files)} 个文件")
             print(f"\n=== 开始批量文档解读 ===")
@@ -1693,7 +1738,7 @@ class FileOrganizer:
                     extract_time = round(time.time() - extract_start, 3)
                     
                     # 根据设置截取内容用于AI处理
-                    truncate_length = self.content_truncate if self.content_truncate < 2000 else len(extracted_content)
+                    truncate_length = self.ai_parameters['content_extraction_length'] if self.ai_parameters['content_extraction_length'] < 2000 else len(extracted_content)
                     content_for_ai = extracted_content[:truncate_length] if extracted_content else ""
                     
                     print(f"\r  📖 正在生成摘要...", end="", flush=True)

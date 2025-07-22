@@ -77,7 +77,8 @@ class FileReader:
         self.multimodal_models = ['llava', 'llava-llama3', 'llava-phi3', 'moondream', 
                                  'bakllava', 'llama3.2-vision', 'qwen2-vl', 'qwen-vl',
                                  'gemma3-vision', 'minicpm-v', 'cogvlm2', 'llava:7b', 
-                                 'llava:13b', 'llava:34b', 'bakllava:7b']
+                                 'llava:13b', 'llava:34b', 'bakllava:7b', 'qwen3:0.6b',
+                                 'deepseek-r1:8b']
         self.setup_logging()
         
     def setup_logging(self) -> None:
@@ -128,14 +129,37 @@ class FileReader:
             if not self.available_models:
                 raise FileReaderError("没有找到可用的模型，请确保已下载至少一个模型")
             
-            # 选择模型
+            # 选择模型 - 优先使用qwen3系列模型
             if self.model_name and self.model_name in self.available_models:
                 logging.info(f"使用指定模型: {self.model_name}")
             else:
-                if self.model_name is not None:
-                    logging.warning(f"模型 {self.model_name} 不可用，使用 {self.available_models[0]}")
-                self.model_name = self.available_models[0]
-                logging.info(f"自动选择模型: {self.model_name}")
+                # 自动选择模型：优先qwen3系列，其次deepseek系列，最后其他模型
+                preferred_models = []
+                
+                # 查找qwen3系列模型
+                qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
+                if qwen3_models:
+                    preferred_models.extend(qwen3_models)
+                    logging.info(f"找到qwen3系列模型: {qwen3_models}")
+                
+                # 查找deepseek系列模型
+                deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
+                if deepseek_models:
+                    preferred_models.extend(deepseek_models)
+                    logging.info(f"找到deepseek系列模型: {deepseek_models}")
+                
+                # 添加其他可用模型
+                other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
+                preferred_models.extend(other_models)
+                
+                if preferred_models:
+                    self.model_name = preferred_models[0]
+                    if self.model_name is not None:
+                        logging.warning(f"模型 {self.model_name} 不可用，自动选择: {self.model_name}")
+                    logging.info(f"自动选择模型: {self.model_name}")
+                else:
+                    self.model_name = self.available_models[0]
+                    logging.info(f"使用默认模型: {self.model_name}")
             
             logging.info(f"成功连接到 Ollama，使用模型: {self.model_name}")
             logging.info(f"可用模型列表: {self.available_models}")
@@ -363,7 +387,7 @@ class FileReader:
                 return "图像文件读取失败或转换base64失败"
             
             # 构建多模态提示词
-            prompt = f"请仔细分析这张图片的内容，并生成一个不超过{max_summary_length}字的详细摘要。请描述图片中的主要内容、对象、场景、文字信息等关键信息。如果是文档图片，请提取其中的文字内容。"
+            prompt = f"请仔细分析这张图片的内容，并生成一个不超过{max_summary_length}字的详细摘要。请描述图片中的主要内容、对象、场景、文字信息等关键信息。如果是文档图片，请提取其中的文字内容。/no_think"
             
             # 调用多模态模型 - 按照官方文档格式
             logging.info(f"使用多模态模型 {self.model_name} 分析图像: {file_path_obj.name}")
@@ -387,6 +411,8 @@ class FileReader:
                 if 'message' in response and 'content' in response['message']:
                     content = response['message']['content'].strip()
                     if content:
+                        # 立即清理AI响应中的<think>标签
+                        content = self._clean_ai_response(content)
                         logging.info(f"多模态模型分析成功，内容长度: {len(content)}")
                         return content
                     else:
@@ -531,8 +557,79 @@ class FileReader:
 {file_content}
 
 请直接输出摘要，不要包含其他说明文字：
+
+/no_think
 """
         return prompt
+    
+    def _clean_ai_response(self, response: str) -> str:
+        """清理AI响应中的思考过程"""
+        if not response:
+            return response
+        
+        # 清理可能的思考过程标签和内容
+        response = response.replace('<think>', '').replace('</think>', '').strip()
+        
+        # 移除常见的思考过程开头
+        think_prefixes = [
+            '好的，', '好，', '嗯，', '我来', '我需要', '首先，', '让我', '现在我要',
+            '用户希望', '用户要求', '用户让我', '根据', '基于', '考虑到', '让我先仔细看看',
+            '用户给了我这个查询', '用户给了我这个任务', '用户给了一个任务',
+            '首先，我得看一下', '首先，我要理解', '首先，我得仔细看看',
+            '好的，用户让我', '用户让我生成', '内容来自文件', '重点包括', '首先，我需要确认'
+        ]
+        
+        # 更激进的清理：移除所有以思考过程开头的句子
+        lines = response.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 检查是否以思考过程开头
+            is_think_line = False
+            for prefix in think_prefixes:
+                if line.lower().startswith(prefix.lower()):
+                    is_think_line = True
+                    break
+            
+            # 如果不是思考过程，保留这一行
+            if not is_think_line:
+                cleaned_lines.append(line)
+        
+        # 如果清理后没有内容，尝试更简单的方法
+        if not cleaned_lines:
+            # 找到第一个不是思考过程的句子
+            sentences = response.split('。')
+            for sentence in sentences:
+                sentence = sentence.strip()
+                if not sentence:
+                    continue
+                
+                # 检查是否以思考过程开头
+                is_think_sentence = False
+                for prefix in think_prefixes:
+                    if sentence.lower().startswith(prefix.lower()):
+                        is_think_sentence = True
+                        break
+                
+                if not is_think_sentence:
+                    cleaned_lines.append(sentence)
+                    break
+        
+        # 如果还是没有内容，使用原始响应的最后一部分
+        if not cleaned_lines:
+            # 取最后100个字符
+            response = response[-100:] if len(response) > 100 else response
+            return response
+        
+        # 重新组合清理后的内容
+        if cleaned_lines:
+            response = '\n'.join(cleaned_lines)
+        
+        return response.strip()
     
     def _chat_with_retry(self, messages: list, max_retries: int = 3, images: List[str] = None) -> str:
         """
@@ -573,7 +670,10 @@ class FileReader:
                     logging.info(f"模型切换: {self.model_name} -> {model_name}")
                     self.model_name = model_name
                 
-                return response['message']['content'].strip()
+                # 立即清理AI响应中的<think>标签
+                content = response['message']['content'].strip()
+                content = self._clean_ai_response(content)
+                return content
                 
             except Exception as e:
                 last_error = e
