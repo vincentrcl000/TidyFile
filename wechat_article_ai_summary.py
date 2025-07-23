@@ -57,6 +57,7 @@ from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 import html2text
 import argparse
+import markdown  # 新增：用于Markdown转HTML
 
 # --- 配置 ---
 ARTICLE_JSON = Path("weixin_manager/weixin_article.json")
@@ -211,6 +212,47 @@ def save_article_to_file(article_data: dict) -> str:
     save_json(file_path, article_json)
     return str(file_path)
 
+def save_article_to_html(article_data: dict) -> str:
+    """
+    保存文章内容为HTML文件（渲染Markdown为HTML）
+    :param article_data: dict, 包含title, author, publish_time, content, url等
+    :return: str, 保存的HTML文件路径
+    """
+    # 文件级注释：确保目录存在
+    ARTICLES_DIR.mkdir(parents=True, exist_ok=True)
+    # 变量级注释：生成安全的文件名
+    safe_filename = safe_title(article_data['title'])
+    if not safe_filename:
+        safe_filename = "无标题文章"
+    # 变量级注释：生成文件名（添加时间戳避免重名）
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"{safe_filename}_{timestamp}.html"
+    file_path = ARTICLES_DIR / filename
+    # 变量级注释：渲染Markdown为HTML
+    try:
+        html_content = markdown.markdown(article_data['content'], extensions=['extra', 'codehilite', 'tables'])
+    except Exception as e:
+        html_content = f"<pre>Markdown 渲染失败: {e}</pre>\n<pre>{article_data['content']}</pre>"
+    # 变量级注释：读取HTML模板
+    try:
+        template_path = Path('weixin_article_template.html')
+        template = template_path.read_text(encoding='utf-8')
+    except Exception as e:
+        raise RuntimeError(f"无法读取模板文件: {e}")
+    # 变量级注释：填充模板变量
+    html = template.replace('{{TITLE}}', article_data['title']) \
+                  .replace('{{AUTHOR}}', article_data['author']) \
+                  .replace('{{PUBLISH_TIME}}', article_data['publish_time']) \
+                  .replace('{{SAVED_TIME}}', datetime.now().strftime('%Y-%m-%d %H:%M:%S')) \
+                  .replace('{{CONTENT}}', html_content) \
+                  .replace('{{ORIGINAL_LINK}}', f'<a href="{article_data["url"]}" target="_blank">原文链接</a>' if article_data.get('url') else '')
+    # 变量级注释：保存HTML文件
+    try:
+        file_path.write_text(html, encoding='utf-8')
+    except Exception as e:
+        raise RuntimeError(f"无法保存HTML文件: {e}")
+    return str(file_path)
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--summary_length', type=int, default=200, help='AI摘要长度')
@@ -257,7 +299,8 @@ def main():
         # 保存文章内容到本地文件
         try:
             local_file_path = save_article_to_file(article_data)
-            print(f"[保存] 文章内容已保存到：{local_file_path}")
+            html_file_path = save_article_to_html(article_data)  # 新增：保存为HTML
+            print(f"[保存] 文章内容已保存到：{local_file_path}，HTML：{html_file_path}")
         except Exception as e:
             print(f"[错误] 保存文章失败：{e}")
             continue

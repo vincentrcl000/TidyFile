@@ -7,6 +7,7 @@
 
 import ttkbootstrap as tb
 from ttkbootstrap.constants import *
+import tkinter as tk
 from tkinter import filedialog, messagebox, Listbox, ttk
 from ttkbootstrap.scrolled import ScrolledText
 import threading
@@ -580,21 +581,23 @@ class FileOrganizerTabGUI:
         )
         self.duplicate_button.pack(side=LEFT, padx=5)
         
-        # 文件恢复按钮（第二个）
-        self.restore_button = tb.Button(
-            tools_button_frame,
-            text="文件恢复",
-            command=self.show_restore_dialog
-        )
-        self.restore_button.pack(side=LEFT, padx=5)
+
         
-        # 日志按钮（第三个，重命名为"日志"）
+        # 日志按钮（第二个）
         self.log_button = tb.Button(
             tools_button_frame,
             text="日志",
             command=self.show_transfer_logs
         )
         self.log_button.pack(side=LEFT, padx=5)
+        
+        # 分类规则管理按钮
+        self.classification_rules_button = tb.Button(
+            tools_button_frame,
+            text="分类规则管理",
+            command=self.show_classification_rules_manager
+        )
+        self.classification_rules_button.pack(side=LEFT, padx=5)
         
     def update_summary_label(self, *args):
         """更新摘要长度标签"""
@@ -1406,100 +1409,7 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda: self.log_message(f"显示转移日志失败: {error_msg}"))
             self.root.after(0, lambda: messagebox.showerror("错误", f"显示转移日志失败: {error_msg}"))
         
-    def show_restore_dialog(self):
-        """显示文件恢复对话框"""
-        try:
-            # 检查转移日志功能是否可用
-            if not self.ai_organizer.enable_transfer_log:
-                messagebox.showwarning("功能不可用", "转移日志功能未启用，无法进行文件恢复")
-                return
-            
-            # 获取日志文件列表
-            log_files = self.ai_organizer.get_transfer_logs()
-            
-            if not log_files:
-                messagebox.showinfo("提示", "没有找到转移日志文件")
-                return
-            
-            # 创建恢复对话框
-            restore_window = tb.Toplevel(self.root)
-            restore_window.title("文件恢复")
-            restore_window.geometry("600x400")
-            restore_window.transient(self.root)
-            restore_window.grab_set()
-            
-            # 创建主框架
-            main_frame = tb.Frame(restore_window, padding="10")
-            main_frame.pack(fill=tb.BOTH, expand=True)
-            
-            # 标题
-            tb.Label(
-                main_frame,
-                text="选择要恢复的转移日志",
-                font=('Arial', 12, 'bold')
-            ).pack(pady=(0, 10))
-            
-            # 日志选择列表
-            list_frame = tb.Frame(main_frame)
-            list_frame.pack(fill=tb.BOTH, expand=True, pady=(0, 10))
-            
-            # 创建列表框
-            log_listbox = Listbox(list_frame, height=15)
-            log_listbox.pack(side=tb.LEFT, fill=tb.BOTH, expand=True)
-            
-            # 添加滚动条
-            scrollbar = tb.Scrollbar(list_frame, orient=tb.VERTICAL, command=log_listbox.yview)
-            log_listbox.configure(yscrollcommand=scrollbar.set)
-            scrollbar.pack(side=tb.RIGHT, fill=tb.Y)
-            
-            # 加载日志文件
-            log_data = []
-            for log_file in log_files:
-                try:
-                    summary = self.ai_organizer.get_transfer_log_summary(log_file)
-                    session_info = summary['session_info']
-                    
-                    # 格式化显示文本
-                    display_text = f"{session_info.get('session_name', '未知')} - {session_info.get('start_time', '未知')[:16]} (成功: {session_info.get('successful_operations', 0)})"
-                    log_listbox.insert(tb.END, display_text)
-                    log_data.append(log_file)
-                    
-                except Exception as e:
-                    self.root.after(0, lambda err=e: self.log_message(f"解析日志文件失败 {log_file}: {err}"))
-                    continue
-            
-            # 按钮框架
-            button_frame = tb.Frame(main_frame)
-            button_frame.pack(fill=tb.X)
-            
-            def restore_selected():
-                selection = log_listbox.curselection()
-                if not selection:
-                    messagebox.showwarning("提示", "请先选择一个日志记录")
-                    return
-                
-                selected_log = log_data[selection[0]]
-                restore_window.destroy()
-                
-                # 执行恢复
-                self._execute_restore(selected_log)
-            
-            tb.Button(
-                button_frame,
-                text="恢复选中的日志",
-                command=restore_selected
-            ).pack(side=tb.LEFT, padx=5)
-            
-            tb.Button(
-                button_frame,
-                text="取消",
-                command=restore_window.destroy
-            ).pack(side=tb.RIGHT, padx=5)
-            
-        except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"显示恢复对话框失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示恢复对话框失败: {err}"))
-        
+
     def show_duplicate_removal_dialog(self):
         """显示重复文件删除对话框"""
         try:
@@ -1534,9 +1444,22 @@ class FileOrganizerTabGUI:
             
             tb.Label(folder_frame, text="目标文件夹:").pack(anchor=tb.W)
             
-            folder_var = tb.StringVar()
-            folder_entry = tb.Entry(folder_frame, textvariable=folder_var, width=50)
-            folder_entry.pack(side=tb.LEFT, fill=tb.X, expand=True, padx=(0, 5))
+            # 文件夹列表框架
+            folder_list_frame = tb.Frame(folder_frame)
+            folder_list_frame.pack(fill=tb.X, pady=(5, 0))
+            
+            # 文件夹列表
+            folder_listbox = tk.Listbox(folder_list_frame, height=4, selectmode=tk.EXTENDED)
+            folder_listbox.pack(side=tb.LEFT, fill=tb.X, expand=True, padx=(0, 5))
+            
+            # 滚动条
+            folder_scrollbar = ttk.Scrollbar(folder_list_frame, orient="vertical", command=folder_listbox.yview)
+            folder_listbox.configure(yscrollcommand=folder_scrollbar.set)
+            folder_scrollbar.pack(side=tb.RIGHT, fill=tb.Y)
+            
+            # 按钮框架
+            folder_button_frame = tb.Frame(folder_frame)
+            folder_button_frame.pack(fill=tb.X, pady=(5, 0))
             
             def select_folder():
                 directory = filedialog.askdirectory(
@@ -1544,9 +1467,22 @@ class FileOrganizerTabGUI:
                     initialdir=self.target_directory.get() or os.path.expanduser("~")
                 )
                 if directory:
-                    folder_var.set(directory)
+                    # 检查是否已经添加过
+                    if directory not in folder_listbox.get(0, tk.END):
+                        folder_listbox.insert(tk.END, directory)
             
-            tb.Button(folder_frame, text="浏览", command=select_folder).pack(side=tb.RIGHT)
+            def remove_selected_folder():
+                selected_indices = folder_listbox.curselection()
+                # 从后往前删除，避免索引变化
+                for index in reversed(selected_indices):
+                    folder_listbox.delete(index)
+            
+            def clear_all_folders():
+                folder_listbox.delete(0, tk.END)
+            
+            tb.Button(folder_button_frame, text="添加文件夹", command=select_folder).pack(side=tb.LEFT, padx=(0, 5))
+            tb.Button(folder_button_frame, text="移除选中", command=remove_selected_folder).pack(side=tb.LEFT, padx=(0, 5))
+            tb.Button(folder_button_frame, text="清空列表", command=clear_all_folders).pack(side=tb.LEFT)
             
             # 选项框架
             options_frame = tb.LabelFrame(main_frame, text="选项", padding="5")
@@ -1594,13 +1530,19 @@ class FileOrganizerTabGUI:
             button_frame.pack(side=tb.BOTTOM, fill=tb.X, pady=(10, 0))
             
             def start_scan():
-                folder_path = folder_var.get().strip()
-                if not folder_path:
+                selected_folders = list(folder_listbox.get(0, tk.END))
+                if not selected_folders:
                     messagebox.showwarning("提示", "请先选择要检查的文件夹")
                     return
                 
-                if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
-                    messagebox.showerror("错误", "选择的文件夹不存在或不是有效目录")
+                # 验证所有文件夹
+                invalid_folders = []
+                for folder_path in selected_folders:
+                    if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+                        invalid_folders.append(folder_path)
+                
+                if invalid_folders:
+                    messagebox.showerror("错误", f"以下文件夹不存在或不是有效目录:\n{chr(10).join(invalid_folders)}")
                     return
                 
                 # 清空结果显示
@@ -1613,7 +1555,7 @@ class FileOrganizerTabGUI:
                         dry_run = dry_run_var.get()
                         keep_oldest = keep_strategy_var.get() == "oldest"
                         results = remove_duplicate_files(
-                            target_folder_path=folder_path,
+                            target_folder_paths=selected_folders,
                             dry_run=dry_run,
                             keep_oldest=keep_oldest
                         )
@@ -1622,6 +1564,7 @@ class FileOrganizerTabGUI:
                             # result_text.config(state='normal')  # ttkbootstrap ScrolledText不支持state配置
                             result_text.delete(1.0, tb.END)
                             result_text.insert(tb.END, f"扫描完成！\n\n")
+                            result_text.insert(tb.END, f"扫描文件夹: {len(selected_folders)} 个\n")
                             result_text.insert(tb.END, f"总文件数: {results['total_files_scanned']}\n")
                             result_text.insert(tb.END, f"重复文件组: {results['duplicate_groups_found']}\n")
                             result_text.insert(tb.END, f"重复文件数: {results['total_duplicates_found']}\n\n")
@@ -1635,7 +1578,8 @@ class FileOrganizerTabGUI:
                                         keep_flag = '【保留】' if file_info.get('keep') else '【待删】'
                                         from datetime import datetime
                                         ctime_str = datetime.fromtimestamp(file_info['ctime']).strftime('%Y-%m-%d %H:%M:%S') if 'ctime' in file_info else ''
-                                        result_text.insert(tb.END, f"  - {file_info['relative_path']} {keep_flag} 创建时间: {ctime_str}\n")
+                                        source_folder = file_info.get('source_folder', '')
+                                        result_text.insert(tb.END, f"  - {file_info['relative_path']} {keep_flag} 来源: {source_folder} 创建时间: {ctime_str}\n")
                                     result_text.insert(tb.END, "\n")
                                 
                                 # 如果是试运行模式且发现重复文件，添加删除按钮
@@ -1655,7 +1599,7 @@ class FileOrganizerTabGUI:
                                                 try:
                                                     keep_oldest = keep_strategy_var.get() == "oldest"
                                                     delete_results = remove_duplicate_files(
-                                                        target_folder_path=folder_path,
+                                                        target_folder_paths=selected_folders,
                                                         dry_run=False,
                                                         keep_oldest=keep_oldest
                                                     )
@@ -1666,16 +1610,23 @@ class FileOrganizerTabGUI:
                                                             session_name = f"duplicate_removal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
                                                             log_session = self.ai_organizer.transfer_log_manager.start_transfer_session(session_name)
                                                             
-                                                            for file_path in delete_results.get('files_deleted', []):
+                                                            for file_info in delete_results.get('files_deleted', []):
                                                                 try:
-                                                                    file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+                                                                    # file_info 是一个字典，包含 path, relative_path, size, md5, ctime 等字段
+                                                                    file_path = file_info.get('path', '')
+                                                                    file_size = file_info.get('size', 0)
+                                                                    md5 = file_info.get('md5', '')
+                                                                    ctime = file_info.get('ctime', 0)
+                                                                    
                                                                     self.ai_organizer.transfer_log_manager.log_transfer_operation(
                                                                         source_path=file_path,
                                                                         target_path="",  # 删除操作没有目标路径
-                                                                        operation_type="delete",
+                                                                        operation_type="delete_duplicate",
                                                                         target_folder="重复文件删除",
                                                                         success=True,
-                                                                        file_size=file_size
+                                                                        file_size=file_size,
+                                                                        md5=md5,
+                                                                        ctime=ctime
                                                                     )
                                                                 except Exception as e:
                                                                     print(f"记录删除日志失败: {e}")
@@ -1692,8 +1643,11 @@ class FileOrganizerTabGUI:
                                                         
                                                         if delete_results.get('files_deleted'):
                                                             result_text.insert(tb.END, "已删除的文件:\n")
-                                                            for file_path in delete_results['files_deleted']:
-                                                                result_text.insert(tb.END, f"  - {file_path}\n")
+                                                            for file_info in delete_results['files_deleted']:
+                                                                file_path = file_info.get('path', '')
+                                                                relative_path = file_info.get('relative_path', '')
+                                                                source_folder = file_info.get('source_folder', '')
+                                                                result_text.insert(tb.END, f"  - {relative_path} (来源: {source_folder})\n")
                                                         
                                                         self.root.after(0, lambda: self.log_message(f"重复文件删除完成: 删除 {len(delete_results.get('files_deleted', []))} 个文件"))
                                                     
@@ -1755,6 +1709,36 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda err=e: self.log_message(f"显示重复文件删除对话框失败: {err}"))
             self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示重复文件删除对话框失败: {err}"))
         
+    def show_classification_rules_manager(self):
+        """显示分类规则管理器"""
+        try:
+            from classification_rules_gui import ClassificationRulesGUI
+            import tkinter as tk
+            
+            # 创建新窗口
+            rules_window = tk.Toplevel(self.root)
+            rules_window.title("分类规则管理器")
+            rules_window.geometry("800x600")
+            rules_window.transient(self.root)  # 设置为主窗口的临时窗口
+            rules_window.grab_set()  # 模态窗口
+            
+            # 创建分类规则管理器GUI
+            rules_gui = ClassificationRulesGUI(rules_window)
+            
+            # 居中显示窗口
+            rules_window.update_idletasks()
+            width = rules_window.winfo_width()
+            height = rules_window.winfo_height()
+            x = (rules_window.winfo_screenwidth() // 2) - (width // 2)
+            y = (rules_window.winfo_screenheight() // 2) - (height // 2)
+            rules_window.geometry(f"{width}x{height}+{x}+{y}")
+            
+            self.log_message("分类规则管理器已打开")
+            
+        except Exception as e:
+            self.log_message(f"打开分类规则管理器失败: {e}")
+            messagebox.showerror("错误", f"打开分类规则管理器失败: {e}")
+    
     def show_directory_organize_dialog(self):
         """显示文件目录智能整理对话框"""
         try:
@@ -2430,27 +2414,24 @@ class FileOrganizerTabGUI:
         try:
             # 获取选中项的数据
             item = tree.item(selection[0])
-            timestamp = item['values'][0]
+            values = item['values'] if item['values'] else []
             
-            if timestamp == "暂无日志记录" or timestamp.startswith("加载失败"):
+            if not values or len(values) < 6:
+                messagebox.showwarning("提示", "请先选择一个有效的日志记录")
                 return
             
-            # 获取详细日志信息
+            timestamp = values[0]
+            log_file_path = values[5]  # 第6个字段是完整的文件路径
+            
+            if timestamp == "暂无日志记录" or timestamp.startswith("加载失败") or timestamp.startswith("文件损坏"):
+                return
+            
+            # 直接使用存储的文件路径加载日志数据
             log_manager = TransferLogManager()
-            log_files = log_manager.get_transfer_logs()
-            
-            target_log = None
-            for log_file in log_files:
-                try:
-                    log_data = log_manager.load_transfer_log(log_file)
-                    if log_data.get('session_info', {}).get('start_time', '').startswith(timestamp):
-                        target_log = log_data
-                    break
-                except Exception as e:
-                    continue
-            
-            if not target_log:
-                messagebox.showerror("错误", "找不到对应的日志记录")
+            try:
+                target_log = log_manager.load_transfer_log(log_file_path)
+            except Exception as e:
+                messagebox.showerror("错误", f"无法加载日志文件: {os.path.basename(log_file_path)}")
                 return
             
             # 创建详情窗口
@@ -2531,31 +2512,27 @@ class FileOrganizerTabGUI:
                 messagebox.showwarning("提示", "请先选择一个日志记录")
                 return
             
-            # 获取选中项目的时间戳
+            # 获取选中项目的数据
             item = log_tree.item(selection[0])
-            timestamp = item['values'][0] if item['values'] else None
+            values = item['values'] if item['values'] else []
             
-            if not timestamp or timestamp == "暂无日志记录" or timestamp.startswith("加载失败"):
+            if not values or len(values) < 6:
                 messagebox.showwarning("提示", "请先选择一个有效的日志记录")
                 return
             
-            # 获取日志文件列表
-            log_manager = TransferLogManager()
-            log_files = log_manager.get_transfer_logs()
+            timestamp = values[0]
+            log_file_path = values[5]  # 第6个字段是完整的文件路径
             
-            # 查找对应的日志文件
-            target_log_file = None
-            for log_file in log_files:
-                try:
-                    log_data = log_manager.load_transfer_log(log_file)
-                    if log_data.get('session_info', {}).get('start_time', '').startswith(timestamp):
-                        target_log_file = log_file
-                        break
-                except Exception as e:
-                    continue
+            if not timestamp or timestamp == "暂无日志记录" or timestamp.startswith("加载失败") or timestamp.startswith("文件损坏"):
+                messagebox.showwarning("提示", "请先选择一个有效的日志记录")
+                return
             
-            if not target_log_file:
-                messagebox.showerror("错误", "找不到对应的日志文件")
+            # 直接使用存储的文件路径
+            target_log_file = log_file_path
+            
+            # 验证文件是否存在
+            if not os.path.exists(target_log_file):
+                messagebox.showerror("错误", f"日志文件不存在: {os.path.basename(target_log_file)}")
                 return
             
             # 创建恢复对话框
@@ -2654,7 +2631,7 @@ class FileOrganizerTabGUI:
                 def update_preview():
                     result_text.delete(1.0, tb.END)
                     result_text.insert(tb.END, "=== 恢复预览 ===\n\n")
-                    result_text.insert(tb.END, f"日志文件: {log_file}\n")
+                    result_text.insert(tb.END, f"日志文件: {os.path.basename(log_file)}\n")
                     result_text.insert(tb.END, f"总操作数: {result.get('total_operations', 0)}\n")
                     result_text.insert(tb.END, f"可恢复操作: {result.get('successful_restores', 0)}\n")
                     result_text.insert(tb.END, f"跳过操作: {result.get('skipped_operations', 0)}\n\n")
@@ -2665,6 +2642,8 @@ class FileOrganizerTabGUI:
                             status = "✓" if detail.get('restore_success') else "⚠"
                             result_text.insert(tb.END, f"  {status} {detail['target_path']} -> {detail['source_path']}\n")
                             result_text.insert(tb.END, f"      {detail.get('restore_message', '')}\n")
+                    else:
+                        result_text.insert(tb.END, "没有找到可恢复的操作\n")
                     
                     progress_var.set("预览完成")
                 
@@ -2677,7 +2656,7 @@ class FileOrganizerTabGUI:
                 def update_result():
                     result_text.delete(1.0, tb.END)
                     result_text.insert(tb.END, "=== 恢复结果 ===\n\n")
-                    result_text.insert(tb.END, f"日志文件: {log_file}\n")
+                    result_text.insert(tb.END, f"日志文件: {os.path.basename(log_file)}\n")
                     result_text.insert(tb.END, f"成功恢复: {result.get('successful_restores', 0)} 个文件\n")
                     result_text.insert(tb.END, f"恢复失败: {result.get('failed_restores', 0)} 个文件\n")
                     result_text.insert(tb.END, f"跳过操作: {result.get('skipped_operations', 0)} 个\n\n")
@@ -2688,6 +2667,8 @@ class FileOrganizerTabGUI:
                             status = "✓" if detail.get('restore_success') else "✗"
                             result_text.insert(tb.END, f"  {status} {detail['target_path']} -> {detail['source_path']}\n")
                             result_text.insert(tb.END, f"      {detail.get('restore_message', '')}\n")
+                    else:
+                        result_text.insert(tb.END, "没有找到可恢复的操作\n")
                     
                     progress_var.set("恢复完成")
                     
@@ -2699,7 +2680,8 @@ class FileOrganizerTabGUI:
         except Exception as e:
             def show_error():
                 result_text.delete(1.0, tb.END)
-                result_text.insert(tb.END, f"恢复操作失败: {e}")
+                result_text.insert(tb.END, f"恢复操作失败: {e}\n")
+                result_text.insert(tb.END, f"请检查日志文件是否完整: {os.path.basename(log_file)}")
                 progress_var.set("恢复失败")
                 self.root.after(0, lambda err=e: self.log_message(f"文件恢复失败: {err}"))
             

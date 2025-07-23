@@ -19,12 +19,12 @@ def _calc_md5(file_path, chunk_size=65536):
             md5.update(chunk)
     return md5.hexdigest()
 
-def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_session_name: str = None, keep_oldest: bool = True) -> dict:
+def remove_duplicate_files(target_folder_paths: list, dry_run: bool = True, log_session_name: str = None, keep_oldest: bool = True) -> dict:
     """
     删除指定目标文件夹中的重复文件（文件大小+MD5判断），并写入日志
     
     Args:
-        target_folder_path: 目标文件夹路径
+        target_folder_paths: 目标文件夹路径列表
         dry_run: 试运行模式，True为只检查不删除
         log_session_name: 日志会话名称
         keep_oldest: 保留策略，True为保留最早的文件，False为保留最新的文件
@@ -32,26 +32,39 @@ def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_se
     try:
         transfer_log_manager = TransferLogManager()
         if not log_session_name:
-            session_name = f"dedup_{Path(target_folder_path).name}_{os.getpid()}"
+            # 使用第一个文件夹的名称作为会话名
+            first_folder_name = Path(target_folder_paths[0]).name if target_folder_paths else "unknown"
+            session_name = f"dedup_{first_folder_name}_{os.getpid()}"
             log_session_name = transfer_log_manager.start_transfer_session(session_name)
-        target_path = Path(target_folder_path)
-        if not target_path.exists() or not target_path.is_dir():
-            raise DuplicateCleanerError(f"目标文件夹不存在或不是有效目录: {target_folder_path}")
+        
+        # 验证所有文件夹路径
+        target_paths = []
+        for folder_path in target_folder_paths:
+            target_path = Path(folder_path)
+            if not target_path.exists() or not target_path.is_dir():
+                raise DuplicateCleanerError(f"目标文件夹不存在或不是有效目录: {folder_path}")
+            target_paths.append(target_path)
+        
+        # 扫描所有文件夹中的文件
         all_files = []
-        for file_path in target_path.rglob('*'):
-            if file_path.is_file():
-                try:
-                    file_size = file_path.stat().st_size
-                    ctime = file_path.stat().st_ctime
-                    all_files.append({
-                        'path': file_path,
-                        'size': file_size,
-                        'ctime': ctime,
-                        'relative_path': file_path.relative_to(target_path)
-                    })
-                except Exception as e:
-                    logging.warning(f"无法获取文件信息: {file_path}, 错误: {e}")
-                    continue
+        for target_path in target_paths:
+            for file_path in target_path.rglob('*'):
+                if file_path.is_file():
+                    try:
+                        file_size = file_path.stat().st_size
+                        ctime = file_path.stat().st_ctime
+                        # 使用相对于第一个文件夹的路径作为相对路径
+                        relative_path = file_path.relative_to(target_paths[0]) if target_path == target_paths[0] else file_path
+                        all_files.append({
+                            'path': file_path,
+                            'size': file_size,
+                            'ctime': ctime,
+                            'relative_path': relative_path,
+                            'source_folder': str(target_path)
+                        })
+                    except Exception as e:
+                        logging.warning(f"无法获取文件信息: {file_path}, 错误: {e}")
+                        continue
         # 按文件大小分组
         file_groups = {}
         for file_info in all_files:
@@ -107,7 +120,8 @@ def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_se
                         'relative_path': str(file_info['relative_path']),
                         'size': group['size'],
                         'md5': group['md5'],
-                        'ctime': file_info['ctime']
+                        'ctime': file_info['ctime'],
+                        'source_folder': file_info.get('source_folder', '')
                     })
                     if not dry_run:
                         try:
@@ -117,7 +131,8 @@ def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_se
                                 'relative_path': str(file_info['relative_path']),
                                 'size': group['size'],
                                 'md5': group['md5'],
-                                'ctime': file_info['ctime']
+                                'ctime': file_info['ctime'],
+                                'source_folder': file_info.get('source_folder', '')
                             })
                             transfer_log_manager.log_transfer_operation(
                                 source_path=str(file_info['path']),
@@ -135,7 +150,8 @@ def remove_duplicate_files(target_folder_path: str, dry_run: bool = True, log_se
                             results['deletion_errors'].append({
                                 'path': str(file_info['path']),
                                 'relative_path': str(file_info['relative_path']),
-                                'error': str(e)
+                                'error': str(e),
+                                'source_folder': file_info.get('source_folder', '')
                             })
                             logging.error(error_msg)
         if dry_run:

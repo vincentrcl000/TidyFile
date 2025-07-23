@@ -41,7 +41,9 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.send_error(404, "API endpoint not found")
     
     def handle_clean_duplicates(self):
-        """处理清理重复文件的请求"""
+        """处理清理重复文件的请求
+        只按文件名判断重复，保留每个文件的最新记录
+        """
         try:
             json_file = Path('ai_organize_result.json')
             
@@ -121,21 +123,19 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def remove_duplicate_files(self, data):
         """移除重复文件，只保留每个文件的最新记录
-        - 本地文件：文件名唯一
-        - 网页链接：文件名+源文件路径唯一
+        - 所有文件：只按文件名判断重复，保留最新的记录
         """
         file_map = {}
         # 按处理时间排序，最新的在前
         data.sort(key=lambda x: datetime.fromisoformat(x.get('处理时间', '1970-01-01 00:00:00')), reverse=True)
         for item in data:
             file_name = item.get('文件名')
-            source_path = item.get('源文件路径', '')
-            if source_path.startswith('http://') or source_path.startswith('https://'):
-                unique_key = f"{file_name}|{source_path}"
-            else:
-                unique_key = file_name
-            if unique_key and unique_key not in file_map:
-                file_map[unique_key] = item
+            # 兼容文章标题字段
+            if not file_name:
+                file_name = item.get('文章标题', '')
+            
+            if file_name and file_name not in file_map:
+                file_map[file_name] = item
         return list(file_map.values())
     
     def send_json_response(self, data):

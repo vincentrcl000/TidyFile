@@ -106,29 +106,42 @@ class TransferLogManager:
                              success: bool = True,
                              error_message: str = None,
                              file_size: int = None,
-                             file_hash: str = None) -> None:
+                             file_hash: str = None,
+                             md5: str = None,
+                             ctime: float = None) -> None:
         """
         记录单个文件转移操作
         
         Args:
             source_path: 源文件路径
             target_path: 目标文件路径
-            operation_type: 操作类型（copy/move）
+            operation_type: 操作类型（copy/move/delete_duplicate）
             target_folder: 目标文件夹名称
             success: 操作是否成功
             error_message: 错误信息（如果失败）
             file_size: 文件大小（字节）
             file_hash: 文件哈希值（用于验证）
+            md5: MD5哈希值（与file_hash相同，用于兼容性）
+            ctime: 文件创建时间戳
         """
         if not self.current_log_file:
             raise ValueError("请先调用 start_transfer_session() 开始会话")
+        
+        # 参数验证和调试信息
+        if not isinstance(source_path, str):
+            self.logger.error(f"记录删除日志失败: source_path 应该是字符串，但收到了 {type(source_path)}: {source_path}")
+            return
+        
+        if not isinstance(target_path, str):
+            self.logger.error(f"记录删除日志失败: target_path 应该是字符串，但收到了 {type(target_path)}: {target_path}")
+            return
         
         # 读取当前日志
         with open(self.current_log_file, 'r', encoding='utf-8') as f:
             log_data = json.load(f)
         
         # 获取文件信息
-        if file_size is None and os.path.exists(source_path):
+        if file_size is None and source_path and isinstance(source_path, str) and os.path.exists(source_path):
             try:
                 file_size = os.path.getsize(source_path)
             except:
@@ -143,7 +156,9 @@ class TransferLogManager:
             "target_path": target_path,
             "target_folder": target_folder,
             "file_size": file_size,
-            "file_hash": file_hash,
+            "file_hash": file_hash or md5,  # 使用md5作为file_hash的备选
+            "md5": md5 or file_hash,  # 保存md5值
+            "ctime": ctime,  # 保存创建时间
             "success": success,
             "error_message": error_message
         }
@@ -284,20 +299,27 @@ class TransferLogManager:
             }
             
             try:
+                # 检查源文件是否还存在
+                source_exists = source_path and isinstance(source_path, str) and os.path.exists(source_path)
                 # 检查目标文件是否存在
-                if not os.path.exists(target_path):
-                    restore_detail["restore_message"] = "目标文件不存在，无法恢复"
+                target_exists = target_path and isinstance(target_path, str) and os.path.exists(target_path)
+                
+                if not source_exists and not target_exists:
+                    restore_detail["restore_message"] = "源文件和目标文件都不存在，无法恢复"
                     restore_results["skipped_operations"] += 1
-                    self.logger.warning(f"跳过恢复 - 目标文件不存在: {target_path}")
+                    self.logger.warning(f"跳过恢复 - 源文件和目标文件都不存在: {source_path} / {target_path}")
                     continue
                 
-                # 检查源路径是否已存在（避免覆盖）
-                if os.path.exists(source_path):
-                    restore_detail["restore_message"] = "源路径已存在文件，跳过恢复"
-                    restore_results["skipped_operations"] += 1
-                    self.logger.warning(f"跳过恢复 - 源路径已存在: {source_path}")
+                # 如果源文件还在，直接标记为恢复成功
+                if source_exists:
+                    restore_detail["restore_message"] = "源文件仍然存在，无需恢复"
+                    restore_detail["restore_success"] = True
+                    restore_results["successful_restores"] += 1
+                    self.logger.info(f"源文件存在，无需恢复: {source_path}")
+                    restore_results["restore_details"].append(restore_detail)
                     continue
                 
+                # 此时源文件不存在但目标文件存在，需要从目标位置恢复
                 if not dry_run:
                     # 确保源目录存在
                     source_dir = os.path.dirname(source_path)
@@ -307,17 +329,17 @@ class TransferLogManager:
                     if operation_type == "copy":
                         # 原来是复制，恢复时复制回去
                         shutil.copy2(target_path, source_path)
-                        restore_detail["restore_message"] = "文件已复制回源位置"
+                        restore_detail["restore_message"] = "文件已从目标位置复制回源位置"
                     elif operation_type == "move":
                         # 原来是移动，恢复时移动回去
                         shutil.move(target_path, source_path)
-                        restore_detail["restore_message"] = "文件已移动回源位置"
+                        restore_detail["restore_message"] = "文件已从目标位置移动回源位置"
                     else:
                         restore_detail["restore_message"] = f"未知操作类型: {operation_type}"
                         restore_results["failed_restores"] += 1
                         continue
                 else:
-                    restore_detail["restore_message"] = "试运行模式 - 检查通过"
+                    restore_detail["restore_message"] = "试运行模式 - 将从目标位置恢复文件"
                 
                 restore_detail["restore_success"] = True
                 restore_results["successful_restores"] += 1

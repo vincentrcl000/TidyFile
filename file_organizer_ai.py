@@ -12,20 +12,116 @@ from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
 import ollama
 from transfer_log_manager import TransferLogManager
+from classification_rules_manager import ClassificationRulesManager
 import PyPDF2
 import docx
 import time
+import requests
 
 class FileOrganizerError(Exception):
     pass
 
 class OllamaClient:
-    def __init__(self, model_name: str = None, host: str = "http://localhost:11434"):
+    def __init__(self, model_name: str = None, host: str = None):
         self.model_name = model_name
-        self.host = host
-        self.client = ollama.Client(host=host)
-        self._validate_connection()
-    
+        # 优先LM Studio，其次局域网Ollama，最后本地Ollama
+        self.hosts_to_try = [
+            "http://10.64.21.220:1234/v1",  # LM Studio
+            "http://10.64.21.220:11434",    # 局域网Ollama
+            "http://localhost:11434"        # 本地Ollama
+        ] if host is None else [host]
+        self.client = None
+        self.available_models = []
+        self._try_connect_and_select_model()
+
+    def _try_connect_and_select_model(self):
+        last_error = None
+        for host in self.hosts_to_try:
+            try:
+                self.host = host
+                if "1234/v1" in host:  # LM Studio API
+                    self.client = self._create_lmstudio_client(host)
+                else:  # Ollama API
+                    self.client = ollama.Client(host=host)
+                self._validate_connection()
+                logging.info(f"成功连接到AI服务: {host}")
+                return
+            except Exception as e:
+                last_error = e
+                logging.warning(f"连接AI服务失败: {host}，错误: {e}")
+                continue
+        raise FileOrganizerError(f"所有AI服务连接失败，最后错误: {last_error}")
+
+    def _create_lmstudio_client(self, host: str):
+        """创建LM Studio客户端（兼容Ollama API）"""
+        class LMStudioClient:
+            def __init__(self, host):
+                self.host = host
+                self.base_url = host
+            def list(self):
+                try:
+                    response = requests.get(f"{self.base_url}/models", timeout=10)
+                    response.raise_for_status()
+                    models_data = response.json()
+                    # 转换为Ollama格式，只返回loaded状态的模型
+                    models = []
+                    for model in models_data.get('data', []):
+                        # 检查模型状态，只返回loaded状态的模型
+                        if model.get('status') == 'loaded':
+                            models.append({'name': model.get('id', '')})
+                    return {'models': models}
+                except Exception as e:
+                    raise Exception(f"LM Studio API调用失败: {e}")
+            def chat(self, **kwargs):
+                try:
+                    messages = kwargs.get('messages', [])
+                    model = kwargs.get('model', '')
+                    # 转换为LM Studio格式
+                    lmstudio_messages = []
+                    for msg in messages:
+                        lmstudio_messages.append({
+                            'role': msg.get('role', 'user'),
+                            'content': msg.get('content', '')
+                        })
+                    payload = {
+                        'model': model,
+                        'messages': lmstudio_messages,
+                        'stream': False
+                    }
+                    response = requests.post(f"{self.base_url}/chat/completions", 
+                                           json=payload, timeout=60)
+                    
+                    # 检查HTTP状态码
+                    if response.status_code != 200:
+                        error_msg = f"LM Studio API返回错误状态码: {response.status_code}"
+                        try:
+                            error_data = response.json()
+                            if 'error' in error_data:
+                                error_msg += f", 错误信息: {error_data['error']}"
+                        except:
+                            error_msg += f", 响应内容: {response.text[:200]}"
+                        raise Exception(error_msg)
+                    
+                    result = response.json()
+                    
+                    # 检查响应格式
+                    if 'choices' not in result or not result['choices']:
+                        raise Exception(f"LM Studio响应格式错误: {result}")
+                    
+                    choice = result['choices'][0]
+                    if 'message' not in choice or 'content' not in choice['message']:
+                        raise Exception(f"LM Studio响应缺少message或content: {choice}")
+                    
+                    # 转换为Ollama格式
+                    return {
+                        'message': {
+                            'content': choice['message']['content']
+                        }
+                    }
+                except Exception as e:
+                    raise Exception(f"LM Studio chat调用失败: {e}")
+        return LMStudioClient(host)
+
     def _validate_connection(self) -> None:
         try:
             models_response = self.client.list()
@@ -40,7 +136,6 @@ class OllamaClient:
                 if isinstance(model, dict):
                     if 'name' in model:
                         model_name = model['name']
-                        # 确保模型名称是字符串格式
                         if isinstance(model_name, str):
                             self.available_models.append(model_name)
                         else:
@@ -54,22 +149,18 @@ class OllamaClient:
                 elif isinstance(model, str):
                     self.available_models.append(model)
                 else:
-                    # 如果是其他类型，尝试提取model或name属性
                     model_name = None
                     if hasattr(model, 'model'):
                         model_name = getattr(model, 'model')
                     elif hasattr(model, 'name'):
                         model_name = getattr(model, 'name')
-                    
                     if model_name:
                         if isinstance(model_name, str):
                             self.available_models.append(model_name)
                         else:
                             self.available_models.append(str(model_name))
                     else:
-                        # 最后尝试直接转换为字符串
                         model_str = str(model)
-                        # 如果字符串包含模型信息，尝试提取
                         if "model='" in model_str:
                             import re
                             match = re.search(r"model='([^']+)'", model_str)
@@ -79,77 +170,231 @@ class OllamaClient:
                                 self.available_models.append(model_str)
                         else:
                             self.available_models.append(model_str)
-            
-            # 选择模型 - 优先使用qwen3系列模型
-            if not self.available_models:
-                raise FileOrganizerError("没有可用的模型，请先拉取模型")
-            
-            if self.model_name and self.model_name in self.available_models:
-                logging.info(f"使用指定模型: {self.model_name}")
+            # 优先选择qwen/qwen3-8b模型（LM Studio），其次qwen3:8b（Ollama）
+            preferred_models = []
+            qwen_qwen3_8b = [m for m in self.available_models if 'qwen/qwen3-8b' in m.lower()]
+            if qwen_qwen3_8b:
+                preferred_models.extend(qwen_qwen3_8b)
+                logging.info(f"优先选择LM Studio qwen/qwen3-8b模型: {qwen_qwen3_8b}")
             else:
-                # 自动选择模型：优先qwen3系列，其次deepseek系列，最后其他模型
-                preferred_models = []
-                
-                # 查找qwen3系列模型
-                qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
-                if qwen3_models:
-                    preferred_models.extend(qwen3_models)
-                    logging.info(f"找到qwen3系列模型: {qwen3_models}")
-                
-                # 查找deepseek系列模型
-                deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
-                if deepseek_models:
-                    preferred_models.extend(deepseek_models)
-                    logging.info(f"找到deepseek系列模型: {deepseek_models}")
-                
-                # 添加其他可用模型
-                other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                preferred_models.extend(other_models)
-                
-                if preferred_models:
-                    self.model_name = preferred_models[0]
-                    if self.model_name is not None:
-                        logging.warning(f"模型 {self.model_name} 不可用，自动选择: {self.model_name}")
-                    logging.info(f"自动选择模型: {self.model_name}")
+                qwen3_8b = [m for m in self.available_models if 'qwen3:8b' in m.lower()]
+                if qwen3_8b:
+                    preferred_models.extend(qwen3_8b)
+                    logging.info(f"优先选择Ollama qwen3:8b模型: {qwen3_8b}")
                 else:
-                    self.model_name = self.available_models[0]
-                    logging.info(f"使用默认模型: {self.model_name}")
-            
-            logging.info(f"成功连接到 Ollama，使用模型: {self.model_name}")
+                    # 其次qwen3系列
+                    qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
+                    if qwen3_models:
+                        preferred_models.extend(qwen3_models)
+                        logging.info(f"找到qwen3系列模型: {qwen3_models}")
+                    # 其次deepseek系列
+                    deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
+                    if deepseek_models:
+                        preferred_models.extend(deepseek_models)
+                        logging.info(f"找到deepseek系列模型: {deepseek_models}")
+                    # 其它
+                    other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
+                    preferred_models.extend(other_models)
+            if preferred_models:
+                self.model_name = preferred_models[0]
+                logging.info(f"自动选择模型: {self.model_name}")
+            else:
+                self.model_name = self.available_models[0]
+                logging.info(f"使用默认模型: {self.model_name}")
             logging.info(f"可用模型列表: {self.available_models}")
         except Exception as e:
-            raise FileOrganizerError(f"连接 Ollama 失败: {e}")
+            raise FileOrganizerError(f"连接 AI 服务失败: {e}")
     
     def chat_with_retry(self, messages: List[Dict], max_retries: Optional[int] = None) -> str:
         if max_retries is None:
             max_retries = len(self.available_models)
         last_error = None
+        
+        # 首先尝试当前已连接的host
         models_to_try = [self.model_name] + [m for m in self.available_models if m != self.model_name]
+        
+        logging.info(f"开始尝试当前host的模型，可用模型: {self.available_models}")
+        logging.info(f"将尝试的模型顺序: {models_to_try[:max_retries]}")
+        
         for attempt, model_name in enumerate(models_to_try[:max_retries]):
             try:
-                client = ollama.Client(host=self.host)
                 if not isinstance(model_name, str) or not model_name:
-                    raise FileOrganizerError("模型名无效，无法调用 chat")
+                    logging.warning(f"跳过无效模型名: {model_name}")
+                    continue
                 
-                # 同时使用三种策略抑制思考过程
-                chat_params = {
-                    'model': model_name,
-                    'messages': messages,
-                    'options': {'enable_thinking': False}  # 策略2：传递enable_thinking参数
-                }
+                # 使用已初始化的客户端，而不是重新创建
+                if not self.client:
+                    raise FileOrganizerError("客户端未初始化")
                 
-                response = client.chat(**chat_params)
+                logging.info(f"尝试使用模型: {model_name} (第{attempt + 1}次尝试)")
+                
+                # 根据客户端类型使用不同的调用方式
+                if hasattr(self.client, 'chat'):
+                    # 使用自定义客户端（如LMStudioClient）
+                    chat_params = {
+                        'model': model_name,
+                        'messages': messages
+                    }
+                    response = self.client.chat(**chat_params)
+                else:
+                    # 使用Ollama客户端
+                    chat_params = {
+                        'model': model_name,
+                        'messages': messages,
+                        'options': {'enable_thinking': False}
+                    }
+                    response = self.client.chat(**chat_params)
+                
+                # 验证响应格式
+                if not response or 'message' not in response or 'content' not in response['message']:
+                    raise FileOrganizerError(f"模型 {model_name} 返回无效响应格式: {response}")
+                
+                content = response['message']['content'].strip()
+                if not content:
+                    raise FileOrganizerError(f"模型 {model_name} 返回空内容")
                 
                 if model_name != self.model_name:
-                    logging.info(f"模型切换: {self.model_name} -> {model_name}")
+                    logging.info(f"模型切换成功: {self.model_name} -> {model_name}")
                     self.model_name = model_name
-                return response['message']['content'].strip()
+                
+                logging.info(f"模型 {model_name} 响应成功")
+                return content
+                
             except Exception as e:
                 last_error = e
                 logging.warning(f"模型 {model_name} 响应失败: {e}")
                 if attempt < max_retries - 1:
+                    logging.info(f"准备尝试下一个模型...")
                     continue
-        raise FileOrganizerError(f"所有可用模型都响应失败，最后错误: {last_error}")
+        
+        # 当前host的所有模型都失败了，尝试其他host
+        logging.warning(f"当前host {self.host} 的所有模型都失败，尝试其他host...")
+        
+        # 尝试其他host
+        for host in self.hosts_to_try:
+            if host == self.host:  # 跳过当前已失败的host
+                continue
+                
+            try:
+                logging.info(f"尝试连接到host: {host}")
+                if "1234/v1" in host:  # LM Studio API
+                    client = self._create_lmstudio_client(host)
+                else:  # Ollama API
+                    client = ollama.Client(host=host)
+                
+                # 获取该host的可用模型
+                models_response = client.list()
+                if hasattr(models_response, 'models'):
+                    models_list = models_response.models
+                elif isinstance(models_response, dict) and 'models' in models_response:
+                    models_list = models_response['models']
+                else:
+                    models_list = models_response if isinstance(models_response, list) else []
+                
+                available_models = []
+                for model in models_list:
+                    if isinstance(model, dict):
+                        if 'name' in model:
+                            model_name = model['name']
+                            if isinstance(model_name, str):
+                                available_models.append(model_name)
+                            else:
+                                available_models.append(str(model_name))
+                        elif 'model' in model:
+                            model_name = model['model']
+                            if isinstance(model_name, str):
+                                available_models.append(model_name)
+                            else:
+                                available_models.append(str(model_name))
+                    elif isinstance(model, str):
+                        available_models.append(model)
+                    else:
+                        model_name = None
+                        if hasattr(model, 'model'):
+                            model_name = getattr(model, 'model')
+                        elif hasattr(model, 'name'):
+                            model_name = getattr(model, 'name')
+                        if model_name:
+                            if isinstance(model_name, str):
+                                available_models.append(model_name)
+                            else:
+                                available_models.append(str(model_name))
+                
+                if not available_models:
+                    logging.warning(f"host {host} 没有可用模型")
+                    continue
+                
+                # 优先模型顺序
+                models_to_try = []
+                qwen3_models = [m for m in available_models if 'qwen3' in m.lower()]
+                if qwen3_models:
+                    models_to_try.extend(qwen3_models)
+                deepseek_models = [m for m in available_models if 'deepseek' in m.lower()]
+                if deepseek_models:
+                    models_to_try.extend(deepseek_models)
+                other_models = [m for m in available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
+                models_to_try.extend(other_models)
+                
+                if not models_to_try:
+                    models_to_try = available_models
+                
+                logging.info(f"host {host} 可用模型: {available_models}")
+                logging.info(f"将尝试的模型顺序: {models_to_try}")
+                
+                # 尝试该host的模型
+                for model_name in models_to_try:
+                    try:
+                        logging.info(f"尝试使用host {host} 的模型: {model_name}")
+                        
+                        if hasattr(client, 'chat'):
+                            # 使用自定义客户端（如LMStudioClient）
+                            chat_params = {
+                                'model': model_name,
+                                'messages': messages
+                            }
+                            response = client.chat(**chat_params)
+                        else:
+                            # 使用Ollama客户端
+                            chat_params = {
+                                'model': model_name,
+                                'messages': messages,
+                                'options': {'enable_thinking': False}
+                            }
+                            response = client.chat(**chat_params)
+                        
+                        # 验证响应格式
+                        if not response or 'message' not in response or 'content' not in response['message']:
+                            raise FileOrganizerError(f"模型 {model_name} 返回无效响应格式: {response}")
+                        
+                        content = response['message']['content'].strip()
+                        if not content:
+                            raise FileOrganizerError(f"模型 {model_name} 返回空内容")
+                        
+                        # 更新当前客户端和模型信息
+                        self.client = client
+                        self.host = host
+                        self.model_name = model_name
+                        self.available_models = available_models
+                        
+                        logging.info(f"成功切换到host {host}，使用模型: {model_name}")
+                        return content
+                        
+                    except Exception as e:
+                        last_error = e
+                        logging.warning(f"host {host} 的模型 {model_name} 响应失败: {e}")
+                        continue
+                
+                logging.warning(f"host {host} 的所有模型都失败")
+                
+            except Exception as e:
+                last_error = e
+                logging.warning(f"连接host {host} 失败: {e}")
+                continue
+        
+        # 所有host和模型都失败了
+        error_msg = f"所有可用host和模型都响应失败，最后错误: {last_error}"
+        logging.error(error_msg)
+        raise FileOrganizerError(error_msg)
 
 class FileOrganizer:
     def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
@@ -161,6 +406,9 @@ class FileOrganizer:
         
         if self.enable_transfer_log:
             self.transfer_log_manager = TransferLogManager()
+        
+        # 初始化分类规则管理器
+        self.classification_rules_manager = ClassificationRulesManager()
         
         # 初始化AI参数
         self.ai_parameters = {
@@ -763,72 +1011,104 @@ class FileOrganizer:
             if has_valid_summary:
                 print(f"📝 摘要内容: {summary[:100]}...")
             
+            # 获取用户自定义分类规则
+            custom_rules = self.classification_rules_manager.get_rules_for_prompt(
+                self.scan_target_folders(target_directory)
+            )
+            
             # 构建更明确的分类提示词，要求返回前三个匹配度最高的路径
             if has_valid_content and has_valid_summary:
-                prompt = f"""你是一个专业的文件分类助手。请根据文件信息推荐匹配度前三的目标文件夹路径。
+                prompt = f"""你是一个专业的保险行业文件分类专家。请根据文件内容精确分类到最合适的目标文件夹。
 
 文件信息：
-- 源文件完整路径：{file_full_path}
 - 文件名：{file_name}
 - 内容摘要：{summary}
 
 可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
 {directory_structure}
 
+{custom_rules}
+
+保险行业分类指导原则：
+1. **人身险类**：寿险、健康险、意外险、年金险等相关文档 → 【7-4-5】人身险
+2. **财产险类**：车险、家财险、责任险、工程险等相关文档 → 【7-4-6】财产险
+3. **再保险类**：再保险业务、分保、风险分散等相关文档 → 【7-4-7】再保险
+4. **保险资管类**：投资管理、资产管理、资金运用等相关文档 → 【7-4-8】保险资管
+5. **保险中介类**：代理、经纪、公估等相关文档 → 【7-4-9】保险中介
+6. **新兴业态类**：互联网保险、科技保险、创新业务等相关文档 → 【7-4-10】新兴业态
+7. **监管政策类**：保监会政策、监管规定、合规要求等相关文档 → 【7-4-2】保监会
+8. **公司经营类**：公司管理、经营策略、市场分析等相关文档 → 【7-4-1】综合
+9. **保险公司类**：具体保险公司相关文档 → 【7-4-4】保险公司
+
 分类要求：
 1. 必须严格从上述文件夹路径列表中复制完整的路径
 2. 不能修改、缩写或添加任何内容到路径
 3. 不能创建或想象不存在的文件夹
-4. 优先根据文件内容主题匹配文件夹
+4. 优先选择最具体的分类，避免选择过于宽泛的"综合"类
 5. 按匹配度从高到低返回前三个路径
 6. 每行一个路径，不要包含任何其他内容
 7. 不要使用"<think>"标签或任何思考过程描述
-8. 如果匹配度相近，优先选择更具体的文件夹
+8. 仔细分析文件内容主题，选择最匹配的专业分类
+9. 优先参考用户自定义分类规则进行判断
 
 输出格式（严格按此格式，每行一个完整路径）：
 第一推荐：[完整路径1]
 第二推荐：[完整路径2]
 第三推荐：[完整路径3]
-
-示例输出：
-第一推荐：【7-4-10】新兴业态/【7-4-9-10】医疗保险
-第二推荐：【7-4】保险/健康险
-第三推荐：【7-4-5】人身险
 
 请开始推荐："""
             else:
                 # 无法获取有效内容时，使用文件名进行分类，同样返回前三个推荐
                 file_extension = Path(file_name).suffix.lower()
                 
-                prompt = f"""你是一个专业的文件分类助手。由于无法读取文件内容，请根据文件名和扩展名推荐匹配度前三的目标文件夹路径。
+                prompt = f"""你是一个专业的保险行业文件分类专家。由于无法读取文件内容，请根据文件名和扩展名精确分类到最合适的目标文件夹。
 
 文件信息：
-- 源文件完整路径：{file_full_path}
 - 文件名：{file_name}
 - 文件扩展名：{file_extension}
 
 可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
 {directory_structure}
 
+{custom_rules}
+
+保险行业分类指导原则：
+1. **人身险类**：寿险、健康险、意外险、年金险等相关文档 → 【7-4-5】人身险
+2. **财产险类**：车险、家财险、责任险、工程险等相关文档 → 【7-4-6】财产险
+3. **再保险类**：再保险业务、分保、风险分散等相关文档 → 【7-4-7】再保险
+4. **保险资管类**：投资管理、资产管理、资金运用等相关文档 → 【7-4-8】保险资管
+5. **保险中介类**：代理、经纪、公估等相关文档 → 【7-4-9】保险中介
+6. **新兴业态类**：互联网保险、科技保险、创新业务等相关文档 → 【7-4-10】新兴业态
+7. **监管政策类**：保监会政策、监管规定、合规要求等相关文档 → 【7-4-2】保监会
+8. **公司经营类**：公司管理、经营策略、市场分析等相关文档 → 【7-4-1】综合
+9. **保险公司类**：具体保险公司相关文档 → 【7-4-4】保险公司
+
+文件名关键词分析指导：
+- 包含"寿险"、"健康险"、"意外险"、"年金"等 → 【7-4-5】人身险
+- 包含"车险"、"家财险"、"责任险"、"工程险"等 → 【7-4-6】财产险
+- 包含"再保险"、"分保"、"风险分散"等 → 【7-4-7】再保险
+- 包含"投资"、"资管"、"资金运用"等 → 【7-4-8】保险资管
+- 包含"代理"、"经纪"、"公估"等 → 【7-4-9】保险中介
+- 包含"互联网"、"科技"、"创新"、"数字化"等 → 【7-4-10】新兴业态
+- 包含"监管"、"政策"、"规定"、"合规"等 → 【7-4-2】保监会
+- 包含具体公司名称（如"平安"、"国寿"、"太保"等） → 【7-4-4】保险公司
+- 包含"经营"、"策略"、"分析"、"报告"等 → 【7-4-1】综合
+
 分类要求：
 1. 必须严格从上述文件夹路径列表中复制完整的路径
 2. 不能修改、缩写或添加任何内容到路径
 3. 不能创建或想象不存在的文件夹
-4. 根据文件扩展名和文件名关键词匹配文件夹
+4. 优先选择最具体的分类，避免选择过于宽泛的"综合"类
 5. 按匹配度从高到低返回前三个路径
 6. 每行一个路径，不要包含任何其他内容
 7. 不要使用"<think>"标签或任何思考过程描述
-8. 如果匹配度相近，优先选择更具体的文件夹
+8. 仔细分析文件名关键词，选择最匹配的专业分类
+9. 优先参考用户自定义分类规则进行判断
 
 输出格式（严格按此格式，每行一个完整路径）：
 第一推荐：[完整路径1]
 第二推荐：[完整路径2]
 第三推荐：[完整路径3]
-
-示例输出：
-第一推荐：【7-4-10】新兴业态/【7-4-9-10】医疗保险
-第二推荐：【7-4】保险/健康险
-第三推荐：【7-4-5】人身险
 
 请开始推荐："""
             
@@ -841,7 +1121,7 @@ class FileOrganizer:
             messages = [
                 {
                     'role': 'system',
-                    'content': '你是一个专业的文件分类助手。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。'
+                    'content': '你是一个专业的保险行业文件分类专家。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。优先选择最具体的专业分类，避免选择过于宽泛的"综合"类。'
                 },
                 {
                     'role': 'user',
@@ -865,6 +1145,15 @@ class FileOrganizer:
             
             # 解析AI分类结果
             recommended_folder, match_reason = self._parse_classification_result(result, target_directory)
+            
+            # 检查分类质量：如果推荐的是过于宽泛的分类，尝试重新分类
+            broad_categories = ['【7-4-1】综合', '【7-4-1-4】经营业态']
+            if recommended_folder and any(broad in recommended_folder for broad in broad_categories) and retry_count < 2:
+                print(f"⚠️  AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试...")
+                logging.warning(f"AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试")
+                
+                # 在重试时强调要选择更具体的分类
+                return self._recommend_target_folder(file_path, content, summary, target_directory, retry_count + 1)
             
             # 检查是否匹配失败，如果是且未超过重试次数，则重试
             if recommended_folder is None and retry_count < 2:  # 最多重试2次
