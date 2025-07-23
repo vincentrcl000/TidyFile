@@ -29,6 +29,9 @@ coloredlogs>=15.0
 # 网络请求依赖
 requests>=2.28.0
 
+# AI模型依赖
+openai>=1.0.0
+
 # 微信文章内容抓取与AI摘要依赖
 beautifulsoup4>=4.13.0
 html2text>=2025.4.15

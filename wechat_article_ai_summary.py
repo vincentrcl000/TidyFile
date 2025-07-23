@@ -8,6 +8,7 @@ REQUIRED = [
     ("bs4", "beautifulsoup4"),
     ("html2text", "html2text"),
     ("fake_useragent", "fake-useragent"),
+    ("markdown", "markdown"),
 ]
 
 def install_missing_packages(missing_packages):
@@ -231,6 +232,8 @@ def save_article_to_html(article_data: dict) -> str:
     # 变量级注释：渲染Markdown为HTML
     try:
         html_content = markdown.markdown(article_data['content'], extensions=['extra', 'codehilite', 'tables'])
+    except ImportError as e:
+        html_content = f"<pre>Markdown模块未安装: {e}</pre>\n<pre>{article_data['content']}</pre>"
     except Exception as e:
         html_content = f"<pre>Markdown 渲染失败: {e}</pre>\n<pre>{article_data['content']}</pre>"
     # 变量级注释：读取HTML模板

@@ -21,6 +21,59 @@ import requests
 class FileOrganizerError(Exception):
     pass
 
+class QwenLongClient:
+    """Qwen-Long在线模型客户端"""
+    def __init__(self, api_key: str = None):
+        try:
+            from openai import OpenAI
+            self.api_key = api_key or "sk-9b728f2f153f4a81b507caeced3380d1"
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            )
+            self.model_name = "qwen-long"
+            logging.info("Qwen-Long在线模型客户端初始化成功")
+        except ImportError:
+            raise FileOrganizerError("需要安装openai库: pip install openai")
+        except Exception as e:
+            raise FileOrganizerError(f"初始化Qwen-Long客户端失败: {e}")
+    
+    def chat_with_retry(self, messages: List[Dict], max_retries: int = 3) -> str:
+        """与Qwen-Long模型对话，支持重试机制"""
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                logging.info(f"尝试使用Qwen-Long模型 (第{attempt + 1}次)")
+                
+                completion = self.client.chat.completions.create(
+                    model="qwen-long",
+                    messages=messages,
+                    # Qwen3模型通过enable_thinking参数控制思考过程
+                    extra_body={"enable_thinking": False},
+                )
+                
+                if completion.choices and len(completion.choices) > 0:
+                    content = completion.choices[0].message.content.strip()
+                    if content:
+                        logging.info("Qwen-Long模型响应成功")
+                        return content
+                    else:
+                        raise FileOrganizerError("Qwen-Long模型返回空内容")
+                else:
+                    raise FileOrganizerError("Qwen-Long模型返回无效响应格式")
+                    
+            except Exception as e:
+                last_error = e
+                logging.warning(f"Qwen-Long模型响应失败 (第{attempt + 1}次): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # 重试前等待1秒
+                    continue
+        
+        error_msg = f"Qwen-Long模型所有重试都失败，最后错误: {last_error}"
+        logging.error(error_msg)
+        raise FileOrganizerError(error_msg)
+
 class OllamaClient:
     def __init__(self, model_name: str = None, host: str = None):
         self.model_name = model_name
@@ -400,6 +453,7 @@ class FileOrganizer:
     def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
         self.model_name = model_name
         self.ollama_client = None
+        self.qwen_long_client = None
         self.enable_transfer_log = enable_transfer_log
         self.transfer_log_manager = None
         self.setup_logging()
@@ -429,11 +483,21 @@ class FileOrganizer:
         )
         logging.info("文件整理器初始化完成")
     def initialize_ollama(self) -> None:
+        """初始化AI客户端，优先使用qwen-long在线模型"""
         try:
+            # 首先尝试初始化qwen-long在线模型
+            try:
+                self.qwen_long_client = QwenLongClient()
+                logging.info("Qwen-Long在线模型客户端初始化成功")
+                return
+            except Exception as e:
+                logging.warning(f"Qwen-Long在线模型初始化失败: {e}")
+            
+            # 如果qwen-long失败，回退到本地Ollama模型
             self.ollama_client = OllamaClient(self.model_name)
             logging.info("Ollama 客户端初始化成功")
         except Exception as e:
-            raise FileOrganizerError(f"初始化 Ollama 客户端失败: {e}")
+            raise FileOrganizerError(f"所有AI客户端初始化失败: {e}")
     def scan_target_folders(self, target_directory: str) -> List[str]:
         """扫描目标文件夹，返回相对路径列表（内部使用，不输出日志）"""
         try:
@@ -481,7 +545,7 @@ class FileOrganizer:
         timing_info = {}
         
         try:
-            if not self.ollama_client:
+            if not self.ollama_client and not self.qwen_long_client:
                 init_start = time.time()
                 self.initialize_ollama()
                 timing_info['ollama_init_time'] = round(time.time() - init_start, 3)
@@ -788,7 +852,7 @@ class FileOrganizer:
             if not content or content.startswith("无法") or content.startswith("文件内容为二进制"):
                 return f"无法生成摘要：{content[:50]}..."
             
-            if not self.ollama_client:
+            if not self.ollama_client and not self.qwen_long_client:
                 self.initialize_ollama()
             
             # 使用传入的摘要长度，如果没有则使用默认值
@@ -827,7 +891,18 @@ class FileOrganizer:
                 }
             ]
 
-            summary = self.ollama_client.chat_with_retry(messages)
+            # 优先使用qwen-long客户端，如果失败则回退到ollama客户端
+            if self.qwen_long_client:
+                try:
+                    summary = self.qwen_long_client.chat_with_retry(messages)
+                except Exception as e:
+                    logging.warning(f"Qwen-Long模型摘要生成失败，回退到Ollama: {e}")
+                    if self.ollama_client:
+                        summary = self.ollama_client.chat_with_retry(messages)
+                    else:
+                        raise e
+            else:
+                summary = self.ollama_client.chat_with_retry(messages)
             
             # 清理可能的思考过程标签和内容
             summary = summary.replace('<think>', '').replace('</think>', '').strip()
@@ -984,7 +1059,7 @@ class FileOrganizer:
         支持重试机制，当AI返回不存在的文件夹时自动重试
         """
         try:
-            if not self.ollama_client:
+            if not self.ollama_client and not self.qwen_long_client:
                 self.initialize_ollama()
             
             file_name = Path(file_path).name
@@ -1016,40 +1091,27 @@ class FileOrganizer:
                 self.scan_target_folders(target_directory)
             )
             
-            # 构建更明确的分类提示词，要求返回前三个匹配度最高的路径
+            # 构建通用的分类提示词
             if has_valid_content and has_valid_summary:
-                prompt = f"""你是一个专业的保险行业文件分类专家。请根据文件内容精确分类到最合适的目标文件夹。
+                prompt = f"""你是一个专业的文件分类专家。请根据文件内容分类到最合适的目标文件夹。
 
 文件信息：
 - 文件名：{file_name}
 - 内容摘要：{summary}
 
-可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
+可选的目标文件夹路径（必须严格从以下列表中选择）：
 {directory_structure}
 
 {custom_rules}
-
-保险行业分类指导原则：
-1. **人身险类**：寿险、健康险、意外险、年金险等相关文档 → 【7-4-5】人身险
-2. **财产险类**：车险、家财险、责任险、工程险等相关文档 → 【7-4-6】财产险
-3. **再保险类**：再保险业务、分保、风险分散等相关文档 → 【7-4-7】再保险
-4. **保险资管类**：投资管理、资产管理、资金运用等相关文档 → 【7-4-8】保险资管
-5. **保险中介类**：代理、经纪、公估等相关文档 → 【7-4-9】保险中介
-6. **新兴业态类**：互联网保险、科技保险、创新业务等相关文档 → 【7-4-10】新兴业态
-7. **监管政策类**：保监会政策、监管规定、合规要求等相关文档 → 【7-4-2】保监会
-8. **公司经营类**：公司管理、经营策略、市场分析等相关文档 → 【7-4-1】综合
-9. **保险公司类**：具体保险公司相关文档 → 【7-4-4】保险公司
 
 分类要求：
 1. 必须严格从上述文件夹路径列表中复制完整的路径
 2. 不能修改、缩写或添加任何内容到路径
 3. 不能创建或想象不存在的文件夹
-4. 优先选择最具体的分类，避免选择过于宽泛的"综合"类
+4. 优先选择最具体的分类（路径越深越具体）
 5. 按匹配度从高到低返回前三个路径
 6. 每行一个路径，不要包含任何其他内容
-7. 不要使用"<think>"标签或任何思考过程描述
-8. 仔细分析文件内容主题，选择最匹配的专业分类
-9. 优先参考用户自定义分类规则进行判断
+7. 仔细分析文件内容主题，选择最匹配的文件夹
 
 输出格式（严格按此格式，每行一个完整路径）：
 第一推荐：[完整路径1]
@@ -1058,52 +1120,28 @@ class FileOrganizer:
 
 请开始推荐："""
             else:
-                # 无法获取有效内容时，使用文件名进行分类，同样返回前三个推荐
+                # 无法获取有效内容时，使用文件名进行分类
                 file_extension = Path(file_name).suffix.lower()
                 
-                prompt = f"""你是一个专业的保险行业文件分类专家。由于无法读取文件内容，请根据文件名和扩展名精确分类到最合适的目标文件夹。
+                prompt = f"""你是一个专业的文件分类专家。由于无法读取文件内容，请根据文件名和扩展名分类到最合适的目标文件夹。
 
 文件信息：
 - 文件名：{file_name}
 - 文件扩展名：{file_extension}
 
-可选的目标文件夹路径（必须严格从以下列表中选择，不能修改路径）：
+可选的目标文件夹路径（必须严格从以下列表中选择）：
 {directory_structure}
 
 {custom_rules}
-
-保险行业分类指导原则：
-1. **人身险类**：寿险、健康险、意外险、年金险等相关文档 → 【7-4-5】人身险
-2. **财产险类**：车险、家财险、责任险、工程险等相关文档 → 【7-4-6】财产险
-3. **再保险类**：再保险业务、分保、风险分散等相关文档 → 【7-4-7】再保险
-4. **保险资管类**：投资管理、资产管理、资金运用等相关文档 → 【7-4-8】保险资管
-5. **保险中介类**：代理、经纪、公估等相关文档 → 【7-4-9】保险中介
-6. **新兴业态类**：互联网保险、科技保险、创新业务等相关文档 → 【7-4-10】新兴业态
-7. **监管政策类**：保监会政策、监管规定、合规要求等相关文档 → 【7-4-2】保监会
-8. **公司经营类**：公司管理、经营策略、市场分析等相关文档 → 【7-4-1】综合
-9. **保险公司类**：具体保险公司相关文档 → 【7-4-4】保险公司
-
-文件名关键词分析指导：
-- 包含"寿险"、"健康险"、"意外险"、"年金"等 → 【7-4-5】人身险
-- 包含"车险"、"家财险"、"责任险"、"工程险"等 → 【7-4-6】财产险
-- 包含"再保险"、"分保"、"风险分散"等 → 【7-4-7】再保险
-- 包含"投资"、"资管"、"资金运用"等 → 【7-4-8】保险资管
-- 包含"代理"、"经纪"、"公估"等 → 【7-4-9】保险中介
-- 包含"互联网"、"科技"、"创新"、"数字化"等 → 【7-4-10】新兴业态
-- 包含"监管"、"政策"、"规定"、"合规"等 → 【7-4-2】保监会
-- 包含具体公司名称（如"平安"、"国寿"、"太保"等） → 【7-4-4】保险公司
-- 包含"经营"、"策略"、"分析"、"报告"等 → 【7-4-1】综合
 
 分类要求：
 1. 必须严格从上述文件夹路径列表中复制完整的路径
 2. 不能修改、缩写或添加任何内容到路径
 3. 不能创建或想象不存在的文件夹
-4. 优先选择最具体的分类，避免选择过于宽泛的"综合"类
+4. 优先选择最具体的分类（路径越深越具体）
 5. 按匹配度从高到低返回前三个路径
 6. 每行一个路径，不要包含任何其他内容
-7. 不要使用"<think>"标签或任何思考过程描述
-8. 仔细分析文件名关键词，选择最匹配的专业分类
-9. 优先参考用户自定义分类规则进行判断
+7. 仔细分析文件名关键词，选择最匹配的文件夹
 
 输出格式（严格按此格式，每行一个完整路径）：
 第一推荐：[完整路径1]
@@ -1121,7 +1159,7 @@ class FileOrganizer:
             messages = [
                 {
                     'role': 'system',
-                    'content': '你是一个专业的保险行业文件分类专家。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。优先选择最具体的专业分类，避免选择过于宽泛的"综合"类。'
+                    'content': '你是一个专业的文件分类专家。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。优先选择最具体的分类（路径越深越具体）。'
                 },
                 {
                     'role': 'user',
@@ -1129,8 +1167,21 @@ class FileOrganizer:
                 }
             ]
             
-            result = self.ollama_client.chat_with_retry(messages)
-            print(f"🤖 AI原始返回结果: {result}")
+            # 优先使用qwen-long客户端，如果失败则回退到ollama客户端
+            if self.qwen_long_client:
+                try:
+                    result = self.qwen_long_client.chat_with_retry(messages)
+                    print(f"🤖 Qwen-Long AI原始返回结果: {result}")
+                except Exception as e:
+                    logging.warning(f"Qwen-Long模型分类失败，回退到Ollama: {e}")
+                    if self.ollama_client:
+                        result = self.ollama_client.chat_with_retry(messages)
+                        print(f"🤖 Ollama AI原始返回结果: {result}")
+                    else:
+                        raise e
+            else:
+                result = self.ollama_client.chat_with_retry(messages)
+                print(f"🤖 Ollama AI原始返回结果: {result}")
             
             # 清理结果中的思考过程（现在在_parse_classification_result中统一处理）
             result = result.strip()
@@ -1144,16 +1195,18 @@ class FileOrganizer:
                     result = '。'.join(sentences[1:]).strip()
             
             # 解析AI分类结果
-            recommended_folder, match_reason = self._parse_classification_result(result, target_directory)
+            recommended_folder, match_reason = self._parse_classification_result(result, target_directory, content, summary)
             
             # 检查分类质量：如果推荐的是过于宽泛的分类，尝试重新分类
-            broad_categories = ['【7-4-1】综合', '【7-4-1-4】经营业态']
-            if recommended_folder and any(broad in recommended_folder for broad in broad_categories) and retry_count < 2:
-                print(f"⚠️  AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试...")
-                logging.warning(f"AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试")
-                
-                # 在重试时强调要选择更具体的分类
-                return self._recommend_target_folder(file_path, content, summary, target_directory, retry_count + 1)
+            if recommended_folder and retry_count < 2:
+                # 检查路径深度，如果太浅可能是过于宽泛的分类
+                path_depth = len([p for p in recommended_folder.split('\\') + recommended_folder.split('/') if p.strip()])
+                if path_depth <= 2:  # 路径深度小于等于2可能是过于宽泛
+                    print(f"⚠️  AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试...")
+                    logging.warning(f"AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试")
+                    
+                    # 在重试时强调要选择更具体的分类
+                    return self._recommend_target_folder(file_path, content, summary, target_directory, retry_count + 1)
             
             # 检查是否匹配失败，如果是且未超过重试次数，则重试
             if recommended_folder is None and retry_count < 2:  # 最多重试2次
@@ -1217,13 +1270,15 @@ class FileOrganizer:
             logging.error(f"提取推荐路径时出错: {e}")
             return []
     
-    def _parse_classification_result(self, result: str, target_directory: str) -> tuple:
+    def _parse_classification_result(self, result: str, target_directory: str, file_content: str = None, file_summary: str = None) -> tuple:
         """
-        解析AI分类结果，支持三个推荐路径的依次验证
+        解析AI分类结果，支持相关性评分排序和三个推荐路径的依次验证
         
         Args:
             result: AI返回的分类结果
             target_directory: 目标目录路径
+            file_content: 文件内容（用于相关性计算）
+            file_summary: 文件摘要（用于相关性计算）
             
         Returns:
             tuple: (推荐文件夹路径, 匹配理由)
@@ -1249,7 +1304,18 @@ class FileOrganizer:
             
             print(f"📋 提取到 {len(recommended_paths)} 个推荐路径: {recommended_paths}")
             
-            # 依次验证每个推荐路径
+            # 如果有文件内容和摘要，进行相关性分析和排序
+            if file_content and file_summary:
+                print(f"🔍 开始相关性分析和排序...")
+                sorted_paths = self._filter_irrelevant_folders(file_content, file_summary, recommended_paths, target_directory)
+                
+                if sorted_paths:
+                    recommended_paths = sorted_paths
+                    print(f"✅ 相关性排序完成，按评分排序后的路径: {sorted_paths}")
+                else:
+                    print(f"⚠️ 相关性排序后无相关路径，使用原始推荐")
+            
+            # 依次验证每个推荐路径（现在按相关性评分排序）
             for i, recommended_path in enumerate(recommended_paths, 1):
                 target_path = Path(target_directory) / recommended_path
                 
@@ -1415,7 +1481,7 @@ class FileOrganizer:
             raise FileOrganizerError(f"预览分类失败: {e}")
     def organize_file(self, file_path: str, target_directory: str) -> Tuple[bool, str]:
         try:
-            if not self.ollama_client:
+            if not self.ollama_client and not self.qwen_long_client:
                 self.initialize_ollama()
             
             file_path_obj = Path(file_path)
@@ -1449,11 +1515,14 @@ class FileOrganizer:
             
             print(f"📋 迁移信息: {migration_info}")
             
-            # 创建目标文件夹
-            target_folder_full_path.mkdir(parents=True, exist_ok=True)
+            # 检查并创建年份子文件夹
+            final_target_folder = self._check_and_create_year_folder(target_folder_full_path, filename)
+            
+            # 确保目标文件夹存在
+            final_target_folder.mkdir(parents=True, exist_ok=True)
             
             # 构建目标文件路径
-            target_file_path = target_folder_full_path / filename
+            target_file_path = final_target_folder / filename
             if target_file_path.exists():
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 name_parts = filename.rsplit('.', 1)
@@ -1461,7 +1530,7 @@ class FileOrganizer:
                     new_filename = f"{name_parts[0]}_{timestamp}.{name_parts[1]}"
                 else:
                     new_filename = f"{filename}_{timestamp}"
-                target_file_path = target_folder_full_path / new_filename
+                target_file_path = final_target_folder / new_filename
                 print(f"⚠️  文件名冲突，重命名为: {new_filename}")
             
             # 执行文件复制
@@ -1947,7 +2016,7 @@ class FileOrganizer:
         timing_info = {}
         
         try:
-            if not self.ollama_client:
+            if not self.ollama_client and not self.qwen_long_client:
                 init_start = time.time()
                 self.initialize_ollama()
                 timing_info['ollama_init_time'] = round(time.time() - init_start, 3)
@@ -2117,3 +2186,293 @@ class FileOrganizer:
             
         except Exception as e:
             raise FileOrganizerError(f"批量文档解读失败: {e}")
+
+    def _extract_folder_keywords(self, folder_path: str) -> List[str]:
+        """
+        从文件夹路径中提取有意义的关键词
+        
+        Args:
+            folder_path: 文件夹路径
+            
+        Returns:
+            List[str]: 关键词列表
+        """
+        try:
+            # 提取路径中的文件夹名称
+            path_parts = folder_path.split('\\') + folder_path.split('/')
+            keywords = []
+            
+            for part in path_parts:
+                part = part.strip()
+                if not part:
+                    continue
+                
+                # 移除编号前缀，如"【7-4-5】"
+                if '【' in part and '】' in part:
+                    part = part.split('】', 1)[1] if '】' in part else part
+                
+                # 过滤掉数字和单个字符
+                if len(part) <= 1 or part.isdigit():
+                    continue
+                
+                # 过滤掉包含连字符的数字代码，如"7-4-5"
+                if '-' in part and all(segment.isdigit() for segment in part.split('-')):
+                    continue
+                
+                # 过滤掉纯英文缩写
+                if part.isupper() and len(part) <= 3:
+                    continue
+                
+                # 避免重复添加
+                if part not in keywords:
+                    keywords.append(part)
+                
+                # 对于复合词汇，也提取其中的关键词
+                if '\\' in part or '/' in part:
+                    sub_parts = part.replace('\\', ' ').replace('/', ' ').split()
+                    for sub_part in sub_parts:
+                        sub_part = sub_part.strip()
+                        if len(sub_part) > 1 and sub_part not in keywords:
+                            keywords.append(sub_part)
+            
+            return keywords
+        except Exception as e:
+            logging.error(f"提取文件夹关键词失败: {e}")
+            return []
+
+    def _calculate_folder_relevance(self, file_content: str, file_summary: str, folder_path: str) -> float:
+        """
+        计算文件内容与文件夹路径的相关性评分
+        
+        Args:
+            file_content: 文件内容
+            file_summary: 文件摘要
+            folder_path: 文件夹路径
+            
+        Returns:
+            float: 相关性评分 (0.0-1.0)
+        """
+        try:
+            # 提取文件夹路径中的关键词
+            folder_keywords = self._extract_folder_keywords(folder_path)
+            if not folder_keywords:
+                return 0.0
+            
+            # 合并文件内容和摘要进行分析
+            analysis_text = f"{file_content} {file_summary}".lower()
+            
+            # 定义通用的同义词和相关词汇映射（基于常见词汇）
+            synonym_mapping = {
+                # 通用业务词汇
+                '综合': ['综合', '策略', '投资策略', '策略报告', '综合分析', '综合管理'],
+                '研究': ['研究', '分析', '调研', '调查', '报告', '专题', '研究报告'],
+                '投资': ['投资', '投资策略', '投资分析', '投资研究', '投资理念'],
+                '行业': ['行业', '产业', '领域', '板块', '细分', '行业研究'],
+                '公司': ['公司', '企业', '机构', '集团', '主体', '公司研究'],
+                '经济': ['经济', '宏观经济', '经济分析', '经济研究', '经济模型'],
+                '知识': ['知识', '百科', '科普', '教育', '学习'],
+                '项目': ['项目', '合作', '合作项目', '项目合作'],
+                '资料': ['资料', '文档', '文件', '材料', '信息'],
+                '报告': ['报告', '研究报告', '分析报告', '策略报告', '专题报告'],
+                '集合': ['集合', '汇总', '整理', '分类', '集合'],
+                '分类': ['分类', '分类研究', '行业分类', '研究分类'],
+                '权益': ['权益', '权益投资', '股票', '股权', '权益类'],
+                '估值': ['估值', '估值方法', '估值研究', '价值评估'],
+                '方法': ['方法', '研究方法', '分析方法', '估值方法'],
+            }
+            
+            # 简化的相关性计算：主要基于关键词匹配和路径长度权重
+            # 删除复杂的相斥性检查，让AI自己判断
+            
+            # 计算相关性评分
+            total_score = 0.0
+            matched_keywords = []
+            
+            for keyword in folder_keywords:
+                keyword_lower = keyword.lower()
+                
+                # 直接匹配（完全匹配）
+                if keyword_lower in analysis_text:
+                    total_score += 1.0
+                    matched_keywords.append(keyword)
+                    continue
+                
+                # 部分匹配（关键词是文件内容中某个词汇的子串）
+                if any(keyword_lower in word.lower() for word in analysis_text.split()):
+                    total_score += 0.9
+                    matched_keywords.append(f"{keyword}(部分匹配)")
+                    continue
+                
+                # 同义词匹配
+                if keyword in synonym_mapping:
+                    synonyms = synonym_mapping[keyword]
+                    for synonym in synonyms:
+                        if synonym.lower() in analysis_text:
+                            total_score += 0.8  # 同义词匹配权重稍低
+                            matched_keywords.append(f"{keyword}(同义词:{synonym})")
+                            break
+            
+            # 计算基础相关性评分
+            if folder_keywords:
+                base_relevance_score = total_score / len(folder_keywords)
+                
+                # 路径长度权重：路径越长（分类越细致），权重越高
+                path_depth = len([p for p in folder_path.split('\\') + folder_path.split('/') if p.strip()])
+                path_length_bonus = min(0.3, path_depth * 0.05)  # 最多增加0.3分
+                
+                # 最终相关性评分 = 基础评分 + 路径长度奖励
+                relevance_score = base_relevance_score + path_length_bonus
+                
+                print(f"📊 相关性评分: {relevance_score:.3f} (基础: {base_relevance_score:.3f}, 路径奖励: {path_length_bonus:.3f}, 匹配关键词: {matched_keywords})")
+                return relevance_score
+            
+            return 0.0
+            
+        except Exception as e:
+            logging.error(f"计算文件夹相关性失败: {e}")
+            return 0.0
+
+    def _filter_irrelevant_folders(self, file_content: str, file_summary: str, recommended_paths: List[str], target_directory: str) -> List[str]:
+        """
+        过滤掉与文件内容不相关的文件夹路径，并按相关性评分排序
+        
+        Args:
+            file_content: 文件内容
+            file_summary: 文件摘要
+            recommended_paths: AI推荐的文件夹路径列表
+            target_directory: 目标目录
+            
+        Returns:
+            List[str]: 按相关性评分排序的文件夹路径列表
+        """
+        try:
+            print(f"🔍 开始相关性分析和排序...")
+            print(f"📋 原始推荐路径: {recommended_paths}")
+            
+            relevance_scores = {}
+            
+            for path in recommended_paths:
+                # 计算相关性评分
+                relevance_score = self._calculate_folder_relevance(file_content, file_summary, path)
+                relevance_scores[path] = relevance_score
+                
+                print(f"📊 {path}: 相关性评分 {relevance_score:.3f}")
+            
+            # 简化过滤逻辑：只过滤掉相关性评分为0的路径，保留所有有评分的路径
+            filtered_paths = [path for path, score in relevance_scores.items() if score > 0]
+            
+            if not filtered_paths:
+                print(f"⚠️ 所有路径相关性评分都为0，返回原始推荐")
+                return recommended_paths  # 回退到原始推荐，而不是拒绝分类
+            
+            # 按相关性评分从高到低排序
+            sorted_paths = sorted(filtered_paths, key=lambda x: relevance_scores[x], reverse=True)
+            
+            print(f"✅ 相关性排序完成:")
+            for i, path in enumerate(sorted_paths, 1):
+                print(f"  {i}. {path} (评分: {relevance_scores[path]:.3f})")
+            
+            return sorted_paths
+            
+        except Exception as e:
+            logging.error(f"相关性过滤失败: {e}")
+            print(f"❌ 相关性过滤失败: {e}")
+            return recommended_paths
+
+    def _extract_year_from_filename(self, filename: str) -> Optional[int]:
+        """
+        从文件名中提取年份信息
+        支持多种年份格式：2024、2025、24、25等
+        """
+        import re
+        
+        # 提取4位年份 (2024, 2025等)
+        year_patterns = [
+            r'20\d{2}',  # 2020-2099
+            r'19\d{2}',  # 1900-1999
+        ]
+        
+        for pattern in year_patterns:
+            matches = re.findall(pattern, filename)
+            if matches:
+                # 返回找到的第一个年份
+                return int(matches[0])
+        
+        # 如果没有找到4位年份，尝试2位年份 (24, 25等)
+        short_year_pattern = r'\b(2[0-9]|1[0-9])\b'  # 10-29
+        matches = re.findall(short_year_pattern, filename)
+        if matches:
+            year = int(matches[0])
+            # 假设20xx年
+            if year >= 20:
+                return 2000 + year
+            else:
+                return 1900 + year
+        
+        return None
+
+    def _check_and_create_year_folder(self, target_folder_path: Path, filename: str) -> Path:
+        """
+        检查目标文件夹中是否包含文件年份，如果没有则创建年份子文件夹
+        并参考原目录结构创建合适的子目录
+        """
+        # 提取文件名中的年份
+        file_year = self._extract_year_from_filename(filename)
+        
+        if not file_year:
+            print(f"📅 无法从文件名中提取年份: {filename}")
+            return target_folder_path
+        
+        print(f"📅 从文件名提取到年份: {file_year}")
+        
+        # 检查目标文件夹中是否已有该年份的子文件夹
+        year_folder_name = str(file_year)
+        
+        # 检查目标文件夹及其子文件夹中是否包含该年份
+        existing_year_folders = []
+        if target_folder_path.exists():
+            for item in target_folder_path.iterdir():
+                if item.is_dir():
+                    # 检查文件夹名是否包含年份
+                    if year_folder_name in item.name:
+                        existing_year_folders.append(item)
+                    # 递归检查子文件夹
+                    for subitem in item.rglob("*"):
+                        if subitem.is_dir() and year_folder_name in subitem.name:
+                            existing_year_folders.append(subitem)
+        
+        if existing_year_folders:
+            print(f"📅 找到现有年份文件夹: {[str(f) for f in existing_year_folders]}")
+            # 使用第一个找到的年份文件夹
+            return existing_year_folders[0]
+        
+        # 如果没有找到年份文件夹，需要创建新的年份文件夹结构
+        # 分析原目录结构，创建合适的年份目录
+        
+        # 获取目标目录的根目录（通常是目标基础目录）
+        # 例如：如果目标路径是 "F:\浩总参阅资料\【01】策略报告集合\2021\2021年投资策略\中信建投\行业"
+        # 我们需要找到 "F:\浩总参阅资料\【01】策略报告集合" 作为根目录
+        
+        # 查找包含年份的目录层级
+        target_parts = list(target_folder_path.parts)
+        
+        # 从后往前查找第一个包含年份的目录
+        year_index = -1
+        for i, part in enumerate(target_parts):
+            if part.isdigit() and len(part) == 4 and part.startswith('20'):
+                year_index = i
+                break
+        
+        if year_index != -1:
+            # 找到了年份目录，替换它
+            new_parts = target_parts.copy()
+            new_parts[year_index] = str(file_year)
+            new_year_folder_path = Path(*new_parts)
+        else:
+            # 没有找到年份目录，在目标目录下创建年份文件夹
+            new_year_folder_path = target_folder_path / year_folder_name
+        
+        print(f"📅 创建新的年份目录结构: {new_year_folder_path}")
+        new_year_folder_path.mkdir(parents=True, exist_ok=True)
+        
+        return new_year_folder_path

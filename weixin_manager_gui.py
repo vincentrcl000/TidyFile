@@ -150,11 +150,49 @@ class WeixinManagerTab:
             result = subprocess.run(cmd, capture_output=True, text=True)
             output = result.stdout + "\n" + result.stderr
             self.frame.after(0, lambda: self.log_message(output.strip()))
-            # 判断是否有异常
-            if ("Traceback" in output or "ModuleNotFoundError" in output or "依赖缺失" in output or result.returncode != 0):
-                messagebox.showerror("解读失败", "微信文章批量解读失败，请检查操作日志和依赖包！\n如有依赖缺失，请先安装依赖：\npip install beautifulsoup4 html2text fake-useragent requests")
+            
+            # 根据不同的错误类型显示相应的错误提示
+            if result.returncode != 0:
+                error_message = self._analyze_error_type(output)
+                messagebox.showerror("解读失败", error_message)
             else:
                 messagebox.showinfo("解读完成", "微信文章批量解读已完成，摘要已写入ai_organize_result.json")
         except Exception as e:
             self.frame.after(0, lambda: self.log_message(f"解读失败: {e}"))
-            messagebox.showerror("解读失败", f"解读过程中发生错误:\n{e}") 
+            messagebox.showerror("解读失败", f"解读过程中发生错误:\n{e}")
+    
+    def _analyze_error_type(self, output):
+        """根据输出内容分析错误类型并返回相应的错误提示"""
+        output_lower = output.lower()
+        
+        # 依赖包缺失错误
+        if any(keyword in output_lower for keyword in ["modulenotfounderror", "import error", "no module named"]) or "依赖缺失" in output:
+            return "依赖包缺失，请先安装以下依赖包：\n\npip install beautifulsoup4 html2text fake-useragent requests markdown\n\n如果已安装但仍报错，请检查Python环境或重新安装依赖包。"
+        
+        # AI服务连接失败错误
+        elif any(keyword in output_lower for keyword in ["failed to connect", "connection refused"]) or \
+             ("ollama" in output_lower and "connect" in output_lower) or \
+             "ai服务连接失败" in output:
+            return "AI服务连接失败\n\n请确保：\n1. Ollama服务已启动\n2. 服务地址正确（默认：http://localhost:11434）\n3. 网络连接正常\n\n启动Ollama命令：ollama serve"
+        
+        # 文件不存在错误
+        elif any(keyword in output_lower for keyword in ["file not found", "file does not exist"]) or \
+             ("未找到" in output and "weixin_article.json" in output):
+            return "文件不存在\n\n请先执行'收藏文章备份'功能，生成weixin_article.json文件。"
+        
+        # 网络连接错误
+        elif any(keyword in output_lower for keyword in ["timeout", "connection error"]) or "网络错误" in output:
+            return "网络连接错误\n\n请检查：\n1. 网络连接是否正常\n2. 防火墙设置\n3. 代理设置"
+        
+        # 权限错误
+        elif any(keyword in output_lower for keyword in ["permission denied", "access denied"]):
+            return "权限不足\n\n请以管理员身份运行程序，或检查文件/目录的访问权限。"
+        
+        # 内存不足错误
+        elif any(keyword in output_lower for keyword in ["out of memory"]) or \
+             ("memory" in output_lower and "error" in output_lower):
+            return "内存不足\n\n请关闭其他程序释放内存，或减少处理的文章数量。"
+        
+        # 其他未知错误
+        else:
+            return "微信文章批量解读失败\n\n请检查操作日志获取详细错误信息，或联系技术支持。" 
