@@ -29,10 +29,21 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     # 类变量，用于跟踪最后一次心跳时间
     last_heartbeat = time.time()
     
+    def end_headers(self):
+        """重写end_headers方法，添加缓存控制头"""
+        # 为HTML文件添加缓存控制头，强制浏览器重新加载
+        if self.path.endswith('.html'):
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+        super().end_headers()
+    
     def do_POST(self):
         """处理POST请求"""
         if self.path == '/api/clean-duplicates':
             self.handle_clean_duplicates()
+        elif self.path == '/api/check-and-fix-paths':
+            self.handle_check_and_fix_paths()
         elif self.path == '/api/open-file':
             self.handle_open_file()
         elif self.path == '/api/heartbeat':
@@ -74,6 +85,302 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             
         except Exception as e:
             self.send_json_response({'success': False, 'message': f'清理失败: {str(e)}'})
+    
+    def handle_check_and_fix_paths(self):
+        """处理检查和修复文件路径的请求"""
+        try:
+            json_file = Path('ai_organize_result.json')
+            
+            if not json_file.exists():
+                self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
+                return
+            
+            # 读取现有数据
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 检查并修复文件路径
+            result = self.check_and_fix_file_paths(data)
+            
+            # 如果有路径被修复，保存更新后的数据
+            if result['fixed_paths'] > 0:
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            self.send_json_response({
+                'success': True,
+                'total_files': result['total_files'],
+                'valid_paths': result['valid_paths'],
+                'fixed_paths': result['fixed_paths'],
+                'not_found': result['not_found'],
+                'message': f"检查完成：{result['total_files']}个文件，{result['valid_paths']}个正常，{result['fixed_paths']}个已修复，{result['not_found']}个未找到"
+            })
+            
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'路径检查失败: {str(e)}'})
+    
+    def check_and_fix_file_paths(self, data):
+        """检查并修复文件路径"""
+        total_files = len(data)
+        valid_paths = 0
+        fixed_paths = 0
+        not_found = 0
+        
+        print(f"🔍 开始检查 {total_files} 个文件的路径...")
+        
+        for i, item in enumerate(data):
+            if (i + 1) % 10 == 0:
+                print(f"   进度: {i + 1}/{total_files}")
+            
+            target_path = item.get('最终目标路径', '')
+            if not target_path:
+                not_found += 1
+                continue
+            
+            # 检查文件是否存在
+            if os.path.exists(target_path):
+                valid_paths += 1
+                continue
+            
+            # 文件不存在，尝试在系统中搜索
+            file_name = os.path.basename(target_path)
+            if not file_name:
+                not_found += 1
+                continue
+            
+            # 搜索文件
+            found_path = self.search_file_in_system(file_name)
+            if found_path:
+                # 更新路径
+                item['最终目标路径'] = found_path
+                fixed_paths += 1
+                print(f"    ✅ 修复: {file_name} -> {found_path}")
+            else:
+                not_found += 1
+                print(f"    ❌ 未找到: {file_name}")
+        
+        print(f"🔍 路径检查完成: 有效 {valid_paths}, 修复 {fixed_paths}, 未找到 {not_found}")
+        
+        return {
+            'total_files': total_files,
+            'valid_paths': valid_paths,
+            'fixed_paths': fixed_paths,
+            'not_found': not_found
+        }
+    
+    def search_file_in_system(self, file_name):
+        """在系统中搜索文件，使用Windows搜索API"""
+        try:
+            # 使用Windows搜索API
+            found_path = self.search_with_windows_api(file_name)
+            if found_path:
+                return found_path
+            
+            # 如果Windows搜索API失败，回退到传统搜索
+            return self.fallback_search(file_name)
+            
+        except Exception as e:
+            print(f"搜索文件时出错: {e}")
+            return self.fallback_search(file_name)
+    
+    def search_with_windows_api(self, file_name):
+        """使用Windows搜索API搜索文件"""
+        try:
+            import subprocess
+            
+            # 优先搜索最可能的驱动器（根据测试结果，F盘最有可能）
+            priority_drives = ['F:', 'D:', 'E:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:', 'Q:', 'R:', 'S:', 'T:', 'U:', 'V:', 'W:', 'X:', 'Y:', 'Z:']
+            
+            # 先搜索其他驱动器
+            for drive in priority_drives:
+                if os.path.exists(drive):
+                    # 使用dir命令搜索，/s表示递归搜索，/b表示只显示文件名和路径
+                    # 缩短超时时间，提高搜索效率
+                    cmd = f'dir /s /b "{drive}\\{file_name}"'
+                    try:
+                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
+                        if result.returncode == 0 and result.stdout.strip():
+                            # 找到文件，返回第一个结果
+                            paths = result.stdout.strip().split('\n')
+                            for path in paths:
+                                if os.path.exists(path):
+                                    return path
+                    except subprocess.TimeoutExpired:
+                        continue
+                    except Exception:
+                        continue
+            
+            # 最后搜索C盘的用户目录
+            if os.path.exists('C:'):
+                found_path = self.search_c_drive_user_dirs(file_name)
+                if found_path:
+                    return found_path
+            
+            return None
+            
+        except Exception as e:
+            print(f"Windows搜索API出错: {e}")
+            return None
+    
+    def search_c_drive_user_dirs(self, file_name):
+        """专门搜索C盘的用户目录"""
+        try:
+            import subprocess
+            
+            # C盘用户目录列表
+            user_dirs = [
+                'C:\\Users',
+                'C:\\Documents and Settings',  # 兼容旧版Windows
+                'C:\\Users\\Public\\Documents',
+                'C:\\Users\\Public\\Desktop'
+            ]
+            
+            # 获取当前用户名，添加到搜索路径
+            import getpass
+            current_user = getpass.getuser()
+            if current_user:
+                user_dirs.extend([
+                    f'C:\\Users\\{current_user}\\Documents',
+                    f'C:\\Users\\{current_user}\\Desktop',
+                    f'C:\\Users\\{current_user}\\Downloads',
+                    f'C:\\Users\\{current_user}\\Pictures',
+                    f'C:\\Users\\{current_user}\\Videos',
+                    f'C:\\Users\\{current_user}\\Music'
+                ])
+            
+            # 搜索用户目录
+            for user_dir in user_dirs:
+                if os.path.exists(user_dir):
+                    cmd = f'dir /s /b "{user_dir}\\{file_name}"'
+                    try:
+                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
+                        if result.returncode == 0 and result.stdout.strip():
+                            paths = result.stdout.strip().split('\n')
+                            for path in paths:
+                                if os.path.exists(path):
+                                    return path
+                    except subprocess.TimeoutExpired:
+                        continue
+                    except Exception:
+                        continue
+            
+            return None
+            
+        except Exception as e:
+            print(f"C盘用户目录搜索出错: {e}")
+            return None
+    
+
+    
+    def fallback_search(self, file_name):
+        """回退搜索方法，使用传统文件系统搜索"""
+        try:
+            # 优先搜索的目录（按优先级排序）
+            priority_dirs = [
+                '重新整理的文件目录',
+                '保险行业资料',
+                'Documents',
+                '文档',
+                'Downloads', 
+                '下载',
+                'Desktop',
+                '桌面',
+                'Users'
+            ]
+            
+            # 先搜索其他驱动器
+            other_drives = ['D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:', 'Q:', 'R:', 'S:', 'T:', 'U:', 'V:', 'W:', 'X:', 'Y:', 'Z:']
+            
+            for drive in other_drives:
+                if os.path.exists(drive):
+                    # 按优先级添加目录
+                    for dir_name in priority_dirs:
+                        common_dir = os.path.join(drive, dir_name)
+                        if os.path.exists(common_dir):
+                            found_path = self.search_file_recursive(common_dir, file_name)
+                            if found_path:
+                                return found_path
+            
+            # 最后搜索C盘的用户目录
+            if os.path.exists('C:'):
+                found_path = self.search_c_drive_user_dirs_fallback(file_name)
+                if found_path:
+                    return found_path
+            
+            return None
+            
+        except Exception as e:
+            print(f"回退搜索出错: {e}")
+            return None
+    
+    def search_c_drive_user_dirs_fallback(self, file_name):
+        """回退搜索C盘的用户目录"""
+        try:
+            # C盘用户目录列表
+            user_dirs = [
+                'C:\\Users',
+                'C:\\Documents and Settings',  # 兼容旧版Windows
+                'C:\\Users\\Public\\Documents',
+                'C:\\Users\\Public\\Desktop'
+            ]
+            
+            # 获取当前用户名，添加到搜索路径
+            import getpass
+            current_user = getpass.getuser()
+            if current_user:
+                user_dirs.extend([
+                    f'C:\\Users\\{current_user}\\Documents',
+                    f'C:\\Users\\{current_user}\\Desktop',
+                    f'C:\\Users\\{current_user}\\Downloads',
+                    f'C:\\Users\\{current_user}\\Pictures',
+                    f'C:\\Users\\{current_user}\\Videos',
+                    f'C:\\Users\\{current_user}\\Music'
+                ])
+            
+            # 搜索用户目录
+            for user_dir in user_dirs:
+                if os.path.exists(user_dir):
+                    found_path = self.search_file_recursive(user_dir, file_name)
+                    if found_path:
+                        return found_path
+            
+            return None
+            
+        except Exception as e:
+            print(f"C盘用户目录回退搜索出错: {e}")
+            return None
+    
+    def search_file_recursive(self, directory, file_name, max_depth=3):
+        """递归搜索文件"""
+        try:
+            # 跳过一些不需要搜索的目录
+            skip_dirs = {'.git', '__pycache__', 'node_modules', '.vscode', '.idea', 'System Volume Information', '$Recycle.Bin', 'Windows', 'Program Files', 'Program Files (x86)'}
+            
+            for root, dirs, files in os.walk(directory):
+                # 限制搜索深度
+                depth = root[len(directory):].count(os.sep)
+                if depth > max_depth:
+                    continue
+                
+                # 跳过不需要的目录
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
+                
+                # 检查文件
+                for file in files:
+                    if file == file_name:
+                        return os.path.join(root, file)
+                
+                # 如果已经搜索了太多文件，停止搜索
+                if len(files) > 1000:  # 避免在大型目录中搜索过久
+                    break
+            
+            return None
+        except PermissionError:
+            # 权限不足，跳过
+            return None
+        except Exception as e:
+            print(f"递归搜索出错: {e}")
+            return None
     
     def handle_open_file(self):
         """处理打开文件的请求"""
@@ -222,6 +529,7 @@ def start_local_server(port=8000):
             print(f"查看器地址: {viewer_url}")
             print(f"API端点:")
             print(f"  - 清理重复文件: {server_url}/api/clean-duplicates")
+            print(f"  - 检查并修复路径: {server_url}/api/check-and-fix-paths")
             print(f"  - 打开文件: {server_url}/api/open-file")
             print(f"  - 心跳检测: {server_url}/api/heartbeat")
             print(f"工作目录: {script_dir}")

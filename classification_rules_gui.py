@@ -15,7 +15,6 @@ class ClassificationRulesGUI:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("分类规则管理器")
-        self.root.geometry("800x600")
         
         # 初始化规则管理器
         self.rules_manager = ClassificationRulesManager()
@@ -27,7 +26,7 @@ class ClassificationRulesGUI:
     def create_widgets(self):
         """创建界面组件"""
         # 主框架
-        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame = ttk.Frame(self.root, padding="5")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # 配置网格权重
@@ -37,12 +36,12 @@ class ClassificationRulesGUI:
         main_frame.rowconfigure(2, weight=1)
         
         # 标题
-        title_label = ttk.Label(main_frame, text="分类规则管理器", font=("Arial", 16, "bold"))
-        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        title_label = ttk.Label(main_frame, text="分类规则管理器", font=("Arial", 14, "bold"))
+        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
         
         # 左侧：规则列表
-        list_frame = ttk.LabelFrame(main_frame, text="规则列表", padding="10")
-        list_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        list_frame = ttk.LabelFrame(main_frame, text="规则列表", padding="5")
+        list_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 5))
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         
@@ -66,59 +65,56 @@ class ClassificationRulesGUI:
         self.rules_tree.bind("<<TreeviewSelect>>", self.on_rule_select)
         
         # 右侧：编辑区域
-        edit_frame = ttk.LabelFrame(main_frame, text="编辑规则", padding="10")
+        edit_frame = ttk.LabelFrame(main_frame, text="编辑规则", padding="5")
         edit_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S))
         edit_frame.columnconfigure(1, weight=1)
         
         # 文件夹名称
-        ttk.Label(edit_frame, text="文件夹名称:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        ttk.Label(edit_frame, text="文件夹名称:").grid(row=0, column=0, sticky=tk.W, pady=3)
         self.folder_name_var = tk.StringVar()
-        self.folder_name_entry = ttk.Entry(edit_frame, textvariable=self.folder_name_var, width=50)
-        self.folder_name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5, padx=(10, 0))
+        self.folder_name_entry = ttk.Entry(edit_frame, textvariable=self.folder_name_var, width=40)
+        self.folder_name_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=3, padx=(5, 0))
         
         # 存放内容说明
-        ttk.Label(edit_frame, text="存放内容说明:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.description_text = tk.Text(edit_frame, height=4, width=50)
-        self.description_text.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=5, padx=(10, 0))
+        ttk.Label(edit_frame, text="存放内容说明:").grid(row=1, column=0, sticky=tk.W, pady=3)
+        self.description_text = tk.Text(edit_frame, height=3, width=40)
+        self.description_text.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=3, padx=(5, 0))
         
         # 关键词
-        ttk.Label(edit_frame, text="关键词(用逗号分隔):").grid(row=2, column=0, sticky=tk.W, pady=5)
+        ttk.Label(edit_frame, text="关键词(用逗号分隔):").grid(row=2, column=0, sticky=tk.W, pady=3)
         self.keywords_var = tk.StringVar()
-        self.keywords_entry = ttk.Entry(edit_frame, textvariable=self.keywords_var, width=50)
-        self.keywords_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=5, padx=(10, 0))
+        self.keywords_entry = ttk.Entry(edit_frame, textvariable=self.keywords_var, width=40)
+        self.keywords_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=3, padx=(5, 0))
         
         # 按钮区域
         button_frame = ttk.Frame(edit_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, pady=20)
+        button_frame.grid(row=3, column=0, columnspan=2, pady=5)
         
-        # 添加按钮
+        # 第一行按钮
         add_button = ttk.Button(button_frame, text="添加规则", command=self.add_rule)
-        add_button.pack(side=tk.LEFT, padx=5)
+        add_button.grid(row=0, column=0, padx=2, pady=2)
         
-        # 更新按钮
         update_button = ttk.Button(button_frame, text="更新规则", command=self.update_rule)
-        update_button.pack(side=tk.LEFT, padx=5)
+        update_button.grid(row=0, column=1, padx=2, pady=2)
         
-        # 删除按钮
         delete_button = ttk.Button(button_frame, text="删除规则", command=self.delete_rule)
-        delete_button.pack(side=tk.LEFT, padx=5)
+        delete_button.grid(row=0, column=2, padx=2, pady=2)
         
-        # 清空按钮
+        # 第二行按钮
         clear_button = ttk.Button(button_frame, text="清空表单", command=self.clear_form)
-        clear_button.pack(side=tk.LEFT, padx=5)
+        clear_button.grid(row=1, column=0, padx=2, pady=2)
         
-        # 导入导出按钮
         import_button = ttk.Button(button_frame, text="导入规则", command=self.import_rules)
-        import_button.pack(side=tk.LEFT, padx=5)
+        import_button.grid(row=1, column=1, padx=2, pady=2)
         
         export_button = ttk.Button(button_frame, text="导出规则", command=self.export_rules)
-        export_button.pack(side=tk.LEFT, padx=5)
+        export_button.grid(row=1, column=2, padx=2, pady=2)
         
         # 状态栏
         self.status_var = tk.StringVar()
         self.status_var.set("就绪")
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_bar.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(10, 0))
+        status_bar.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=(5, 0))
     
     def load_rules_list(self):
         """加载规则列表"""

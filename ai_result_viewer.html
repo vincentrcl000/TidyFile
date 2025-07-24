@@ -14,15 +14,15 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #101e5a 0%, #764ba2 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.98);
             border-radius: 20px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             overflow: hidden;
@@ -31,19 +31,144 @@
         .header {
             background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
             color: white;
-            padding: 20px;
+            padding: 25px;
             text-align: center;
         }
 
         .header h1 {
-            font-size: 2.2em;
-            margin-bottom: 0;
+            font-size: 2.5em;
+            margin-bottom: 10px;
             font-weight: 300;
         }
 
-        .controls {
-            padding: 20px 30px;
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        /* 标签筛选区域 */
+        .filter-section {
             background: #f8f9fa;
+            padding: 20px 25px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .filter-row {
+            margin-bottom: 15px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .filter-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .filter-label {
+            font-weight: 600;
+            color: #495057;
+            min-width: 80px;
+            font-size: 0.9em;
+        }
+
+        .tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .tag-item {
+            background: #e9ecef;
+            border: 2px solid transparent;
+            padding: 6px 12px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.85em;
+            color: #495057;
+            user-select: none;
+        }
+
+        .tag-item:hover {
+            background: #007bff;
+            color: white;
+            transform: translateY(-1px);
+        }
+
+        .tag-item.selected {
+            background: #007bff;
+            color: white;
+            border-color: #0056b3;
+        }
+
+        .tag-item.year-tag {
+            background: #fff3cd;
+            color: #856404;
+            border-color: #ffeaa7;
+        }
+
+        .tag-item.year-tag:hover,
+        .tag-item.year-tag.selected {
+            background: #ffc107;
+            color: #212529;
+            border-color: #e0a800;
+        }
+
+        .filter-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .clear-filters {
+            background: #6c757d;
+            color: white;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+            white-space: nowrap;
+            margin-left: 10px;
+        }
+
+        .clear-filters:hover {
+            background: #5a6268;
+            transform: translateY(-1px);
+        }
+
+        .active-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .active-filter {
+            background: #007bff;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .active-filter .remove {
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .controls {
+            padding: 20px 25px;
+            background: white;
             border-bottom: 1px solid #e9ecef;
             display: flex;
             gap: 15px;
@@ -67,40 +192,14 @@
             transform: translateY(-2px);
         }
 
-        .pagination-info {
-            color: #6c757d;
-            font-size: 14px;
-            white-space: nowrap;
-        }
-
-        .pagination {
-            text-align: center;
-            margin: 20px 0;
-        }
-
-        .pagination button {
-            background: #007bff;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 25px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .pagination button:hover {
-            background: #0056b3;
-            transform: translateY(-2px);
-        }
-
         .search-box {
             flex: 1;
-            min-width: 200px;
+            min-width: 250px;
         }
 
         .search-box input {
             width: 100%;
-            padding: 10px 15px;
+            padding: 12px 20px;
             border: 2px solid #e9ecef;
             border-radius: 25px;
             font-size: 14px;
@@ -120,7 +219,8 @@
         }
 
         .content {
-            padding: 30px;
+            padding: 25px;
+            min-height: 400px;
         }
 
         .file-item {
@@ -134,7 +234,7 @@
         }
 
         .file-item:hover {
-            transform: translateY(-5px);
+            transform: translateY(-3px);
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
         }
 
@@ -175,8 +275,14 @@
 
         .file-time {
             color: #6c757d;
-            font-size: 0.9em;
+            font-size: 0.8em;
             white-space: nowrap;
+            background: #f8f9fa;
+            padding: 4px 10px;
+            border-radius: 12px;
+            border: 1px solid #e9ecef;
+            min-width: 100px;
+            text-align: center;
         }
 
         .file-status {
@@ -200,6 +306,22 @@
         .status-dry-run {
             background: #fff3cd;
             color: #856404;
+        }
+
+        .file-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 15px 0;
+        }
+
+        .file-tag {
+            background: #e3f2fd;
+            color: #1565c0;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 500;
         }
 
         .file-summary {
@@ -323,6 +445,33 @@
             vertical-align: middle;
         }
 
+        .pagination {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .pagination button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .pagination button:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .pagination-info {
+            color: #6c757d;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        /* 响应式设计 */
         @media (max-width: 768px) {
             .container {
                 margin: 10px;
@@ -335,6 +484,20 @@
 
             .header h1 {
                 font-size: 2em;
+            }
+
+            .filter-section {
+                padding: 15px 20px;
+            }
+
+            .filter-row {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .filter-label {
+                min-width: auto;
+                margin-bottom: 5px;
             }
 
             .controls {
@@ -355,29 +518,82 @@
             .timing-info {
                 flex-direction: column;
             }
+
+            .stats {
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .tag-container {
+                justify-content: center;
+            }
+
+            .file-item {
+                padding: 20px;
+            }
+
+            .file-time {
+                font-size: 0.75em;
+                min-width: 80px;
+                padding: 3px 8px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>文章阅读助手</h1>
+            <h1>📚 智能文章阅读器</h1>
+            <p>基于AI标签的智能筛选与阅读体验</p>
         </div>
 
         <div class="controls">
             <div class="refresh-btn">
-                <button id="refreshBtn" onclick="cleanDuplicateFiles()">🔄 刷新并清理重复</button>
+                <button id="refreshBtn" onclick="cleanDuplicateFiles()">🔄 清理重复并检查路径</button>
             </div>
             <div class="search-box">
                 <input type="text" id="searchInput" placeholder="🔍 搜索文件名、摘要或路径...">
             </div>
             <div class="stats" id="stats">
                 <span>总计: <strong>0</strong></span>
+                <span>筛选: <strong>0</strong></span>
                 <span>成功: <strong>0</strong></span>
-                <span>失败: <strong>0</strong></span>
             </div>
             <div class="pagination-info" id="paginationInfo">
                 <span>显示: <strong id="currentRange">0-0</strong> / <strong id="totalCount">0</strong></span>
+            </div>
+        </div>
+
+        <!-- 标签筛选区域 -->
+        <div class="filter-section">
+            <div class="filter-row">
+                <div class="filter-label">1级分类:</div>
+                <div class="tag-container" id="level1Tags"></div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-label">2级分类:</div>
+                <div class="tag-container" id="level2Tags"></div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-label">3级分类:</div>
+                <div class="tag-container" id="level3Tags"></div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-label">年份:</div>
+                <div class="tag-container" id="yearTags"></div>
+                <button class="clear-filters" onclick="clearAllFilters()">🗑️ 清除所有筛选</button>
+            </div>
+            <div class="filter-controls">
+                <div class="active-filters" id="activeFilters"></div>
             </div>
         </div>
 
@@ -398,6 +614,14 @@
         let displayedCount = 0;
         const itemsPerPage = 20;
         const defaultFilePath = 'ai_organize_result.json';
+        
+        // 筛选状态
+        let activeFilters = {
+            level1: new Set(),
+            level2: new Set(),
+            level3: new Set(),
+            years: new Set()
+        };
 
         // 页面加载时自动加载默认文件
         document.addEventListener('DOMContentLoaded', function() {
@@ -441,38 +665,215 @@
             try {
                 const refreshBtn = document.getElementById('refreshBtn');
                 const originalText = refreshBtn.textContent;
-                refreshBtn.textContent = '🔄 清理中...';
+                refreshBtn.textContent = '🔄 清理重复中...';
                 refreshBtn.disabled = true;
                 
-                const response = await fetch('/api/clean-duplicates', {
+                // 第一步：清理重复记录
+                const cleanResponse = await fetch('/api/clean-duplicates', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     }
                 });
                 
-                const result = await response.json();
+                const cleanResult = await cleanResponse.json();
                 
-                if (result.success) {
-                    if (result.removed_count > 0) {
-                        alert(`清理完成！\n原始记录: ${result.original_count}\n清理后记录: ${result.cleaned_count}\n删除重复: ${result.removed_count}`);
-                    } else {
-                        alert(`数据已是最新状态，无需清理！\n当前记录数: ${result.original_count}`);
-                    }
-                    // 重新加载数据
-                    await loadDefaultFile();
-                } else {
-                    alert(`清理失败: ${result.message}`);
+                if (!cleanResult.success) {
+                    alert(`清理重复记录失败: ${cleanResult.message}`);
+                    refreshBtn.textContent = originalText;
+                    refreshBtn.disabled = false;
+                    return;
                 }
                 
+                // 构建清理结果消息
+                let message = '';
+                if (cleanResult.removed_count > 0) {
+                    message += `✅ 重复记录清理完成！\n`;
+                    message += `原始记录: ${cleanResult.original_count}\n`;
+                    message += `清理后记录: ${cleanResult.cleaned_count}\n`;
+                    message += `删除重复: ${cleanResult.removed_count}\n\n`;
+                } else {
+                    message += `✅ 数据已是最新状态，无需清理重复记录！\n`;
+                    message += `当前记录数: ${cleanResult.original_count}\n\n`;
+                }
+                
+                // 显示清理结果
+                alert(message);
+                
+                // 重新加载数据
+                await loadDefaultFile();
+                
+                // 恢复按钮状态
                 refreshBtn.textContent = originalText;
                 refreshBtn.disabled = false;
                 
+                // 异步启动路径检查和修复（不阻塞用户界面）
+                startAsyncPathCheck();
+                
             } catch (error) {
-                alert(`清理失败: ${error.message}`);
+                alert(`操作失败: ${error.message}`);
                 const refreshBtn = document.getElementById('refreshBtn');
-                refreshBtn.textContent = '🔄 刷新数据';
+                refreshBtn.textContent = originalText;
                 refreshBtn.disabled = false;
+            }
+        }
+        
+        async function startAsyncPathCheck() {
+            // 创建状态显示区域
+            const statusDiv = createPathCheckStatus();
+            
+            try {
+                // 异步检查并修复文件路径
+                const pathCheckResponse = await fetch('/api/check-and-fix-paths', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const pathResult = await pathCheckResponse.json();
+                
+                // 更新状态显示
+                if (pathResult.success) {
+                    updatePathCheckStatus(statusDiv, 'success', {
+                        total: pathResult.total_files,
+                        valid: pathResult.valid_paths,
+                        fixed: pathResult.fixed_paths,
+                        notFound: pathResult.not_found
+                    });
+                    
+                    // 如果有修复的文件，重新加载数据
+                    if (pathResult.fixed_paths > 0) {
+                        setTimeout(() => {
+                            loadDefaultFile();
+                        }, 2000); // 延迟2秒重新加载，让用户看到结果
+                    }
+                } else {
+                    updatePathCheckStatus(statusDiv, 'error', {
+                        message: pathResult.message
+                    });
+                }
+                
+            } catch (error) {
+                updatePathCheckStatus(statusDiv, 'error', {
+                    message: error.message
+                });
+            }
+        }
+        
+        function createPathCheckStatus() {
+            // 检查是否已存在状态显示
+            let statusDiv = document.getElementById('pathCheckStatus');
+            if (statusDiv) {
+                statusDiv.remove();
+            }
+            
+            // 创建新的状态显示区域
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'pathCheckStatus';
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #f8f9fa;
+                border: 2px solid #007bff;
+                border-radius: 10px;
+                padding: 15px;
+                max-width: 300px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 1000;
+                font-size: 14px;
+            `;
+            
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <div style="width: 20px; height: 20px; border: 2px solid #007bff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <strong>正在检查文件路径...</strong>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; font-size: 18px; cursor: pointer; margin-left: auto;">×</button>
+                </div>
+                <div id="pathCheckProgress">准备开始检查...</div>
+            `;
+            
+            // 添加CSS动画
+            if (!document.getElementById('pathCheckStyles')) {
+                const style = document.createElement('style');
+                style.id = 'pathCheckStyles';
+                style.textContent = `
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            document.body.appendChild(statusDiv);
+            return statusDiv;
+        }
+        
+        function updatePathCheckStatus(statusDiv, type, data) {
+            const progressDiv = statusDiv.querySelector('#pathCheckProgress');
+            const spinner = statusDiv.querySelector('div[style*="animation"]');
+            
+            if (type === 'success') {
+                // 移除加载动画
+                if (spinner) {
+                    spinner.style.animation = 'none';
+                    spinner.style.border = '2px solid #28a745';
+                    spinner.innerHTML = '✅';
+                }
+                
+                // 更新标题
+                statusDiv.querySelector('strong').textContent = '路径检查完成';
+                statusDiv.style.borderColor = '#28a745';
+                
+                // 显示结果
+                progressDiv.innerHTML = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>检查结果:</strong>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <div>📊 检查文件数: ${data.total}</div>
+                        <div>✅ 路径正常: ${data.valid}</div>
+                        <div>🔧 路径已修复: ${data.fixed}</div>
+                        <div>❌ 未找到文件: ${data.notFound}</div>
+                    </div>
+                    ${data.fixed > 0 ? '<div style="margin-top: 8px; color: #28a745; font-weight: bold;">📝 已自动更新文件路径信息</div>' : ''}
+                    ${data.notFound > 0 ? '<div style="margin-top: 8px; color: #dc3545; font-weight: bold;">⚠️ 有文件未找到，请手动检查</div>' : ''}
+                `;
+                
+                // 5秒后自动隐藏
+                setTimeout(() => {
+                    if (statusDiv.parentElement) {
+                        statusDiv.remove();
+                    }
+                }, 5000);
+                
+            } else if (type === 'error') {
+                // 移除加载动画
+                if (spinner) {
+                    spinner.style.animation = 'none';
+                    spinner.style.border = '2px solid #dc3545';
+                    spinner.innerHTML = '❌';
+                }
+                
+                // 更新标题
+                statusDiv.querySelector('strong').textContent = '路径检查失败';
+                statusDiv.style.borderColor = '#dc3545';
+                
+                // 显示错误信息
+                progressDiv.innerHTML = `
+                    <div style="color: #dc3545; font-weight: bold;">
+                        错误: ${data.message}
+                    </div>
+                `;
+                
+                // 10秒后自动隐藏
+                setTimeout(() => {
+                    if (statusDiv.parentElement) {
+                        statusDiv.remove();
+                    }
+                }, 10000);
             }
         }
 
@@ -482,32 +883,303 @@
                 return;
             }
 
-            // 直接使用所有数据，不检查文件是否存在（避免CORS问题）
             const validData = data;
 
-            // 按处理时间倒序排列（最新的在前）
+            // 按发表时间或修改时间倒序排列（最新的在前）
             validData.sort((a, b) => {
-                // 兼容“处理时间”或“时间”字段
-                const timeA = new Date(a['处理时间'] || a['时间'] || '1970-01-01');
-                const timeB = new Date(b['处理时间'] || b['时间'] || '1970-01-01');
+                // 优先使用发表时间，如果没有则使用修改时间
+                const timeA = new Date(a['发表时间'] || a['文件元数据']?.modified_time || '1970-01-01');
+                const timeB = new Date(b['发表时间'] || b['文件元数据']?.modified_time || '1970-01-01');
                 return timeB - timeA;
             });
 
             allData = validData;
             filteredData = [...allData];
             displayedCount = 0;
+            
+            // 生成标签
+            generateTags();
+            
             renderData();
             updateStats();
         }
 
-        // 移除了checkFileExists和updateJsonFile函数以避免CORS问题
+        function generateTags() {
+            const level1Tags = new Set();
+            const level2Tags = new Set();
+            const level3Tags = new Set();
+            const yearTags = new Set();
+
+            allData.forEach(item => {
+                const tags = item['标签'] || {};
+                
+                // 收集1级标签
+                if (tags['1级标签']) {
+                    const formattedTag = formatTag(tags['1级标签']);
+                    if (formattedTag) {
+                        level1Tags.add(formattedTag);
+                    }
+                }
+                
+                // 收集2级标签（排除年份）
+                if (tags['2级标签']) {
+                    const formattedTag = formatTag(tags['2级标签']);
+                    if (formattedTag) {
+                        if (!isYearTag(formattedTag)) {
+                            level2Tags.add(formattedTag);
+                        } else {
+                            const cleanYear = cleanYearTag(formattedTag);
+                            if (cleanYear) {
+                                yearTags.add(cleanYear);
+                            }
+                        }
+                    }
+                }
+                
+                // 收集3级标签（排除年份）
+                if (tags['3级标签']) {
+                    const formattedTag = formatTag(tags['3级标签']);
+                    if (formattedTag) {
+                        if (!isYearTag(formattedTag)) {
+                            level3Tags.add(formattedTag);
+                        } else {
+                            const cleanYear = cleanYearTag(formattedTag);
+                            if (cleanYear) {
+                                yearTags.add(cleanYear);
+                            }
+                        }
+                    }
+                }
+                
+                // 只从标签和修改时间中提取年份
+                const modifiedTime = item['文件元数据']?.modified_time || '';
+                
+                // 从修改时间提取年份
+                if (modifiedTime) {
+                    const year = new Date(modifiedTime).getFullYear().toString();
+                    yearTags.add(year);
+                }
+            });
+
+            // 渲染标签
+            renderTagSection('level1Tags', Array.from(level1Tags).sort(), 'level1');
+            renderTagSection('level2Tags', Array.from(level2Tags).sort(), 'level2');
+            renderTagSection('level3Tags', Array.from(level3Tags).sort(), 'level3');
+            renderYearTags(Array.from(yearTags).sort().reverse());
+        }
+
+        function formatTag(tag) {
+            if (!tag) return null;
+            
+            // 移除数字、特殊符号等，只保留中文和英文
+            let formatted = tag
+                .replace(/[\d\-_]/g, '') // 移除数字、连字符、下划线
+                .replace(/[^\u4e00-\u9fa5a-zA-Z]/g, '') // 只保留中文和英文
+                .trim();
+            
+            // 如果格式化后为空，返回null
+            if (!formatted) return null;
+            
+            return formatted;
+        }
+
+        function isYearTag(tag) {
+            // 检查是否为年份标签（4位数字）
+            // 同时检查是否包含"年"字
+            return /^\d{4}$/.test(tag) || tag.includes('年');
+        }
+
+        function cleanYearTag(tag) {
+            // 清理年份标签，移除"年"字
+            if (tag && tag.includes('年')) {
+                return tag.replace('年', '');
+            }
+            return tag;
+        }
+
+        function extractYears(text) {
+            const years = [];
+            const yearMatches = text.match(/\b(20\d{2})\b/g);
+            if (yearMatches) {
+                yearMatches.forEach(year => years.push(year));
+            }
+            return years;
+        }
+
+        function renderTagSection(containerId, tags, level) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = tags.map(tag => 
+                `<div class="tag-item" onclick="toggleTag('${level}', '${tag}')">${tag}</div>`
+            ).join('');
+        }
+
+        function renderYearTags(years) {
+            const container = document.getElementById('yearTags');
+            container.innerHTML = years.map(year => 
+                `<div class="tag-item year-tag" onclick="toggleTag('years', '${year}')">${year}</div>`
+            ).join('');
+        }
+
+        function toggleTag(level, tag) {
+            const tagElement = event.target;
+            
+            if (activeFilters[level].has(tag)) {
+                activeFilters[level].delete(tag);
+                tagElement.classList.remove('selected');
+            } else {
+                activeFilters[level].add(tag);
+                tagElement.classList.add('selected');
+            }
+            
+            applyFilters();
+            updateActiveFiltersDisplay();
+        }
+
+        function applyFilters() {
+            filteredData = allData.filter(item => {
+                const tags = item['标签'] || {};
+                const modifiedTime = item['文件元数据']?.modified_time || '';
+                
+                // 检查1级标签
+                if (activeFilters.level1.size > 0) {
+                    const formattedTag = formatTag(tags['1级标签']);
+                    if (!formattedTag || !activeFilters.level1.has(formattedTag)) {
+                        return false;
+                    }
+                }
+                
+                // 检查2级标签
+                if (activeFilters.level2.size > 0) {
+                    const formattedTag = formatTag(tags['2级标签']);
+                    if (!formattedTag || !activeFilters.level2.has(formattedTag)) {
+                        return false;
+                    }
+                }
+                
+                // 检查3级标签
+                if (activeFilters.level3.size > 0) {
+                    const formattedTag = formatTag(tags['3级标签']);
+                    if (!formattedTag || !activeFilters.level3.has(formattedTag)) {
+                        return false;
+                    }
+                }
+                
+                // 检查年份（只从标签和修改时间获取）
+                if (activeFilters.years.size > 0) {
+                    let hasMatchingYear = false;
+                    
+                    // 检查标签中的年份
+                    if (tags['2级标签']) {
+                        const formattedTag = formatTag(tags['2级标签']);
+                        if (formattedTag && isYearTag(formattedTag)) {
+                            const cleanYear = cleanYearTag(formattedTag);
+                            if (cleanYear && activeFilters.years.has(cleanYear)) {
+                                hasMatchingYear = true;
+                            }
+                        }
+                    }
+                    if (tags['3级标签']) {
+                        const formattedTag = formatTag(tags['3级标签']);
+                        if (formattedTag && isYearTag(formattedTag)) {
+                            const cleanYear = cleanYearTag(formattedTag);
+                            if (cleanYear && activeFilters.years.has(cleanYear)) {
+                                hasMatchingYear = true;
+                            }
+                        }
+                    }
+                    
+                    // 检查修改时间中的年份
+                    if (modifiedTime) {
+                        const year = new Date(modifiedTime).getFullYear().toString();
+                        if (activeFilters.years.has(year)) {
+                            hasMatchingYear = true;
+                        }
+                    }
+                    
+                    if (!hasMatchingYear) {
+                        return false;
+                    }
+                }
+                
+                return true;
+            });
+            
+            displayedCount = 0;
+            renderData();
+            updateStats();
+        }
+
+        function updateActiveFiltersDisplay() {
+            const container = document.getElementById('activeFilters');
+            const allFilters = [];
+            
+            Object.entries(activeFilters).forEach(([level, tags]) => {
+                tags.forEach(tag => {
+                    allFilters.push({
+                        level: level,
+                        tag: tag,
+                        display: `${getLevelName(level)}: ${tag}`
+                    });
+                });
+            });
+            
+            container.innerHTML = allFilters.map(filter => 
+                `<div class="active-filter">
+                    ${filter.display}
+                    <span class="remove" onclick="removeFilter('${filter.level}', '${filter.tag}')">×</span>
+                </div>`
+            ).join('');
+        }
+
+        function getLevelName(level) {
+            const names = {
+                'level1': '1级分类',
+                'level2': '2级分类',
+                'level3': '3级分类',
+                'years': '年份'
+            };
+            return names[level] || level;
+        }
+
+        function removeFilter(level, tag) {
+            activeFilters[level].delete(tag);
+            
+            // 更新标签显示
+            const tagElements = document.querySelectorAll(`#${level === 'years' ? 'yearTags' : level + 'Tags'} .tag-item`);
+            tagElements.forEach(el => {
+                if (el.textContent === tag) {
+                    el.classList.remove('selected');
+                }
+            });
+            
+            applyFilters();
+            updateActiveFiltersDisplay();
+        }
+
+        function clearAllFilters() {
+            activeFilters = {
+                level1: new Set(),
+                level2: new Set(),
+                level3: new Set(),
+                years: new Set()
+            };
+            
+            // 清除所有选中状态
+            document.querySelectorAll('.tag-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            applyFilters();
+            updateActiveFiltersDisplay();
+        }
 
         function handleSearch() {
             const query = document.getElementById('searchInput').value.toLowerCase();
             if (!query) {
-                filteredData = [...allData];
+                applyFilters(); // 重新应用标签筛选
             } else {
-                filteredData = allData.filter(item => {
+                // 在已筛选的数据中搜索
+                const searchFiltered = allData.filter(item => {
                     const fileName = (item['文件名'] || '').toLowerCase();
                     const summary = (item['文件摘要'] || '').toLowerCase();
                     const sourcePath = (item['源文件路径'] || '').toLowerCase();
@@ -515,7 +1187,75 @@
                     return fileName.includes(query) || summary.includes(query) || 
                            sourcePath.includes(query) || targetPath.includes(query);
                 });
+                
+                // 应用标签筛选到搜索结果
+                filteredData = searchFiltered.filter(item => {
+                    const tags = item['标签'] || {};
+                    const modifiedTime = item['文件元数据']?.modified_time || '';
+                    
+                    // 检查1级标签
+                    if (activeFilters.level1.size > 0) {
+                        const formattedTag = formatTag(tags['1级标签']);
+                        if (!formattedTag || !activeFilters.level1.has(formattedTag)) {
+                            return false;
+                        }
+                    }
+                    
+                    // 检查2级标签
+                    if (activeFilters.level2.size > 0) {
+                        const formattedTag = formatTag(tags['2级标签']);
+                        if (!formattedTag || !activeFilters.level2.has(formattedTag)) {
+                            return false;
+                        }
+                    }
+                    
+                    // 检查3级标签
+                    if (activeFilters.level3.size > 0) {
+                        const formattedTag = formatTag(tags['3级标签']);
+                        if (!formattedTag || !activeFilters.level3.has(formattedTag)) {
+                            return false;
+                        }
+                    }
+                    
+                    // 检查年份（只从标签和修改时间获取）
+                    if (activeFilters.years.size > 0) {
+                        let hasMatchingYear = false;
+                        
+                        if (tags['2级标签']) {
+                            const formattedTag = formatTag(tags['2级标签']);
+                            if (formattedTag && isYearTag(formattedTag)) {
+                                const cleanYear = cleanYearTag(formattedTag);
+                                if (cleanYear && activeFilters.years.has(cleanYear)) {
+                                    hasMatchingYear = true;
+                                }
+                            }
+                        }
+                        if (tags['3级标签']) {
+                            const formattedTag = formatTag(tags['3级标签']);
+                            if (formattedTag && isYearTag(formattedTag)) {
+                                const cleanYear = cleanYearTag(formattedTag);
+                                if (cleanYear && activeFilters.years.has(cleanYear)) {
+                                    hasMatchingYear = true;
+                                }
+                            }
+                        }
+                        
+                        if (modifiedTime) {
+                            const year = new Date(modifiedTime).getFullYear().toString();
+                            if (activeFilters.years.has(year)) {
+                                hasMatchingYear = true;
+                            }
+                        }
+                        
+                        if (!hasMatchingYear) {
+                            return false;
+                        }
+                    }
+                    
+                    return true;
+                });
             }
+            
             displayedCount = 0;
             renderData();
             updateStats();
@@ -531,7 +1271,7 @@
                             <path d="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z" />
                         </svg>
                         <h3>没有找到匹配的结果</h3>
-                        <p>请尝试其他搜索关键词</p>
+                        <p>请尝试调整筛选条件或搜索关键词</p>
                     </div>
                 `;
                 updatePaginationInfo();
@@ -600,27 +1340,21 @@
         }
 
         function createFileItemHTML(item) {
-            const status = 'AI已生成摘要'; // 只要有摘要都显示AI已生成摘要
+            const status = 'AI已生成摘要';
             const statusClass = getStatusClass(status);
             const itemClass = getItemClass(status);
             const displayStatus = status;
             
-            // 兼容文件名和文章标题
             const fileName = item['文件名'] || item['文章标题'] || '文章标题';
-            // 兼容文件摘要和文章摘要
             const summary = item['文章摘要'] || item['文件摘要'] || '无摘要';
             
-            // 头部链接：本地文件指向最终目标路径，网络文章指向源文件路径
             const headerLink = isWebUrl(item['源文件路径'] || '') ? 
                 (item['源文件路径'] || '') : 
                 (item['最终目标路径'] || item['源文件路径'] || '');
-            // 底部链接显示最终目标路径
             const bottomLink = item['最终目标路径'] || item['源文件路径'] || '';
             
-            // 生成唯一ID用于事件绑定
             const itemId = 'item_' + Math.random().toString(36).substr(2, 9);
             
-            // 判断头部链接是否为网页链接
             const isHeaderWebLink = isWebUrl(headerLink);
             const isBottomWebLink = isWebUrl(bottomLink);
             
@@ -631,8 +1365,17 @@
             const headerOpenTitle = isHeaderWebLink ? '点击在新标签页打开链接' : '点击打开文件';
             const bottomOpenTitle = isBottomWebLink ? '点击在新标签页打开链接' : '点击打开文件';
             
-            // 网页标识
             const webTag = isHeaderWebLink ? '<span class="web-label" style="background:#e3f2fd;color:#1565c0;border-radius:12px;padding:2px 10px;margin-left:8px;font-size:0.85em;vertical-align:middle;">🌐 网页</span>' : '';
+
+            // 生成时间显示
+            const publishTime = item['发表时间'] || '';
+            const modifiedTime = item['文件元数据']?.modified_time || '';
+            const displayTime = publishTime || modifiedTime;
+            const timeHtml = displayTime ? `<div class="file-time">📅 ${formatDisplayTime(displayTime)}</div>` : '';
+
+            // 生成标签显示
+            const tags = item['标签'] || {};
+            const tagHtml = generateTagDisplay(tags, item);
 
             return `
                 <div class="file-item ${itemClass}" id="${itemId}" data-header-path="${headerLink}" data-bottom-path="${bottomLink}">
@@ -640,8 +1383,11 @@
                         <div class="file-name clickable-header" title="${headerOpenTitle}">
                             ${fileIcon} ${fileName}
                         </div>
+                        ${timeHtml}
                         <div class="file-status ${statusClass}">${displayStatus}${webTag}</div>
                     </div>
+                    
+                    ${tagHtml}
                     
                     ${summary ? `<div class="file-summary" onclick="toggleSummary(this)" title="点击展开/收起完整摘要">📝 ${summary}</div>` : ''}
                     
@@ -650,30 +1396,60 @@
             `;
         }
 
+        function generateTagDisplay(tags, item) {
+            const tagElements = [];
+            
+            if (tags['1级标签']) {
+                const formattedTag = formatTag(tags['1级标签']);
+                if (formattedTag) {
+                    tagElements.push(`<span class="file-tag">1级: ${formattedTag}</span>`);
+                }
+            }
+            if (tags['2级标签']) {
+                const formattedTag = formatTag(tags['2级标签']);
+                if (formattedTag) {
+                    tagElements.push(`<span class="file-tag">2级: ${formattedTag}</span>`);
+                }
+            }
+            if (tags['3级标签']) {
+                const formattedTag = formatTag(tags['3级标签']);
+                if (formattedTag) {
+                    tagElements.push(`<span class="file-tag">3级: ${formattedTag}</span>`);
+                }
+            }
+            
+            // 只从修改时间提取年份
+            const modifiedTime = item['文件元数据']?.modified_time || '';
+            
+            if (modifiedTime) {
+                const year = new Date(modifiedTime).getFullYear().toString();
+                tagElements.push(`<span class="file-tag year-tag">年份: ${year}</span>`);
+            }
+            
+            return tagElements.length > 0 ? `<div class="file-tags">${tagElements.join('')}</div>` : '';
+        }
+
         function getStatusClass(status) {
-            // 统一返回成功状态样式
             return 'status-success';
         }
 
         function getDisplayStatus(status) {
-            // 统一显示AI已生成摘要
             return 'AI已生成摘要';
         }
 
         function getItemClass(status) {
-            // 统一返回成功样式
             return 'success';
         }
 
         function updateStats() {
-            const total = filteredData.length;
+            const total = allData.length;
+            const filtered = filteredData.length;
             const success = filteredData.filter(item => (item['处理状态'] || '').includes('成功')).length;
-            const failed = filteredData.filter(item => (item['处理状态'] || '').includes('失败')).length;
             
             document.getElementById('stats').innerHTML = `
                 <span>总计: <strong>${total}</strong></span>
+                <span>筛选: <strong>${filtered}</strong></span>
                 <span>成功: <strong>${success}</strong></span>
-                <span>失败: <strong>${failed}</strong></span>
             `;
         }
 
@@ -682,10 +1458,9 @@
             if (isExpanded) {
                 element.classList.remove('expanded');
             } else {
-                // 检查是否需要展开（内容是否超出当前高度）
                 const scrollHeight = element.scrollHeight;
                 const clientHeight = element.clientHeight;
-                if (scrollHeight > clientHeight + 10) { // 10px 容差
+                if (scrollHeight > clientHeight + 10) {
                     element.classList.add('expanded');
                 }
             }
@@ -694,37 +1469,26 @@
         function openFile(filePath) {
             if (!filePath) return;
             
-            // 检查是否为网页链接
             if (isWebUrl(filePath)) {
-                // 网页链接：在新标签页中打开
                 window.open(filePath, '_blank');
             } else if (filePath.endsWith('.json') && filePath.includes('weixin_articles')) {
-                // 微信文章JSON文件：使用静态HTML渲染
                 openWeixinArticle(filePath);
             } else {
-                // 本地文件：调用本地命令行打开文件
                 openWithCommandLine(filePath);
             }
         }
         
         function openWeixinArticle(jsonFilePath) {
-            // 直接传递文件路径给渲染器
             const rendererUrl = `weixin_article_renderer.html?file=${encodeURIComponent(jsonFilePath)}`;
-            
-            // 在新标签页中打开渲染器
             window.open(rendererUrl, '_blank');
         }
         
-
-        
         function isWebUrl(path) {
-            // 检查是否为网页链接（http/https协议）
             return path && (path.startsWith('http://') || path.startsWith('https://') || 
                            path.startsWith('www.') || path.includes('://'));
         }
         
         function openWithCommandLine(filePath) {
-            // 使用fetch调用后端API来执行命令行打开文件
             fetch('/api/open-file', {
                 method: 'POST',
                 headers: {
@@ -746,8 +1510,49 @@
                 alert('调用打开文件API失败: ' + error.message);
             });
         }
-        
 
+        function formatDisplayTime(timeString) {
+            if (!timeString) return '';
+            
+            try {
+                const date = new Date(timeString);
+                if (isNaN(date.getTime())) return timeString;
+                
+                const now = new Date();
+                const diffMs = now - date;
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                
+                // 格式化日期
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                
+                // 如果是今天，显示年份和时间
+                if (diffDays === 0) {
+                    return `${year}年 今天 ${hours}:${minutes}`;
+                }
+                // 如果是昨天，只显示年份和日期
+                else if (diffDays === 1) {
+                    return `${year}年 昨天`;
+                }
+                // 如果是一周内，显示年份和天数
+                else if (diffDays < 7) {
+                    return `${year}年 ${diffDays}天前`;
+                }
+                // 如果是今年，只显示月日
+                else if (year === now.getFullYear()) {
+                    return `${year}年 ${month}-${day}`;
+                }
+                // 其他情况只显示年月日
+                else {
+                    return `${year}年 ${month}-${day}`;
+                }
+            } catch (error) {
+                return timeString;
+            }
+        }
 
         function showError(message) {
             document.getElementById('content').innerHTML = `
@@ -759,7 +1564,6 @@
 
         // 心跳检测功能
         function startHeartbeat() {
-            // 每15秒发送一次心跳
             setInterval(function() {
                 fetch('/api/heartbeat', {
                     method: 'POST',
@@ -775,18 +1579,16 @@
                 .catch(error => {
                     console.log('心跳发送失败:', error);
                 });
-            }, 15000); // 15秒间隔
+            }, 15000);
         }
 
         // 页面加载完成后绑定事件
         window.addEventListener('load', function() {
-            // 初始绑定点击事件
             bindClickEvents();
         });
 
-        // 页面卸载时发送最后一次心跳（可选）
+        // 页面卸载时发送最后一次心跳
         window.addEventListener('beforeunload', function() {
-            // 使用sendBeacon确保请求能发送出去
             navigator.sendBeacon('/api/heartbeat', JSON.stringify({action: 'closing'}));
         });
     </script>

@@ -224,11 +224,14 @@ class SmartFileClassifier:
     def clean_ai_response(self, response: str) -> str:
         """清理AI响应中的思考过程"""
         try:
-            # 去掉<think>...</think>标签中的内容
-            import re
-            response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL)
+            if not response:
+                return response
+            
+            # 清理可能的思考过程标签和内容
+            response = response.replace('<think>', '').replace('</think>', '').strip()
             
             # 去掉其他常见的思考过程标记
+            import re
             response = re.sub(r'好的，我现在需要.*?：', '', response, flags=re.DOTALL)
             response = re.sub(r'让我分析一下.*?：', '', response, flags=re.DOTALL)
             response = re.sub(r'我来为您.*?：', '', response, flags=re.DOTALL)

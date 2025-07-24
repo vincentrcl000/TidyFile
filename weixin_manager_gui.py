@@ -33,16 +33,16 @@ class WeixinManagerTab:
         row = 0
         tb.Label(fav_frame, text="收藏账号:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5, padx=(0, 10))
         self.talker_var = tb.StringVar()
-        tb.Entry(fav_frame, textvariable=self.talker_var, width=30, font=('Arial', 10)).grid(row=row, column=1, sticky=(W, E), pady=5)
+        tb.Entry(fav_frame, textvariable=self.talker_var, width=30).grid(row=row, column=1, sticky=(W, E), pady=5)
         row += 1
         tb.Label(fav_frame, text="起始日期:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5, padx=(0, 10))
         self.start_date_var = tb.StringVar()
-        tb.Entry(fav_frame, textvariable=self.start_date_var, width=30, font=('Arial', 10)).grid(row=row, column=1, sticky=(W, E), pady=5)
+        tb.Entry(fav_frame, textvariable=self.start_date_var, width=30).grid(row=row, column=1, sticky=(W, E), pady=5)
         self.start_date_var.set(datetime.now().strftime('%Y-%m-%d'))
         row += 1
         tb.Label(fav_frame, text="结束日期:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5, padx=(0, 10))
         self.end_date_var = tb.StringVar()
-        tb.Entry(fav_frame, textvariable=self.end_date_var, width=30, font=('Arial', 10)).grid(row=row, column=1, sticky=(W, E), pady=5)
+        tb.Entry(fav_frame, textvariable=self.end_date_var, width=30).grid(row=row, column=1, sticky=(W, E), pady=5)
         self.end_date_var.set(datetime.now().strftime('%Y-%m-%d'))
         row += 1
         # 摘要长度调节

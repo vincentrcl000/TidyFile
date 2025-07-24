@@ -323,9 +323,14 @@ def main():
 3. 语言简洁明了
 4. 字数控制在{summary_length}字以内
 5. 直接输出摘要内容，不要包含任何思考过程或说明文字
+6. 不要使用"<think>"标签或任何思考过程描述
 
-摘要："""
+摘要：/no_think"""
 
+            # 在传递给大模型的完整内容最尾部添加/no_think标签
+            final_prompt = prompt
+
+            # 使用系统提示词来抑制思考过程
             messages = [
                 {
                     'role': 'system',
@@ -333,11 +338,76 @@ def main():
                 },
                 {
                     'role': 'user',
-                    'content': prompt
+                    'content': final_prompt
                 }
             ]
             
             summary_text = chat_with_ai(messages)
+            
+            # 清理可能的思考过程标签和内容
+            summary_text = summary_text.replace('<think>', '').replace('</think>', '').strip()
+            
+            # 移除常见的思考过程开头
+            think_prefixes = [
+                '好的，', '好，', '嗯，', '我来', '我需要', '首先，', '让我', '现在我要',
+                '用户希望', '用户要求', '用户让我', '根据', '基于', '考虑到', '让我先仔细看看',
+                '用户给了我这个查询', '用户给了我这个任务', '用户给了一个任务',
+                '首先，我得看一下', '首先，我要理解', '首先，我得仔细看看',
+                '好的，用户让我', '用户让我生成', '内容来自文件', '重点包括', '首先，我需要确认'
+            ]
+            
+            # 更激进的清理：移除所有以思考过程开头的句子
+            lines = summary_text.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 检查是否以思考过程开头
+                is_think_line = False
+                for prefix in think_prefixes:
+                    if line.lower().startswith(prefix.lower()):
+                        is_think_line = True
+                        break
+                
+                # 如果不是思考过程，保留这一行
+                if not is_think_line:
+                    cleaned_lines.append(line)
+            
+            # 如果清理后没有内容，尝试更简单的方法
+            if not cleaned_lines:
+                # 找到第一个不是思考过程的句子
+                sentences = summary_text.split('。')
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    
+                    # 检查是否以思考过程开头
+                    is_think_sentence = False
+                    for prefix in think_prefixes:
+                        if sentence.lower().startswith(prefix.lower()):
+                            is_think_sentence = True
+                            break
+                    
+                    if not is_think_sentence:
+                        cleaned_lines.append(sentence)
+                        break
+            
+            # 如果还是没有内容，使用原始摘要的最后一部分
+            if not cleaned_lines:
+                # 取最后100个字符作为摘要
+                summary_text = summary_text[-100:] if len(summary_text) > 100 else summary_text
+            
+            # 重新组合清理后的内容
+            if cleaned_lines:
+                summary_text = '。'.join(cleaned_lines)
+            
+            # 确保摘要长度不超过限制
+            if len(summary_text) > summary_length:
+                summary_text = summary_text[:summary_length-3] + "..."
             
         except Exception as e:
             print(f"[错误] AI摘要失败：{e}")

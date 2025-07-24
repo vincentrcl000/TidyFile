@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 import time
-from file_duplicate_cleaner import remove_duplicate_files
+# from file_duplicate_cleaner import remove_duplicate_files  # 已迁移到独立模块
 from file_reader import FileReader
 from transfer_log_manager import TransferLogManager
 
@@ -28,8 +28,27 @@ class FileOrganizerTabGUI:
         """初始化 GUI 应用"""
         self.root = tb.Window(themename="flatly")
         self.root.title("智能文件管理系统")
-        self.root.geometry("1200x800")
+        
+        # 响应式窗口大小设置
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        
+        # 根据屏幕大小设置窗口尺寸
+        if screen_width < 1366:  # 小屏幕
+            window_width = min(1000, screen_width - 100)
+            window_height = min(700, screen_height - 100)
+        elif screen_width < 1920:  # 中等屏幕
+            window_width = min(1200, screen_width - 100)
+            window_height = min(800, screen_height - 100)
+        else:  # 大屏幕
+            window_width = min(1400, screen_width - 100)
+            window_height = min(900, screen_height - 100)
+        
+        self.root.geometry(f"{window_width}x{window_height}")
         self.root.resizable(True, True)
+        
+        # 设置最小窗口大小
+        self.root.minsize(800, 600)
         
         # 初始化变量
         self.source_directory = tb.StringVar()  # 源目录路径
@@ -61,6 +80,30 @@ class FileOrganizerTabGUI:
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+    
+    def setup_responsive_window(self, window, default_width, default_height, min_width=400, min_height=300):
+        """设置响应式窗口大小"""
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        
+        if screen_width < 1366:  # 小屏幕
+            window_width = min(default_width - 100, screen_width - 100)
+            window_height = min(default_height - 100, screen_height - 100)
+        elif screen_width < 1920:  # 中等屏幕
+            window_width = min(default_width, screen_width - 100)
+            window_height = min(default_height, screen_height - 100)
+        else:  # 大屏幕
+            window_width = min(default_width + 100, screen_width - 100)
+            window_height = min(default_height + 100, screen_height - 100)
+        
+        window.geometry(f"{window_width}x{window_height}")
+        window.minsize(min_width, min_height)
+        
+        # 居中显示
+        window.update_idletasks()
+        x = (screen_width // 2) - (window_width // 2)
+        y = (screen_height // 2) - (window_height // 2)
+        window.geometry(f"{window_width}x{window_height}+{x}+{y}")
         
     def initialize_organizers(self):
         """初始化文件整理器"""
@@ -87,7 +130,7 @@ class FileOrganizerTabGUI:
     def create_widgets(self):
         """创建界面组件"""
         # 创建主框架
-        main_frame = tb.Frame(self.root, padding="10")
+        main_frame = tb.Frame(self.root, padding="5")
         main_frame.grid(row=0, column=0, sticky=(W, E, N, S))
         
         # 配置网格权重
@@ -100,9 +143,9 @@ class FileOrganizerTabGUI:
         title_label = tb.Label(
             main_frame, 
             text="智能文件管理系统", 
-            font=('Arial', 16, 'bold')
+            font=('Arial', 14, 'bold')
         )
-        title_label.grid(row=0, column=0, pady=(0, 20))
+        title_label.grid(row=0, column=0, pady=(0, 10))
         
         # 创建分页控件
         self.notebook = tb.Notebook(main_frame)
@@ -131,14 +174,14 @@ class FileOrganizerTabGUI:
         self.create_tools_tab()
         
         # 日志显示区域
-        log_frame = tb.LabelFrame(main_frame, text="操作日志", padding="5")
-        log_frame.grid(row=2, column=0, sticky=(W, E, N, S), pady=10)
+        log_frame = tb.LabelFrame(main_frame, text="操作日志", padding="3")
+        log_frame.grid(row=2, column=0, sticky=(W, E, N, S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
         self.log_text = ScrolledText(
             log_frame,
-            height=6,
+            height=4,
             wrap=WORD
         )
         self.log_text.grid(row=0, column=0, sticky=(W, E, N, S))
@@ -151,7 +194,7 @@ class FileOrganizerTabGUI:
         
     def create_file_reader_tab(self):
         """创建文件解读页面"""
-        reader_frame = tb.Frame(self.notebook, padding="10")
+        reader_frame = tb.Frame(self.notebook, padding="5")
         self.notebook.add(reader_frame, text="文件解读")
         
         reader_frame.columnconfigure(1, weight=1)
@@ -160,18 +203,18 @@ class FileOrganizerTabGUI:
         desc_label = tb.Label(
             reader_frame,
             text="选择文件夹，批量解读其中的所有文档，生成摘要并保存到AI结果文件",
-            font=('Arial', 10)
+            font=('Arial', 9)
         )
-        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
         
         # 文件夹选择
-        tb.Label(reader_frame, text="选择文件夹:").grid(row=1, column=0, sticky=W, pady=5)
+        tb.Label(reader_frame, text="选择文件夹:", font=('Arial', 9)).grid(row=1, column=0, sticky=W, pady=3)
         self.reader_folder_var = tb.StringVar()
         tb.Entry(
             reader_frame, 
             textvariable=self.reader_folder_var, 
-            width=50
-        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+            width=40
+        ).grid(row=1, column=1, sticky=(W, E), padx=(5, 5), pady=3)
         
         def select_reader_folder():
             directory = filedialog.askdirectory(title="选择要批量解读的文件夹")
@@ -196,23 +239,24 @@ class FileOrganizerTabGUI:
         tb.Button(
             reader_frame, 
             text="浏览", 
-            command=select_reader_folder
-        ).grid(row=1, column=2, pady=5)
+            command=select_reader_folder,
+            style='secondary.TButton'
+        ).grid(row=1, column=2, pady=3)
         
         # 摘要参数设置
-        params_frame = tb.LabelFrame(reader_frame, text="摘要参数设置", padding="10")
-        params_frame.grid(row=2, column=0, columnspan=3, sticky=(W, E), pady=10)
+        params_frame = tb.LabelFrame(reader_frame, text="摘要参数设置", padding="5")
+        params_frame.grid(row=2, column=0, columnspan=3, sticky=(W, E), pady=5)
         params_frame.columnconfigure(1, weight=1)
         
         # 摘要长度调节
-        tb.Label(params_frame, text="文章摘要长度:").grid(row=0, column=0, sticky=W, pady=5)
+        tb.Label(params_frame, text="文章摘要长度:", font=('Arial', 9)).grid(row=0, column=0, sticky=W, pady=3)
         summary_frame = tb.Frame(params_frame)
-        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(10, 0), pady=5)
+        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(5, 0), pady=3)
         summary_frame.columnconfigure(1, weight=1)
         
         self.reader_summary_length = tb.IntVar(value=200)
         
-        tb.Label(summary_frame, text="100字").grid(row=0, column=0)
+        tb.Label(summary_frame, text="100字", font=('Arial', 8)).grid(row=0, column=0)
         reader_summary_scale = tb.Scale(
             summary_frame, 
             from_=100, 
@@ -220,10 +264,10 @@ class FileOrganizerTabGUI:
             variable=self.reader_summary_length,
             orient=HORIZONTAL
         )
-        reader_summary_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
-        tb.Label(summary_frame, text="500字").grid(row=0, column=2)
-        self.reader_summary_value_label = tb.Label(summary_frame, text="200字符")
-        self.reader_summary_value_label.grid(row=0, column=3, padx=(10, 0))
+        reader_summary_scale.grid(row=0, column=1, sticky=(W, E), padx=3)
+        tb.Label(summary_frame, text="500字", font=('Arial', 8)).grid(row=0, column=2)
+        self.reader_summary_value_label = tb.Label(summary_frame, text="200字符", font=('Arial', 8))
+        self.reader_summary_value_label.grid(row=0, column=3, padx=(5, 0))
         
         # 绑定摘要长度变化事件
         def update_reader_summary_label(*args):
@@ -234,7 +278,7 @@ class FileOrganizerTabGUI:
         
         # 操作按钮
         button_frame = tb.Frame(reader_frame)
-        button_frame.grid(row=3, column=0, columnspan=3, pady=20)
+        button_frame.grid(row=3, column=0, columnspan=3, pady=10)
         
         def start_batch_reading():
             folder_path = self.reader_folder_var.get().strip()
@@ -259,7 +303,7 @@ class FileOrganizerTabGUI:
             command=start_batch_reading,
             bootstyle=SUCCESS
         )
-        self.reader_start_button.pack(side=LEFT, padx=5)
+        self.reader_start_button.pack(side=LEFT, padx=3)
         
         # 进度条
         self.reader_progress_var = tb.DoubleVar()
@@ -268,28 +312,28 @@ class FileOrganizerTabGUI:
             variable=self.reader_progress_var,
             maximum=100
         )
-        self.reader_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(W, E), pady=10)
+        self.reader_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(W, E), pady=5)
         
         # 状态标签
-        self.reader_status_label = tb.Label(reader_frame, text="请选择要解读的文件夹")
-        self.reader_status_label.grid(row=5, column=0, columnspan=3, pady=5)
+        self.reader_status_label = tb.Label(reader_frame, text="请选择要解读的文件夹", font=('Arial', 9))
+        self.reader_status_label.grid(row=5, column=0, columnspan=3, pady=3)
         
     def create_article_reader_tab(self):
         """创建文章阅读助手页面"""
-        article_frame = tb.Frame(self.notebook, padding="10")
+        article_frame = tb.Frame(self.notebook, padding="5")
         self.notebook.add(article_frame, text="文章阅读助手")
         
         # 说明文字
         desc_label = tb.Label(
             article_frame,
             text="启动文章阅读助手服务器，在浏览器中查看和管理AI分析结果",
-            font=('Arial', 10)
+            font=('Arial', 9)
         )
-        desc_label.pack(pady=(0, 20))
+        desc_label.pack(pady=(0, 10))
         
         # 功能说明
-        features_frame = tb.LabelFrame(article_frame, text="功能特性", padding="10")
-        features_frame.pack(fill=X, pady=(0, 20))
+        features_frame = tb.LabelFrame(article_frame, text="功能特性", padding="5")
+        features_frame.pack(fill=X, pady=(0, 10))
         
         features_text = [
             "• 查看AI分析结果和文件摘要",
@@ -299,11 +343,11 @@ class FileOrganizerTabGUI:
         ]
         
         for feature in features_text:
-            tb.Label(features_frame, text=feature, font=('Arial', 9)).pack(anchor=W, pady=2)
+            tb.Label(features_frame, text=feature, font=('Arial', 8)).pack(anchor=W, pady=1)
         
         # 操作按钮
         button_frame = tb.Frame(article_frame)
-        button_frame.pack(pady=20)
+        button_frame.pack(pady=10)
         
         def start_article_reader():
             try:
@@ -366,7 +410,7 @@ class FileOrganizerTabGUI:
         
     def create_ai_classification_tab(self):
         """创建智能分类页面"""
-        ai_frame = tb.Frame(self.notebook, padding="10")
+        ai_frame = tb.Frame(self.notebook, padding="5")
         self.notebook.add(ai_frame, text="智能分类")
         
         ai_frame.columnconfigure(1, weight=1)
@@ -375,48 +419,50 @@ class FileOrganizerTabGUI:
         desc_label = tb.Label(
             ai_frame,
             text="使用 AI 智能分析文件内容，自动将文件分类到合适的文件夹中",
-            font=('Arial', 10)
+            font=('Arial', 9)
         )
-        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
+        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
         
         # 源目录选择
-        tb.Label(ai_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=W, pady=5)
+        tb.Label(ai_frame, text="待整理文件目录:", font=('Arial', 9)).grid(row=1, column=0, sticky=W, pady=3)
         tb.Entry(
             ai_frame, 
             textvariable=self.source_directory, 
-            width=50
-        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+            width=40
+        ).grid(row=1, column=1, sticky=(W, E), padx=(5, 5), pady=3)
         tb.Button(
             ai_frame, 
             text="浏览", 
-            command=self.select_source_directory
-        ).grid(row=1, column=2, pady=5)
+            command=self.select_source_directory,
+            style='secondary.TButton'
+        ).grid(row=1, column=2, pady=3)
         
         # 目标目录选择
-        tb.Label(ai_frame, text="目标分类目录:").grid(row=2, column=0, sticky=W, pady=5)
+        tb.Label(ai_frame, text="目标分类目录:", font=('Arial', 9)).grid(row=2, column=0, sticky=W, pady=3)
         tb.Entry(
             ai_frame, 
             textvariable=self.target_directory, 
-            width=50
-        ).grid(row=2, column=1, sticky=(W, E), padx=(10, 5), pady=5)
+            width=40
+        ).grid(row=2, column=1, sticky=(W, E), padx=(5, 5), pady=3)
         tb.Button(
             ai_frame, 
             text="浏览", 
-            command=self.select_target_directory
-        ).grid(row=2, column=2, pady=5)
+            command=self.select_target_directory,
+            style='secondary.TButton'
+        ).grid(row=2, column=2, pady=3)
         
         # AI参数调节区域
-        params_frame = tb.LabelFrame(ai_frame, text="AI参数设置", padding="10")
-        params_frame.grid(row=3, column=0, columnspan=3, sticky=(W, E), pady=10)
+        params_frame = tb.LabelFrame(ai_frame, text="AI参数设置", padding="5")
+        params_frame.grid(row=3, column=0, columnspan=3, sticky=(W, E), pady=5)
         params_frame.columnconfigure(1, weight=1)
         
         # 摘要长度调节
-        tb.Label(params_frame, text="摘要长度:").grid(row=0, column=0, sticky=W, pady=5)
+        tb.Label(params_frame, text="摘要长度:", font=('Arial', 9)).grid(row=0, column=0, sticky=W, pady=3)
         summary_frame = tb.Frame(params_frame)
-        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(10, 0), pady=5)
+        summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(5, 0), pady=3)
         summary_frame.columnconfigure(1, weight=1)
         
-        tb.Label(summary_frame, text="50").grid(row=0, column=0)
+        tb.Label(summary_frame, text="50", font=('Arial', 8)).grid(row=0, column=0)
         self.summary_scale = tb.Scale(
             summary_frame, 
             from_=50, 
@@ -424,21 +470,21 @@ class FileOrganizerTabGUI:
             variable=self.summary_length,
             orient=HORIZONTAL
         )
-        self.summary_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
-        tb.Label(summary_frame, text="200").grid(row=0, column=2)
-        self.summary_value_label = tb.Label(summary_frame, text="100字符")
-        self.summary_value_label.grid(row=0, column=3, padx=(10, 0))
+        self.summary_scale.grid(row=0, column=1, sticky=(W, E), padx=3)
+        tb.Label(summary_frame, text="200", font=('Arial', 8)).grid(row=0, column=2)
+        self.summary_value_label = tb.Label(summary_frame, text="100字符", font=('Arial', 8))
+        self.summary_value_label.grid(row=0, column=3, padx=(5, 0))
         
         # 绑定摘要长度变化事件
         self.summary_length.trace_add('write', self.update_summary_label)
         
         # 字符截取调节
-        tb.Label(params_frame, text="内容截取:").grid(row=1, column=0, sticky=W, pady=5)
+        tb.Label(params_frame, text="内容截取:", font=('Arial', 9)).grid(row=1, column=0, sticky=W, pady=3)
         truncate_frame = tb.Frame(params_frame)
-        truncate_frame.grid(row=1, column=1, sticky=(W, E), padx=(10, 0), pady=5)
+        truncate_frame.grid(row=1, column=1, sticky=(W, E), padx=(5, 0), pady=3)
         truncate_frame.columnconfigure(1, weight=1)
         
-        tb.Label(truncate_frame, text="200").grid(row=0, column=0)
+        tb.Label(truncate_frame, text="200", font=('Arial', 8)).grid(row=0, column=0)
         self.truncate_scale = tb.Scale(
             truncate_frame, 
             from_=200, 
@@ -446,17 +492,17 @@ class FileOrganizerTabGUI:
             variable=self.content_truncate,
             orient=HORIZONTAL
         )
-        self.truncate_scale.grid(row=0, column=1, sticky=(W, E), padx=5)
-        tb.Label(truncate_frame, text="全文").grid(row=0, column=2)
-        self.truncate_value_label = tb.Label(truncate_frame, text="500字符")
-        self.truncate_value_label.grid(row=0, column=3, padx=(10, 0))
+        self.truncate_scale.grid(row=0, column=1, sticky=(W, E), padx=3)
+        tb.Label(truncate_frame, text="全文", font=('Arial', 8)).grid(row=0, column=2)
+        self.truncate_value_label = tb.Label(truncate_frame, text="500字符", font=('Arial', 8))
+        self.truncate_value_label.grid(row=0, column=3, padx=(5, 0))
         
         # 绑定字符截取变化事件
         self.content_truncate.trace_add('write', self.update_truncate_label)
         
         # 操作按钮框架
         ai_button_frame = tb.Frame(ai_frame)
-        ai_button_frame.grid(row=4, column=0, columnspan=3, pady=20)
+        ai_button_frame.grid(row=4, column=0, columnspan=3, pady=10)
         
 
         
@@ -552,54 +598,57 @@ class FileOrganizerTabGUI:
         
     def create_tools_tab(self):
         """创建工具页面"""
-        tools_frame = tb.Frame(self.notebook, padding="10")
+        tools_frame = tb.Frame(self.notebook, padding="5")
         self.notebook.add(tools_frame, text="工具")
         
-        # 工具按钮框架
+        # 工具按钮框架 - 使用网格布局确保按钮紧凑排列
         tools_button_frame = tb.Frame(tools_frame)
-        tools_button_frame.grid(row=0, column=0, pady=20)
+        tools_button_frame.grid(row=0, column=0, pady=10)
+        tools_button_frame.columnconfigure(0, weight=1)
+        tools_button_frame.columnconfigure(1, weight=1)
+        tools_button_frame.columnconfigure(2, weight=1)
         
-        # 文件目录智能整理按钮（第一个）
+        # 第一行按钮
         self.directory_organize_button = tb.Button(
             tools_button_frame,
             text="文件目录智能整理",
-            command=self.show_directory_organize_dialog
+            command=self.show_directory_organize_dialog,
+            style='info.TButton'
         )
-        self.directory_organize_button.pack(side=LEFT, padx=5)
+        self.directory_organize_button.grid(row=0, column=0, padx=3, pady=3, sticky=(W, E))
         
-        # 重复文件删除按钮（第二个）
         self.duplicate_button = tb.Button(
             tools_button_frame,
             text="删除重复文件",
-            command=self.show_duplicate_removal_dialog
+            command=self.show_duplicate_removal_dialog,
+            style='warning.TButton'
         )
-        self.duplicate_button.pack(side=LEFT, padx=5)
+        self.duplicate_button.grid(row=0, column=1, padx=3, pady=3, sticky=(W, E))
         
-
-        
-        # 日志按钮（第二个）
         self.log_button = tb.Button(
             tools_button_frame,
             text="日志",
-            command=self.show_transfer_logs
+            command=self.show_transfer_logs,
+            style='secondary.TButton'
         )
-        self.log_button.pack(side=LEFT, padx=5)
+        self.log_button.grid(row=0, column=2, padx=3, pady=3, sticky=(W, E))
         
-        # 分类规则管理按钮
+        # 第二行按钮
         self.classification_rules_button = tb.Button(
             tools_button_frame,
             text="分类规则管理",
-            command=self.show_classification_rules_manager
+            command=self.show_classification_rules_manager,
+            style='info.TButton'
         )
-        self.classification_rules_button.pack(side=LEFT, padx=5)
+        self.classification_rules_button.grid(row=1, column=0, padx=3, pady=3, sticky=(W, E))
         
-        # AI模型配置按钮
         self.ai_model_config_button = tb.Button(
             tools_button_frame,
             text="AI模型配置",
-            command=self.show_ai_model_config
+            command=self.show_ai_model_config,
+            style='info.TButton'
         )
-        self.ai_model_config_button.pack(side=LEFT, padx=5)
+        self.ai_model_config_button.grid(row=1, column=1, padx=3, pady=3, sticky=(W, E))
         
     def update_summary_label(self, *args):
         """更新摘要长度标签"""
@@ -652,12 +701,108 @@ class FileOrganizerTabGUI:
                 self.root.after(0, lambda: self.reader_progress_var.set(progress))
                 self.root.after(0, lambda: self.reader_status_label.config(text=f"正在解读 ({current}/{total}): {filename}"))
             
-            # 调用批量文档解读方法
-            batch_results = self.ai_organizer.batch_read_documents(
-                folder_path=folder_path,
-                progress_callback=progress_callback,
-                summary_length=self.reader_summary_length.get()
-            )
+            # 直接使用FileReader进行批量文档解读
+            from file_reader import FileReader
+            
+            # 初始化文件解读器
+            file_reader = FileReader()
+            file_reader.summary_length = self.reader_summary_length.get()
+            
+            # 扫描文件夹中的文件
+            from pathlib import Path
+            folder_path_obj = Path(folder_path)
+            
+            # 支持的文件扩展名
+            supported_extensions = [
+                '.txt', '.md', '.py', '.js', '.html', '.css', '.json', '.xml', '.csv',
+                '.pdf', '.docx', '.doc',
+                '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff', '.webp'
+            ]
+            
+            # 收集所有支持的文件
+            files = []
+            for file_path in folder_path_obj.rglob('*'):
+                if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+                    files.append(str(file_path))
+            
+            if not files:
+                batch_results = {
+                    'success': False,
+                    'message': f'文件夹中没有找到可解读的文件: {folder_path}',
+                    'results': [],
+                    'total_files': 0,
+                    'successful_reads': 0,
+                    'failed_reads': 0
+                }
+            else:
+                total_files = len(files)
+                successful_reads = 0
+                failed_reads = 0
+                results = []
+                
+                for i, file_path in enumerate(files):
+                    filename = Path(file_path).name
+                    
+                    # 更新进度
+                    progress_callback(i + 1, total_files, filename)
+                    
+                    try:
+                        # 解读单个文件
+                        result = file_reader.generate_summary(file_path, self.reader_summary_length.get())
+                        
+                        # 提取路径标签
+                        if result['success']:
+                            result['tags'] = file_reader.extract_path_tags(file_path, folder_path)
+                            successful_reads += 1
+                            logging.info(f"文件解读成功: {filename}")
+                            
+                            # 写入结果到ai_organize_result.json
+                            file_reader.append_result_to_file("ai_organize_result.json", result, folder_path)
+                        else:
+                            failed_reads += 1
+                            logging.warning(f"文件解读失败: {filename} - {result.get('error', '未知错误')}")
+                        
+                        results.append(result)
+                        
+                    except Exception as e:
+                        failed_reads += 1
+                        error_result = {
+                            'file_path': file_path,
+                            'file_name': filename,
+                            'success': False,
+                            'extracted_text': '',
+                            'summary': '',
+                            'error': str(e),
+                            'model_used': 'unknown',
+                            'timestamp': datetime.now().isoformat()
+                        }
+                        results.append(error_result)
+                
+                # 保存结果到文件
+                result_file = "batch_read_results.json"
+                try:
+                    import json
+                    with open(result_file, 'w', encoding='utf-8') as f:
+                        json.dump({
+                            'folder_path': folder_path,
+                            'total_files': total_files,
+                            'successful_reads': successful_reads,
+                            'failed_reads': failed_reads,
+                            'results': results,
+                            'timestamp': datetime.now().isoformat()
+                        }, f, ensure_ascii=False, indent=2)
+                except Exception as e:
+                    print(f"保存结果文件失败: {e}")
+                
+                batch_results = {
+                    'success': True,
+                    'folder_path': folder_path,
+                    'total_files': total_files,
+                    'successful_reads': successful_reads,
+                    'failed_reads': failed_reads,
+                    'results': results,
+                    'result_file': result_file
+                }
             
             # 显示结果
             def show_results():
@@ -1190,303 +1335,13 @@ class FileOrganizerTabGUI:
         
 
     def show_duplicate_removal_dialog(self):
-        """显示重复文件删除对话框"""
+        """显示删除重复文件对话框"""
         try:
-            # 创建重复文件删除对话框
-            duplicate_window = tb.Toplevel(self.root)
-            duplicate_window.title("删除重复文件")
-            duplicate_window.geometry("700x600")
-            duplicate_window.transient(self.root)
-            duplicate_window.grab_set()
-            
-            # 创建主框架
-            main_frame = tb.Frame(duplicate_window, padding="10")
-            main_frame.pack(fill=tb.BOTH, expand=True)
-            
-            # 标题
-            tb.Label(
-                main_frame,
-                text="删除重复文件",
-                font=('Arial', 12, 'bold')
-            ).pack(pady=(0, 10))
-            
-            # 说明文字
-            tb.Label(
-                main_frame,
-                text="选择要检查重复文件的目标文件夹\n重复判断标准：文件大小+MD5哈希值完全一致",
-                font=('Arial', 10)
-            ).pack(pady=(0, 15))
-            
-            # 文件夹选择框架
-            folder_frame = tb.Frame(main_frame)
-            folder_frame.pack(fill=tb.X, pady=(0, 15))
-            
-            tb.Label(folder_frame, text="目标文件夹:").pack(anchor=tb.W)
-            
-            # 文件夹列表框架
-            folder_list_frame = tb.Frame(folder_frame)
-            folder_list_frame.pack(fill=tb.X, pady=(5, 0))
-            
-            # 文件夹列表
-            folder_listbox = tk.Listbox(folder_list_frame, height=4, selectmode=tk.EXTENDED)
-            folder_listbox.pack(side=tb.LEFT, fill=tb.X, expand=True, padx=(0, 5))
-            
-            # 滚动条
-            folder_scrollbar = ttk.Scrollbar(folder_list_frame, orient="vertical", command=folder_listbox.yview)
-            folder_listbox.configure(yscrollcommand=folder_scrollbar.set)
-            folder_scrollbar.pack(side=tb.RIGHT, fill=tb.Y)
-            
-            # 按钮框架
-            folder_button_frame = tb.Frame(folder_frame)
-            folder_button_frame.pack(fill=tb.X, pady=(5, 0))
-            
-            def select_folder():
-                directory = filedialog.askdirectory(
-                    title="选择要检查重复文件的文件夹",
-                    initialdir=self.target_directory.get() or os.path.expanduser("~")
-                )
-                if directory:
-                    # 检查是否已经添加过
-                    if directory not in folder_listbox.get(0, tk.END):
-                        folder_listbox.insert(tk.END, directory)
-            
-            def remove_selected_folder():
-                selected_indices = folder_listbox.curselection()
-                # 从后往前删除，避免索引变化
-                for index in reversed(selected_indices):
-                    folder_listbox.delete(index)
-            
-            def clear_all_folders():
-                folder_listbox.delete(0, tk.END)
-            
-            tb.Button(folder_button_frame, text="添加文件夹", command=select_folder).pack(side=tb.LEFT, padx=(0, 5))
-            tb.Button(folder_button_frame, text="移除选中", command=remove_selected_folder).pack(side=tb.LEFT, padx=(0, 5))
-            tb.Button(folder_button_frame, text="清空列表", command=clear_all_folders).pack(side=tb.LEFT)
-            
-            # 选项框架
-            options_frame = tb.LabelFrame(main_frame, text="选项", padding="5")
-            options_frame.pack(fill=tb.X, pady=(0, 15))
-            
-            dry_run_var = tb.BooleanVar(value=True)
-            tb.Checkbutton(
-                options_frame,
-                text="试运行模式（只检查不删除）",
-                variable=dry_run_var
-            ).pack(anchor=tb.W)
-            
-            # 保留策略选择
-            keep_strategy_var = tb.StringVar(value="oldest")
-            strategy_frame = tb.Frame(options_frame)
-            strategy_frame.pack(fill=tb.X, pady=(5, 0))
-            
-            tb.Label(strategy_frame, text="保留策略:").pack(side=tb.LEFT)
-            tb.Radiobutton(
-                strategy_frame,
-                text="保留最早的文件（默认）",
-                variable=keep_strategy_var,
-                value="oldest"
-            ).pack(side=tb.LEFT, padx=(10, 20))
-            tb.Radiobutton(
-                strategy_frame,
-                text="保留最新的文件",
-                variable=keep_strategy_var,
-                value="newest"
-            ).pack(side=tb.LEFT)
-            
-            # 结果显示区域
-            result_frame = tb.LabelFrame(main_frame, text="扫描结果", padding="5")
-            result_frame.pack(fill=tb.BOTH, expand=True, pady=(0, 15))
-            
-            result_text = ScrolledText(
-                result_frame,
-                height=10,
-                wrap=tb.WORD
-            )
-            result_text.pack(fill=tb.BOTH, expand=True)
-            
-            # 按钮框架（吸附底部，始终可见）
-            button_frame = tb.Frame(main_frame)
-            button_frame.pack(side=tb.BOTTOM, fill=tb.X, pady=(10, 0))
-            
-            def start_scan():
-                selected_folders = list(folder_listbox.get(0, tk.END))
-                if not selected_folders:
-                    messagebox.showwarning("提示", "请先选择要检查的文件夹")
-                    return
-                
-                # 验证所有文件夹
-                invalid_folders = []
-                for folder_path in selected_folders:
-                    if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
-                        invalid_folders.append(folder_path)
-                
-                if invalid_folders:
-                    messagebox.showerror("错误", f"以下文件夹不存在或不是有效目录:\n{chr(10).join(invalid_folders)}")
-                    return
-                
-                # 清空结果显示
-                result_text.delete(1.0, tb.END)
-                result_text.insert(tb.END, "正在扫描重复文件...\n")
-                
-                # 在新线程中执行扫描
-                def scan_worker():
-                    try:
-                        dry_run = dry_run_var.get()
-                        keep_oldest = keep_strategy_var.get() == "oldest"
-                        results = remove_duplicate_files(
-                            target_folder_paths=selected_folders,
-                            dry_run=dry_run,
-                            keep_oldest=keep_oldest
-                        )
-                        # 分组展示所有重复文件
-                        def update_results():
-                            # result_text.config(state='normal')  # ttkbootstrap ScrolledText不支持state配置
-                            result_text.delete(1.0, tb.END)
-                            result_text.insert(tb.END, f"扫描完成！\n\n")
-                            result_text.insert(tb.END, f"扫描文件夹: {len(selected_folders)} 个\n")
-                            result_text.insert(tb.END, f"总文件数: {results['total_files_scanned']}\n")
-                            result_text.insert(tb.END, f"重复文件组: {results['duplicate_groups_found']}\n")
-                            result_text.insert(tb.END, f"重复文件数: {results['total_duplicates_found']}\n\n")
-                            if results.get('duplicate_groups'):
-                                for idx, group in enumerate(results['duplicate_groups'], 1):
-                                    size = group['size']
-                                    md5 = group['md5']
-                                    files = group['files']
-                                    result_text.insert(tb.END, f"重复文件组{idx}: (大小: {size} bytes, MD5: {md5}) 共{len(files)}个副本\n")
-                                    for file_info in files:
-                                        keep_flag = '【保留】' if file_info.get('keep') else '【待删】'
-                                        from datetime import datetime
-                                        ctime_str = datetime.fromtimestamp(file_info['ctime']).strftime('%Y-%m-%d %H:%M:%S') if 'ctime' in file_info else ''
-                                        source_folder = file_info.get('source_folder', '')
-                                        result_text.insert(tb.END, f"  - {file_info['relative_path']} {keep_flag} 来源: {source_folder} 创建时间: {ctime_str}\n")
-                                    result_text.insert(tb.END, "\n")
-                                
-                                # 如果是试运行模式且发现重复文件，添加删除按钮
-                                if dry_run and results['total_duplicates_found'] > 0:
-                                    # 清除现有的删除按钮（如果有）
-                                    for widget in button_frame.winfo_children():
-                                        if hasattr(widget, 'delete_button_flag'):
-                                            widget.destroy()
-                                    
-                                    # 添加删除重复文件按钮
-                                    def delete_duplicates():
-                                        if messagebox.askyesno("确认删除", f"确定要删除 {results['total_duplicates_found']} 个重复文件吗？\n\n此操作不可撤销！"):
-                                            result_text.delete(1.0, tb.END)
-                                            result_text.insert(tb.END, "正在删除重复文件...\n")
-                                            
-                                            def delete_worker():
-                                                try:
-                                                    keep_oldest = keep_strategy_var.get() == "oldest"
-                                                    delete_results = remove_duplicate_files(
-                                                        target_folder_paths=selected_folders,
-                                                        dry_run=False,
-                                                        keep_oldest=keep_oldest
-                                                    )
-                                                    
-                                                    # 记录删除操作到转移日志
-                                                    if self.ai_organizer and self.ai_organizer.enable_transfer_log and self.ai_organizer.transfer_log_manager:
-                                                        try:
-                                                            session_name = f"duplicate_removal_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-                                                            log_session = self.ai_organizer.transfer_log_manager.start_transfer_session(session_name)
-                                                            
-                                                            for file_info in delete_results.get('files_deleted', []):
-                                                                try:
-                                                                    # file_info 是一个字典，包含 path, relative_path, size, md5, ctime 等字段
-                                                                    file_path = file_info.get('path', '')
-                                                                    file_size = file_info.get('size', 0)
-                                                                    md5 = file_info.get('md5', '')
-                                                                    ctime = file_info.get('ctime', 0)
-                                                                    
-                                                                    self.ai_organizer.transfer_log_manager.log_transfer_operation(
-                                                                        source_path=file_path,
-                                                                        target_path="",  # 删除操作没有目标路径
-                                                                        operation_type="delete_duplicate",
-                                                                        target_folder="重复文件删除",
-                                                                        success=True,
-                                                                        file_size=file_size,
-                                                                        md5=md5,
-                                                                        ctime=ctime
-                                                                    )
-                                                                except Exception as e:
-                                                                    print(f"记录删除日志失败: {e}")
-                                                            
-                                                            self.ai_organizer.transfer_log_manager.end_transfer_session()
-                                                        except Exception as e:
-                                                            print(f"创建删除日志会话失败: {e}")
-                                                    
-                                                    def show_delete_results():
-                                                        result_text.delete(1.0, tb.END)
-                                                        result_text.insert(tb.END, f"删除完成！\n\n")
-                                                        result_text.insert(tb.END, f"成功删除: {len(delete_results.get('files_deleted', []))} 个重复文件\n")
-                                                        result_text.insert(tb.END, f"释放空间: {delete_results.get('space_freed', 0):,} 字节\n\n")
-                                                        
-                                                        if delete_results.get('files_deleted'):
-                                                            result_text.insert(tb.END, "已删除的文件:\n")
-                                                            for file_info in delete_results['files_deleted']:
-                                                                file_path = file_info.get('path', '')
-                                                                relative_path = file_info.get('relative_path', '')
-                                                                source_folder = file_info.get('source_folder', '')
-                                                                result_text.insert(tb.END, f"  - {relative_path} (来源: {source_folder})\n")
-                                                        
-                                                        self.root.after(0, lambda: self.log_message(f"重复文件删除完成: 删除 {len(delete_results.get('files_deleted', []))} 个文件"))
-                                                    
-                                                    duplicate_window.after(0, show_delete_results)
-                                                    
-                                                except Exception as e:
-                                                    def show_delete_error():
-                                                        result_text.delete(1.0, tb.END)
-                                                        result_text.insert(tb.END, f"删除失败: {e}")
-                                                        messagebox.showerror("错误", f"删除失败: {e}")
-                                                    
-                                                    duplicate_window.after(0, show_delete_error)
-                                            
-                                            threading.Thread(target=delete_worker, daemon=True).start()
-                                    
-                                    delete_btn = tb.Button(
-                                        button_frame,
-                                        text=f"删除 {results['total_duplicates_found']} 个重复文件",
-                                        command=delete_duplicates
-                                    )
-                                    delete_btn.delete_button_flag = True  # 标记为删除按钮
-                                    delete_btn.pack(side=tb.LEFT, padx=5)
-                            else:
-                                result_text.insert(tb.END, "未发现可删除的重复文件。\n")
-                            # result_text.config(state='normal')  # ttkbootstrap ScrolledText不支持state配置
-                            
-                            # 记录日志
-                            if dry_run:
-                                self.root.after(0, lambda: self.log_message(f"重复文件扫描完成 [试运行]: 发现 {results['total_duplicates_found']} 个重复文件"))
-                            else:
-                                self.root.after(0, lambda: self.log_message(f"重复文件删除完成: 删除 {len(results.get('files_deleted', []))} 个文件"))
-                        
-                        self.root.after(0, update_results)
-                        
-                    except Exception as e:
-                        def show_error():
-                            result_text.delete(1.0, tb.END)
-                            result_text.insert(tb.END, f"扫描失败: {e}")
-                            self.root.after(0, lambda err=e: self.log_message(f"重复文件扫描失败: {err}"))
-                            messagebox.showerror("错误", f"扫描失败: {e}")
-                        
-                        self.root.after(0, show_error)
-                
-                threading.Thread(target=scan_worker, daemon=True).start()
-            
-            tb.Button(
-                button_frame,
-                text="开始扫描",
-                command=start_scan
-            ).pack(side=tb.LEFT, padx=5)
-            
-            tb.Button(
-                button_frame,
-                text="关闭",
-                command=duplicate_window.destroy
-            ).pack(side=tb.RIGHT, padx=5)
-            
+            from duplicate_file_remover_gui import show_duplicate_remover_dialog
+            show_duplicate_remover_dialog(self.root)
         except Exception as e:
-            self.root.after(0, lambda err=e: self.log_message(f"显示重复文件删除对话框失败: {err}"))
-            self.root.after(0, lambda err=e: messagebox.showerror("错误", f"显示重复文件删除对话框失败: {err}"))
+            logger.error(f"显示重复文件删除对话框失败: {e}")
+            messagebox.showerror("错误", f"显示重复文件删除对话框失败: {e}")
         
     def show_classification_rules_manager(self):
         """显示分类规则管理器"""
@@ -1497,20 +1352,14 @@ class FileOrganizerTabGUI:
             # 创建新窗口
             rules_window = tk.Toplevel(self.root)
             rules_window.title("分类规则管理器")
-            rules_window.geometry("800x600")
+            
+            # 设置响应式窗口
+            self.setup_responsive_window(rules_window, 800, 600, 600, 400)
             rules_window.transient(self.root)  # 设置为主窗口的临时窗口
             rules_window.grab_set()  # 模态窗口
             
             # 创建分类规则管理器GUI
             rules_gui = ClassificationRulesGUI(rules_window)
-            
-            # 居中显示窗口
-            rules_window.update_idletasks()
-            width = rules_window.winfo_width()
-            height = rules_window.winfo_height()
-            x = (rules_window.winfo_screenwidth() // 2) - (width // 2)
-            y = (rules_window.winfo_screenheight() // 2) - (height // 2)
-            rules_window.geometry(f"{width}x{height}+{x}+{y}")
             
             self.log_message("分类规则管理器已打开")
             
@@ -1524,41 +1373,38 @@ class FileOrganizerTabGUI:
             # 创建AI模型配置窗口
             config_window = tb.Toplevel(self.root)
             config_window.title("AI模型配置")
-            config_window.geometry("800x600")
+            
+            # 设置响应式窗口
+            self.setup_responsive_window(config_window, 800, 600, 600, 400)
             config_window.resizable(True, True)
             config_window.transient(self.root)
             config_window.grab_set()
             
-            # 居中显示
-            config_window.update_idletasks()
-            x = (config_window.winfo_screenwidth() // 2) - (800 // 2)
-            y = (config_window.winfo_screenheight() // 2) - (600 // 2)
-            config_window.geometry(f"800x600+{x}+{y}")
-            
             # 创建主框架
-            main_frame = tb.Frame(config_window, padding="10")
+            main_frame = tb.Frame(config_window, padding="5")
             main_frame.pack(fill=BOTH, expand=True)
             
             # 标题
-            title_label = tb.Label(main_frame, text="AI模型服务配置", font=('Arial', 14, 'bold'))
-            title_label.pack(pady=(0, 20))
+            title_label = tb.Label(main_frame, text="AI模型服务配置", font=('Arial', 12, 'bold'))
+            title_label.pack(pady=(0, 10))
             
             # 模型列表框架
             list_frame = tb.Frame(main_frame)
-            list_frame.pack(fill=BOTH, expand=True, pady=(0, 10))
+            list_frame.pack(fill=BOTH, expand=True, pady=(0, 5))
             
             # 模型列表标题
-            list_title = tb.Label(list_frame, text="已配置的模型服务:", font=('Arial', 11, 'bold'))
-            list_title.pack(anchor=W, pady=(0, 10))
+            list_title = tb.Label(list_frame, text="已配置的模型服务:", font=('Arial', 10, 'bold'))
+            list_title.pack(anchor=W, pady=(0, 5))
             
             # 模型列表（使用Treeview）
             columns = ('优先级', '模型名称', '模型类型', '服务地址', '模型名', '状态')
-            model_tree = tb.Treeview(list_frame, columns=columns, show='headings', height=8)
+            model_tree = tb.Treeview(list_frame, columns=columns, show='headings', height=6)
             
-            # 设置列标题
-            for col in columns:
+            # 设置列标题和宽度
+            column_widths = [60, 100, 80, 120, 100, 80]
+            for i, col in enumerate(columns):
                 model_tree.heading(col, text=col)
-                model_tree.column(col, width=120)
+                model_tree.column(col, width=column_widths[i], minwidth=50)
             
             # 添加滚动条
             scrollbar = tb.Scrollbar(list_frame, orient=VERTICAL, command=model_tree.yview)
@@ -1567,9 +1413,13 @@ class FileOrganizerTabGUI:
             model_tree.pack(side=LEFT, fill=BOTH, expand=True)
             scrollbar.pack(side=RIGHT, fill=Y)
             
-            # 按钮框架
+            # 按钮框架 - 使用网格布局确保按钮紧凑排列
             button_frame = tb.Frame(main_frame)
-            button_frame.pack(fill=X, pady=10)
+            button_frame.pack(fill=X, pady=5)
+            button_frame.columnconfigure(0, weight=1)
+            button_frame.columnconfigure(1, weight=1)
+            button_frame.columnconfigure(2, weight=1)
+            button_frame.columnconfigure(3, weight=1)
             
             def refresh_model_list():
                 """刷新模型列表"""
@@ -1958,14 +1808,17 @@ class FileOrganizerTabGUI:
                 form_frame.columnconfigure(1, weight=1)
             
             # 添加按钮
-            tb.Button(button_frame, text="添加模型", command=add_model, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="编辑模型", command=edit_model, bootstyle=INFO).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="删除模型", command=delete_model, bootstyle=DANGER).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="测试连接", command=test_connections, bootstyle=WARNING).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="刷新列表", command=refresh_model_list, bootstyle=SECONDARY).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="查看详情", command=show_model_details, bootstyle=PRIMARY).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="启用模型", command=enable_selected_model, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
-            tb.Button(button_frame, text="禁用模型", command=disable_selected_model, bootstyle=WARNING).pack(side=LEFT, padx=5)
+            # 第一行按钮
+            tb.Button(button_frame, text="添加模型", command=add_model, bootstyle=SUCCESS).grid(row=0, column=0, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="编辑模型", command=edit_model, bootstyle=INFO).grid(row=0, column=1, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="删除模型", command=delete_model, bootstyle=DANGER).grid(row=0, column=2, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="测试连接", command=test_connections, bootstyle=WARNING).grid(row=0, column=3, padx=2, pady=2, sticky=(W, E))
+            
+            # 第二行按钮
+            tb.Button(button_frame, text="刷新列表", command=refresh_model_list, bootstyle=SECONDARY).grid(row=1, column=0, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="查看详情", command=show_model_details, bootstyle=PRIMARY).grid(row=1, column=1, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="启用模型", command=enable_selected_model, bootstyle=SUCCESS).grid(row=1, column=2, padx=2, pady=2, sticky=(W, E))
+            tb.Button(button_frame, text="禁用模型", command=disable_selected_model, bootstyle=WARNING).grid(row=1, column=3, padx=2, pady=2, sticky=(W, E))
             
             # 初始化模型列表
             refresh_model_list()
