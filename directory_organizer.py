@@ -20,248 +20,17 @@ import shutil
 from datetime import datetime
 from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
-import ollama
 import threading
+from ai_client_manager import chat_with_ai
 
 class DirectoryOrganizerError(Exception):
     pass
 
-class OllamaClient:
-    """
-    Ollama AI客户端，支持多host优先级（LM Studio、局域网、本地）、多模型优先级（qwen3、deepseek、其它），自动重试。
-    """
-    def __init__(self, model_name: str = None, host: str = None):
-        """
-        初始化OllamaClient
-        :param model_name: 指定模型名，None则自动优先级选择
-        :param host: 指定host，None则自动优先级选择
-        """
-        self.model_name = model_name
-        # 多host优先级：LM Studio > 局域网Ollama > 本地Ollama
-        self.hosts_to_try = [
-            "http://10.64.21.220:1234/v1",  # LM Studio
-            "http://10.64.21.220:11434",    # 局域网Ollama
-            "http://localhost:11434"        # 本地Ollama
-        ] if host is None else [host]
-        self.client = None
-        self.available_models = []
-        self.host = None
-        self._try_connect_and_select_model()
 
-    def _try_connect_and_select_model(self):
-        """
-        尝试按优先级连接host，并自动选择模型
-        """
-        last_error = None
-        for host in self.hosts_to_try:
-            try:
-                self.host = host
-                self.client = ollama.Client(host=host)
-                # 获取模型列表
-                models_response = self.client.list()
-                if hasattr(models_response, 'models'):
-                    models_list = models_response.models
-                elif isinstance(models_response, dict) and 'models' in models_response:
-                    models_list = models_response['models']
-                else:
-                    models_list = models_response if isinstance(models_response, list) else []
-                self.available_models = []
-                for model in models_list:
-                    if hasattr(model, 'model'):
-                        self.available_models.append(model.model)
-                    elif hasattr(model, 'name'):
-                        self.available_models.append(model.name)
-                    elif isinstance(model, dict) and 'model' in model:
-                        self.available_models.append(model['model'])
-                    elif isinstance(model, dict) and 'name' in model:
-                        self.available_models.append(model['name'])
-                    elif isinstance(model, str):
-                        self.available_models.append(model)
-                if not self.available_models:
-                    raise DirectoryOrganizerError("没有可用的模型，请先拉取模型")
-                # 优先选择qwen3、deepseek等
-                preferred_models = []
-                qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
-                if qwen3_models:
-                    preferred_models.extend(qwen3_models)
-                deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
-                if deepseek_models:
-                    preferred_models.extend(deepseek_models)
-                other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                preferred_models.extend(other_models)
-                if self.model_name and self.model_name in self.available_models:
-                    pass  # 使用指定模型
-                elif preferred_models:
-                    self.model_name = preferred_models[0]
-                else:
-                    self.model_name = self.available_models[0]
-                logging.info(f"成功连接到AI服务: {host}，使用模型: {self.model_name}")
-                logging.info(f"可用模型列表: {self.available_models}")
-                return
-            except Exception as e:
-                last_error = e
-                logging.warning(f"连接AI服务失败: {host}，错误: {e}")
-                continue
-        raise DirectoryOrganizerError(f"所有AI服务连接失败，最后错误: {last_error}")
-
-    def chat_with_retry(self, messages: List[Dict], max_retries: Optional[int] = None) -> str:
-        """
-        支持多host、多模型自动重试的AI对话
-        :param messages: 消息列表
-        :param max_retries: 最大重试次数
-        :return: AI响应内容
-        """
-        last_error = None
-        # 首先尝试当前已连接的host
-        if self.client and self.host:
-            try:
-                # 获取当前host的模型列表
-                models_response = self.client.list()
-                if hasattr(models_response, 'models'):
-                    models_list = models_response.models
-                elif isinstance(models_response, dict) and 'models' in models_response:
-                    models_list = models_response['models']
-                else:
-                    models_list = models_response if isinstance(models_response, list) else []
-                available_models = []
-                for model in models_list:
-                    if hasattr(model, 'model'):
-                        available_models.append(model.model)
-                    elif hasattr(model, 'name'):
-                        available_models.append(model.name)
-                    elif isinstance(model, dict) and 'model' in model:
-                        available_models.append(model['model'])
-                    elif isinstance(model, dict) and 'name' in model:
-                        available_models.append(model['name'])
-                    elif isinstance(model, str):
-                        available_models.append(model)
-                
-                if available_models:
-                    # 优先模型顺序
-                    models_to_try = []
-                    qwen3_models = [m for m in available_models if 'qwen3' in m.lower()]
-                    if qwen3_models:
-                        models_to_try.extend(qwen3_models)
-                    deepseek_models = [m for m in available_models if 'deepseek' in m.lower()]
-                    if deepseek_models:
-                        models_to_try.extend(deepseek_models)
-                    other_models = [m for m in available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                    models_to_try.extend(other_models)
-                    if self.model_name and self.model_name in available_models:
-                        models_to_try = [self.model_name] + [m for m in models_to_try if m != self.model_name]
-                    if not models_to_try:
-                        models_to_try = available_models
-                    
-                    if max_retries is None:
-                        max_retries = len(models_to_try)
-                    
-                    logging.info(f"尝试当前host {self.host} 的模型: {models_to_try[:max_retries]}")
-                    
-                    for attempt, model_name in enumerate(models_to_try[:max_retries]):
-                        try:
-                            chat_params = {
-                                'model': model_name,
-                                'messages': messages,
-                                'options': {'enable_thinking': False}
-                            }
-                            response = self.client.chat(**chat_params)
-                            if model_name != self.model_name:
-                                logging.info(f"模型切换: {self.model_name} -> {model_name}")
-                                self.model_name = model_name
-                            return response['message']['content'].strip()
-                        except Exception as e:
-                            last_error = e
-                            logging.warning(f"模型 {model_name} 响应失败: {e}")
-                            if attempt < max_retries - 1:
-                                continue
-                    
-                    logging.warning(f"当前host {self.host} 的所有模型都失败，尝试其他host...")
-            except Exception as e:
-                last_error = e
-                logging.warning(f"当前host {self.host} 连接失败: {e}")
-        
-        # host优先级循环
-        for host in self.hosts_to_try:
-            if self.host and host == self.host:  # 跳过已失败的host
-                continue
-                
-            try:
-                client = ollama.Client(host=host)
-                # 获取模型列表
-                models_response = client.list()
-                if hasattr(models_response, 'models'):
-                    models_list = models_response.models
-                elif isinstance(models_response, dict) and 'models' in models_response:
-                    models_list = models_response['models']
-                else:
-                    models_list = models_response if isinstance(models_response, list) else []
-                available_models = []
-                for model in models_list:
-                    if hasattr(model, 'model'):
-                        available_models.append(model.model)
-                    elif hasattr(model, 'name'):
-                        available_models.append(model.name)
-                    elif isinstance(model, dict) and 'model' in model:
-                        available_models.append(model['model'])
-                    elif isinstance(model, dict) and 'name' in model:
-                        available_models.append(model['name'])
-                    elif isinstance(model, str):
-                        available_models.append(model)
-                # 优先模型顺序
-                models_to_try = []
-                qwen3_models = [m for m in available_models if 'qwen3' in m.lower()]
-                if qwen3_models:
-                    models_to_try.extend(qwen3_models)
-                deepseek_models = [m for m in available_models if 'deepseek' in m.lower()]
-                if deepseek_models:
-                    models_to_try.extend(deepseek_models)
-                other_models = [m for m in available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                models_to_try.extend(other_models)
-                if self.model_name and self.model_name in available_models:
-                    models_to_try = [self.model_name] + [m for m in models_to_try if m != self.model_name]
-                if not models_to_try:
-                    models_to_try = available_models
-                if not models_to_try:
-                    continue
-                if max_retries is None:
-                    max_retries = len(models_to_try)
-                
-                logging.info(f"尝试host {host} 的模型: {models_to_try[:max_retries]}")
-                
-                for attempt, model_name in enumerate(models_to_try[:max_retries]):
-                    try:
-                        chat_params = {
-                            'model': model_name,
-                            'messages': messages,
-                            'options': {'enable_thinking': False}
-                        }
-                        response = client.chat(**chat_params)
-                        if model_name != self.model_name:
-                            logging.info(f"模型切换: {self.model_name} -> {model_name}")
-                            self.model_name = model_name
-                        
-                        # 更新当前客户端和host信息
-                        self.client = client
-                        self.host = host
-                        self.available_models = available_models
-                        
-                        logging.info(f"成功切换到host {host}，使用模型: {model_name}")
-                        return response['message']['content'].strip()
-                    except Exception as e:
-                        last_error = e
-                        logging.warning(f"模型 {model_name} 响应失败: {e}")
-                        if attempt < max_retries - 1:
-                            continue
-            except Exception as e:
-                last_error = e
-                logging.warning(f"host {host} 响应失败: {e}")
-                continue
-        raise DirectoryOrganizerError(f"所有可用host和模型都响应失败，最后错误: {last_error}")
 
 class DirectoryOrganizer:
     def __init__(self, model_name: str = None):
         self.model_name = model_name
-        self.ollama_client = None
         self.setup_logging()
     
     def setup_logging(self) -> None:
@@ -276,12 +45,12 @@ class DirectoryOrganizer:
         logging.info("目录整理器初始化完成")
     
     def initialize_ollama(self) -> None:
-        """初始化Ollama客户端"""
+        """初始化AI客户端（使用统一的AI管理器）"""
         try:
-            self.ollama_client = OllamaClient(self.model_name)
-            logging.info("Ollama 客户端初始化成功")
+            # 使用统一的AI管理器，无需单独初始化
+            logging.info("AI客户端已通过统一管理器初始化")
         except Exception as e:
-            raise DirectoryOrganizerError(f"初始化 Ollama 客户端失败: {e}")
+            raise DirectoryOrganizerError(f"初始化 AI 客户端失败: {e}")
     
     def scan_directory_structure(self, directory_paths: List[str]) -> Dict[str, Any]:
         """
@@ -453,9 +222,6 @@ class DirectoryOrganizer:
     def _get_ai_filtered_structure(self, scan_result: Dict[str, Any], target_folder: str) -> Dict[str, Any]:
         """使用AI过滤无意义的文件夹"""
         try:
-            if not self.ollama_client:
-                self.initialize_ollama()
-            
             # 构建传递给AI的目录结构
             directory_list = self._build_directory_list_for_ai(scan_result)
             
@@ -486,7 +252,7 @@ class DirectoryOrganizer:
                 }
             ]
             
-            response = self.ollama_client.chat_with_retry(messages)
+            response = chat_with_ai(messages)
             
             # 解析AI响应，提取路径列表
             filtered_paths = self._parse_ai_filtered_response(response)

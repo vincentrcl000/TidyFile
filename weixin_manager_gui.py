@@ -64,6 +64,8 @@ class WeixinManagerTab:
         self.analyze_btn = tb.Button(button_frame, text="备份文章解读", command=self.analyze_backup, bootstyle=INFO, width=18)
         self.analyze_btn.pack(side=LEFT)
 
+
+    
     def create_empty_tab(self, name):
         frame = tb.Frame(self.tab_control, padding="20")
         self.tab_control.add(frame, text=name)
@@ -195,4 +197,6 @@ class WeixinManagerTab:
         
         # 其他未知错误
         else:
-            return "微信文章批量解读失败\n\n请检查操作日志获取详细错误信息，或联系技术支持。" 
+            return "微信文章批量解读失败\n\n请检查操作日志获取详细错误信息，或联系技术支持。"
+    
+ 

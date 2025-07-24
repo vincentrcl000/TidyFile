@@ -59,6 +59,7 @@ from fake_useragent import UserAgent
 import html2text
 import argparse
 import markdown  # 新增：用于Markdown转HTML
+from ai_client_manager import chat_with_ai
 
 # --- 配置 ---
 ARTICLE_JSON = Path("weixin_manager/weixin_article.json")
@@ -278,8 +279,6 @@ def main():
         if title and url:
             exist_articles.add((title, url))
     sess = build_session()
-    reader = FileReader(model_name=None, host="http://localhost:11434")  # 自动选择模型，优先qwen3系列
-    reader.initialize_ollama()  # 强制初始化ollama客户端
     new_records = []
     
     for idx, art in enumerate(articles, 1):
@@ -310,11 +309,35 @@ def main():
         
         # AI生成摘要
         try:
-            summary = reader.generate_summary(article_data['content'], max_summary_length=summary_length)
-            if isinstance(summary, dict):
-                summary_text = summary.get('summary', '') or summary.get('文件摘要', '')
-            else:
-                summary_text = str(summary)
+            # 构建摘要提示词
+            prompt = f"""请为以下微信文章生成一个{summary_length}字以内的中文摘要。
+
+文章标题：{article_data['title']}
+文章作者：{article_data['author']}
+文章内容：
+{article_data['content'][:3000]}
+
+要求：
+1. 概括文章的主要内容和主题
+2. 突出关键信息和要点
+3. 语言简洁明了
+4. 字数控制在{summary_length}字以内
+5. 直接输出摘要内容，不要包含任何思考过程或说明文字
+
+摘要："""
+
+            messages = [
+                {
+                    'role': 'system',
+                    'content': '你是一个专业的文章摘要助手。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出摘要内容，不要包含任何其他信息。'
+                },
+                {
+                    'role': 'user',
+                    'content': prompt
+                }
+            ]
+            
+            summary_text = chat_with_ai(messages)
             
         except Exception as e:
             print(f"[错误] AI摘要失败：{e}")
@@ -338,16 +361,6 @@ def main():
         time.sleep(random.uniform(*TIME_RANGE))
     
     print(f"全部处理完成，新增 {len(new_records)} 条摘要。")
-
-# --- FileReader补充方法 ---
-# 为FileReader动态添加 generate_summary_from_text 方法
-if not hasattr(FileReader, 'generate_summary_from_text'):
-    def generate_summary_from_text(self, text, max_summary_length=200):
-        prompt = self._build_summary_prompt(text, max_summary_length)
-        return self._chat_with_retry([
-            {"role": "user", "content": prompt}
-        ])
-    FileReader.generate_summary_from_text = generate_summary_from_text
 
 if __name__ == "__main__":
     main() 

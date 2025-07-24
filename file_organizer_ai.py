@@ -7,6 +7,7 @@ import os
 import shutil
 import logging
 import json
+import re
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional, Any
 from pathlib import Path
@@ -17,443 +18,17 @@ import PyPDF2
 import docx
 import time
 import requests
+from ai_client_manager import get_ai_manager, chat_with_ai, refresh_ai_clients
 
 class FileOrganizerError(Exception):
     pass
 
-class QwenLongClient:
-    """Qwen-Long在线模型客户端"""
-    def __init__(self, api_key: str = None):
-        try:
-            from openai import OpenAI
-            self.api_key = api_key or "sk-9b728f2f153f4a81b507caeced3380d1"
-            self.client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            )
-            self.model_name = "qwen-long"
-            logging.info("Qwen-Long在线模型客户端初始化成功")
-        except ImportError:
-            raise FileOrganizerError("需要安装openai库: pip install openai")
-        except Exception as e:
-            raise FileOrganizerError(f"初始化Qwen-Long客户端失败: {e}")
-    
-    def chat_with_retry(self, messages: List[Dict], max_retries: int = 3) -> str:
-        """与Qwen-Long模型对话，支持重试机制"""
-        last_error = None
-        
-        for attempt in range(max_retries):
-            try:
-                logging.info(f"尝试使用Qwen-Long模型 (第{attempt + 1}次)")
-                
-                completion = self.client.chat.completions.create(
-                    model="qwen-long",
-                    messages=messages,
-                    # Qwen3模型通过enable_thinking参数控制思考过程
-                    extra_body={"enable_thinking": False},
-                )
-                
-                if completion.choices and len(completion.choices) > 0:
-                    content = completion.choices[0].message.content.strip()
-                    if content:
-                        logging.info("Qwen-Long模型响应成功")
-                        return content
-                    else:
-                        raise FileOrganizerError("Qwen-Long模型返回空内容")
-                else:
-                    raise FileOrganizerError("Qwen-Long模型返回无效响应格式")
-                    
-            except Exception as e:
-                last_error = e
-                logging.warning(f"Qwen-Long模型响应失败 (第{attempt + 1}次): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(1)  # 重试前等待1秒
-                    continue
-        
-        error_msg = f"Qwen-Long模型所有重试都失败，最后错误: {last_error}"
-        logging.error(error_msg)
-        raise FileOrganizerError(error_msg)
-
-class OllamaClient:
-    def __init__(self, model_name: str = None, host: str = None):
-        self.model_name = model_name
-        # 优先LM Studio，其次局域网Ollama，最后本地Ollama
-        self.hosts_to_try = [
-            "http://10.64.21.220:1234/v1",  # LM Studio
-            "http://10.64.21.220:11434",    # 局域网Ollama
-            "http://localhost:11434"        # 本地Ollama
-        ] if host is None else [host]
-        self.client = None
-        self.available_models = []
-        self._try_connect_and_select_model()
-
-    def _try_connect_and_select_model(self):
-        last_error = None
-        for host in self.hosts_to_try:
-            try:
-                self.host = host
-                if "1234/v1" in host:  # LM Studio API
-                    self.client = self._create_lmstudio_client(host)
-                else:  # Ollama API
-                    self.client = ollama.Client(host=host)
-                self._validate_connection()
-                logging.info(f"成功连接到AI服务: {host}")
-                return
-            except Exception as e:
-                last_error = e
-                logging.warning(f"连接AI服务失败: {host}，错误: {e}")
-                continue
-        raise FileOrganizerError(f"所有AI服务连接失败，最后错误: {last_error}")
-
-    def _create_lmstudio_client(self, host: str):
-        """创建LM Studio客户端（兼容Ollama API）"""
-        class LMStudioClient:
-            def __init__(self, host):
-                self.host = host
-                self.base_url = host
-            def list(self):
-                try:
-                    response = requests.get(f"{self.base_url}/models", timeout=10)
-                    response.raise_for_status()
-                    models_data = response.json()
-                    # 转换为Ollama格式，只返回loaded状态的模型
-                    models = []
-                    for model in models_data.get('data', []):
-                        # 检查模型状态，只返回loaded状态的模型
-                        if model.get('status') == 'loaded':
-                            models.append({'name': model.get('id', '')})
-                    return {'models': models}
-                except Exception as e:
-                    raise Exception(f"LM Studio API调用失败: {e}")
-            def chat(self, **kwargs):
-                try:
-                    messages = kwargs.get('messages', [])
-                    model = kwargs.get('model', '')
-                    # 转换为LM Studio格式
-                    lmstudio_messages = []
-                    for msg in messages:
-                        lmstudio_messages.append({
-                            'role': msg.get('role', 'user'),
-                            'content': msg.get('content', '')
-                        })
-                    payload = {
-                        'model': model,
-                        'messages': lmstudio_messages,
-                        'stream': False
-                    }
-                    response = requests.post(f"{self.base_url}/chat/completions", 
-                                           json=payload, timeout=60)
-                    
-                    # 检查HTTP状态码
-                    if response.status_code != 200:
-                        error_msg = f"LM Studio API返回错误状态码: {response.status_code}"
-                        try:
-                            error_data = response.json()
-                            if 'error' in error_data:
-                                error_msg += f", 错误信息: {error_data['error']}"
-                        except:
-                            error_msg += f", 响应内容: {response.text[:200]}"
-                        raise Exception(error_msg)
-                    
-                    result = response.json()
-                    
-                    # 检查响应格式
-                    if 'choices' not in result or not result['choices']:
-                        raise Exception(f"LM Studio响应格式错误: {result}")
-                    
-                    choice = result['choices'][0]
-                    if 'message' not in choice or 'content' not in choice['message']:
-                        raise Exception(f"LM Studio响应缺少message或content: {choice}")
-                    
-                    # 转换为Ollama格式
-                    return {
-                        'message': {
-                            'content': choice['message']['content']
-                        }
-                    }
-                except Exception as e:
-                    raise Exception(f"LM Studio chat调用失败: {e}")
-        return LMStudioClient(host)
-
-    def _validate_connection(self) -> None:
-        try:
-            models_response = self.client.list()
-            if hasattr(models_response, 'models'):
-                models_list = models_response.models
-            elif isinstance(models_response, dict) and 'models' in models_response:
-                models_list = models_response['models']
-            else:
-                models_list = models_response if isinstance(models_response, list) else []
-            self.available_models = []
-            for model in models_list:
-                if isinstance(model, dict):
-                    if 'name' in model:
-                        model_name = model['name']
-                        if isinstance(model_name, str):
-                            self.available_models.append(model_name)
-                        else:
-                            self.available_models.append(str(model_name))
-                    elif 'model' in model:
-                        model_name = model['model']
-                        if isinstance(model_name, str):
-                            self.available_models.append(model_name)
-                        else:
-                            self.available_models.append(str(model_name))
-                elif isinstance(model, str):
-                    self.available_models.append(model)
-                else:
-                    model_name = None
-                    if hasattr(model, 'model'):
-                        model_name = getattr(model, 'model')
-                    elif hasattr(model, 'name'):
-                        model_name = getattr(model, 'name')
-                    if model_name:
-                        if isinstance(model_name, str):
-                            self.available_models.append(model_name)
-                        else:
-                            self.available_models.append(str(model_name))
-                    else:
-                        model_str = str(model)
-                        if "model='" in model_str:
-                            import re
-                            match = re.search(r"model='([^']+)'", model_str)
-                            if match:
-                                self.available_models.append(match.group(1))
-                            else:
-                                self.available_models.append(model_str)
-                        else:
-                            self.available_models.append(model_str)
-            # 优先选择qwen/qwen3-8b模型（LM Studio），其次qwen3:8b（Ollama）
-            preferred_models = []
-            qwen_qwen3_8b = [m for m in self.available_models if 'qwen/qwen3-8b' in m.lower()]
-            if qwen_qwen3_8b:
-                preferred_models.extend(qwen_qwen3_8b)
-                logging.info(f"优先选择LM Studio qwen/qwen3-8b模型: {qwen_qwen3_8b}")
-            else:
-                qwen3_8b = [m for m in self.available_models if 'qwen3:8b' in m.lower()]
-                if qwen3_8b:
-                    preferred_models.extend(qwen3_8b)
-                    logging.info(f"优先选择Ollama qwen3:8b模型: {qwen3_8b}")
-                else:
-                    # 其次qwen3系列
-                    qwen3_models = [m for m in self.available_models if 'qwen3' in m.lower()]
-                    if qwen3_models:
-                        preferred_models.extend(qwen3_models)
-                        logging.info(f"找到qwen3系列模型: {qwen3_models}")
-                    # 其次deepseek系列
-                    deepseek_models = [m for m in self.available_models if 'deepseek' in m.lower()]
-                    if deepseek_models:
-                        preferred_models.extend(deepseek_models)
-                        logging.info(f"找到deepseek系列模型: {deepseek_models}")
-                    # 其它
-                    other_models = [m for m in self.available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                    preferred_models.extend(other_models)
-            if preferred_models:
-                self.model_name = preferred_models[0]
-                logging.info(f"自动选择模型: {self.model_name}")
-            else:
-                self.model_name = self.available_models[0]
-                logging.info(f"使用默认模型: {self.model_name}")
-            logging.info(f"可用模型列表: {self.available_models}")
-        except Exception as e:
-            raise FileOrganizerError(f"连接 AI 服务失败: {e}")
-    
-    def chat_with_retry(self, messages: List[Dict], max_retries: Optional[int] = None) -> str:
-        if max_retries is None:
-            max_retries = len(self.available_models)
-        last_error = None
-        
-        # 首先尝试当前已连接的host
-        models_to_try = [self.model_name] + [m for m in self.available_models if m != self.model_name]
-        
-        logging.info(f"开始尝试当前host的模型，可用模型: {self.available_models}")
-        logging.info(f"将尝试的模型顺序: {models_to_try[:max_retries]}")
-        
-        for attempt, model_name in enumerate(models_to_try[:max_retries]):
-            try:
-                if not isinstance(model_name, str) or not model_name:
-                    logging.warning(f"跳过无效模型名: {model_name}")
-                    continue
-                
-                # 使用已初始化的客户端，而不是重新创建
-                if not self.client:
-                    raise FileOrganizerError("客户端未初始化")
-                
-                logging.info(f"尝试使用模型: {model_name} (第{attempt + 1}次尝试)")
-                
-                # 根据客户端类型使用不同的调用方式
-                if hasattr(self.client, 'chat'):
-                    # 使用自定义客户端（如LMStudioClient）
-                    chat_params = {
-                        'model': model_name,
-                        'messages': messages
-                    }
-                    response = self.client.chat(**chat_params)
-                else:
-                    # 使用Ollama客户端
-                    chat_params = {
-                        'model': model_name,
-                        'messages': messages,
-                        'options': {'enable_thinking': False}
-                    }
-                    response = self.client.chat(**chat_params)
-                
-                # 验证响应格式
-                if not response or 'message' not in response or 'content' not in response['message']:
-                    raise FileOrganizerError(f"模型 {model_name} 返回无效响应格式: {response}")
-                
-                content = response['message']['content'].strip()
-                if not content:
-                    raise FileOrganizerError(f"模型 {model_name} 返回空内容")
-                
-                if model_name != self.model_name:
-                    logging.info(f"模型切换成功: {self.model_name} -> {model_name}")
-                    self.model_name = model_name
-                
-                logging.info(f"模型 {model_name} 响应成功")
-                return content
-                
-            except Exception as e:
-                last_error = e
-                logging.warning(f"模型 {model_name} 响应失败: {e}")
-                if attempt < max_retries - 1:
-                    logging.info(f"准备尝试下一个模型...")
-                    continue
-        
-        # 当前host的所有模型都失败了，尝试其他host
-        logging.warning(f"当前host {self.host} 的所有模型都失败，尝试其他host...")
-        
-        # 尝试其他host
-        for host in self.hosts_to_try:
-            if host == self.host:  # 跳过当前已失败的host
-                continue
-                
-            try:
-                logging.info(f"尝试连接到host: {host}")
-                if "1234/v1" in host:  # LM Studio API
-                    client = self._create_lmstudio_client(host)
-                else:  # Ollama API
-                    client = ollama.Client(host=host)
-                
-                # 获取该host的可用模型
-                models_response = client.list()
-                if hasattr(models_response, 'models'):
-                    models_list = models_response.models
-                elif isinstance(models_response, dict) and 'models' in models_response:
-                    models_list = models_response['models']
-                else:
-                    models_list = models_response if isinstance(models_response, list) else []
-                
-                available_models = []
-                for model in models_list:
-                    if isinstance(model, dict):
-                        if 'name' in model:
-                            model_name = model['name']
-                            if isinstance(model_name, str):
-                                available_models.append(model_name)
-                            else:
-                                available_models.append(str(model_name))
-                        elif 'model' in model:
-                            model_name = model['model']
-                            if isinstance(model_name, str):
-                                available_models.append(model_name)
-                            else:
-                                available_models.append(str(model_name))
-                    elif isinstance(model, str):
-                        available_models.append(model)
-                    else:
-                        model_name = None
-                        if hasattr(model, 'model'):
-                            model_name = getattr(model, 'model')
-                        elif hasattr(model, 'name'):
-                            model_name = getattr(model, 'name')
-                        if model_name:
-                            if isinstance(model_name, str):
-                                available_models.append(model_name)
-                            else:
-                                available_models.append(str(model_name))
-                
-                if not available_models:
-                    logging.warning(f"host {host} 没有可用模型")
-                    continue
-                
-                # 优先模型顺序
-                models_to_try = []
-                qwen3_models = [m for m in available_models if 'qwen3' in m.lower()]
-                if qwen3_models:
-                    models_to_try.extend(qwen3_models)
-                deepseek_models = [m for m in available_models if 'deepseek' in m.lower()]
-                if deepseek_models:
-                    models_to_try.extend(deepseek_models)
-                other_models = [m for m in available_models if 'qwen3' not in m.lower() and 'deepseek' not in m.lower()]
-                models_to_try.extend(other_models)
-                
-                if not models_to_try:
-                    models_to_try = available_models
-                
-                logging.info(f"host {host} 可用模型: {available_models}")
-                logging.info(f"将尝试的模型顺序: {models_to_try}")
-                
-                # 尝试该host的模型
-                for model_name in models_to_try:
-                    try:
-                        logging.info(f"尝试使用host {host} 的模型: {model_name}")
-                        
-                        if hasattr(client, 'chat'):
-                            # 使用自定义客户端（如LMStudioClient）
-                            chat_params = {
-                                'model': model_name,
-                                'messages': messages
-                            }
-                            response = client.chat(**chat_params)
-                        else:
-                            # 使用Ollama客户端
-                            chat_params = {
-                                'model': model_name,
-                                'messages': messages,
-                                'options': {'enable_thinking': False}
-                            }
-                            response = client.chat(**chat_params)
-                        
-                        # 验证响应格式
-                        if not response or 'message' not in response or 'content' not in response['message']:
-                            raise FileOrganizerError(f"模型 {model_name} 返回无效响应格式: {response}")
-                        
-                        content = response['message']['content'].strip()
-                        if not content:
-                            raise FileOrganizerError(f"模型 {model_name} 返回空内容")
-                        
-                        # 更新当前客户端和模型信息
-                        self.client = client
-                        self.host = host
-                        self.model_name = model_name
-                        self.available_models = available_models
-                        
-                        logging.info(f"成功切换到host {host}，使用模型: {model_name}")
-                        return content
-                        
-                    except Exception as e:
-                        last_error = e
-                        logging.warning(f"host {host} 的模型 {model_name} 响应失败: {e}")
-                        continue
-                
-                logging.warning(f"host {host} 的所有模型都失败")
-                
-            except Exception as e:
-                last_error = e
-                logging.warning(f"连接host {host} 失败: {e}")
-                continue
-        
-        # 所有host和模型都失败了
-        error_msg = f"所有可用host和模型都响应失败，最后错误: {last_error}"
-        logging.error(error_msg)
-        raise FileOrganizerError(error_msg)
+# 使用统一的AI客户端管理器
+from ai_client_manager import get_ai_manager, chat_with_ai, refresh_ai_clients
 
 class FileOrganizer:
     def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
         self.model_name = model_name
-        self.ollama_client = None
-        self.qwen_long_client = None
         self.enable_transfer_log = enable_transfer_log
         self.transfer_log_manager = None
         self.setup_logging()
@@ -464,6 +39,9 @@ class FileOrganizer:
         # 初始化分类规则管理器
         self.classification_rules_manager = ClassificationRulesManager()
         
+        # 初始化AI管理器
+        self.ai_manager = get_ai_manager()
+        
         # 初始化AI参数
         self.ai_parameters = {
             'similarity_threshold': 0.7,
@@ -472,6 +50,11 @@ class FileOrganizer:
             'summary_length': 200,
             'classification_prompt_template': None
         }
+        
+        # 新增：文件缓存和标签系统
+        self.file_cache = {}  # 缓存文件信息和元数据
+        self.level_tags = {}  # 缓存各级标签
+        self.global_cache = {}  # 全局缓存，用于总结和删除源文件等功能
     def setup_logging(self) -> None:
         """设置日志配置，仅输出到控制台"""
         logging.basicConfig(
@@ -483,21 +66,13 @@ class FileOrganizer:
         )
         logging.info("文件整理器初始化完成")
     def initialize_ollama(self) -> None:
-        """初始化AI客户端，优先使用qwen-long在线模型"""
+        """初始化AI客户端，使用统一的AI管理器"""
         try:
-            # 首先尝试初始化qwen-long在线模型
-            try:
-                self.qwen_long_client = QwenLongClient()
-                logging.info("Qwen-Long在线模型客户端初始化成功")
-                return
-            except Exception as e:
-                logging.warning(f"Qwen-Long在线模型初始化失败: {e}")
-            
-            # 如果qwen-long失败，回退到本地Ollama模型
-            self.ollama_client = OllamaClient(self.model_name)
-            logging.info("Ollama 客户端初始化成功")
+            # 刷新AI客户端
+            refresh_ai_clients()
+            logging.info("AI客户端初始化成功")
         except Exception as e:
-            raise FileOrganizerError(f"所有AI客户端初始化失败: {e}")
+            raise FileOrganizerError(f"AI客户端初始化失败: {e}")
     def scan_target_folders(self, target_directory: str) -> List[str]:
         """扫描目标文件夹，返回相对路径列表（内部使用，不输出日志）"""
         try:
@@ -545,7 +120,7 @@ class FileOrganizer:
         timing_info = {}
         
         try:
-            if not self.ollama_client and not self.qwen_long_client:
+            if not hasattr(self, 'ai_manager') or self.ai_manager is None:
                 init_start = time.time()
                 self.initialize_ollama()
                 timing_info['ollama_init_time'] = round(time.time() - init_start, 3)
@@ -553,7 +128,15 @@ class FileOrganizer:
             file_name = Path(file_path).name
             logging.info(f"开始分析文件: {file_name}")
             
-            # 第一步：解析文件内容
+            # 第一步：提取文件元数据并缓存
+            metadata_start = time.time()
+            file_metadata = self._extract_file_metadata(file_path)
+            self.file_cache[file_path] = file_metadata
+            metadata_time = round(time.time() - metadata_start, 3)
+            timing_info['metadata_extraction_time'] = metadata_time
+            logging.info(f"文件元数据提取完成，耗时: {metadata_time}秒")
+            
+            # 第二步：解析文件内容
             extract_start = time.time()
             extracted_content = self._extract_file_content(file_path)
             extract_time = round(time.time() - extract_start, 3)
@@ -566,16 +149,16 @@ class FileOrganizer:
             if len(extracted_content) > truncate_length:
                 logging.info(f"内容已截取至前{truncate_length}字符用于AI处理（原长度: {len(extracted_content)} 字符）")
             
-            # 第二步：生成100字摘要（使用截取后的内容）
+            # 第三步：生成100字摘要（使用截取后的内容）
             summary_start = time.time()
             summary = self._generate_content_summary(content_for_ai, file_name)
             summary_time = round(time.time() - summary_start, 3)
             timing_info['summary_generation_time'] = summary_time
             logging.info(f"内容摘要生成完成: {summary[:50]}...，耗时: {summary_time}秒")
             
-            # 第三步：推荐最匹配的存放目录（使用截取后的内容）
+            # 第四步：使用递归逐层匹配推荐最匹配的存放目录
             recommend_start = time.time()
-            recommended_folder, match_reason = self._recommend_target_folder(
+            recommended_folder, level_tags, match_reason = self._recommend_target_folder_recursive(
                 file_path, content_for_ai, summary, target_directory
             )
             recommend_time = round(time.time() - recommend_start, 3)
@@ -587,9 +170,11 @@ class FileOrganizer:
             result = {
                 'file_path': file_path,
                 'file_name': file_name,
+                'file_metadata': file_metadata,
                 'extracted_content': extracted_content,
                 'content_summary': summary,
                 'recommended_folder': recommended_folder,
+                'level_tags': level_tags,
                 'match_reason': match_reason,
                 'success': recommended_folder is not None,
                 'timing_info': timing_info
@@ -599,7 +184,8 @@ class FileOrganizer:
                 logging.info(f"文件分析完成: {file_name} -> {recommended_folder}，总耗时: {total_time}秒")
                 logging.info(f"摘要: {summary}")
                 logging.info(f"推荐理由: {match_reason}")
-                logging.info(f"详细耗时 - 内容提取: {extract_time}秒, 摘要生成: {summary_time}秒, 目录推荐: {recommend_time}秒")
+                logging.info(f"各级标签: {level_tags}")
+                logging.info(f"详细耗时 - 元数据提取: {metadata_time}秒, 内容提取: {extract_time}秒, 摘要生成: {summary_time}秒, 目录推荐: {recommend_time}秒")
             else:
                 logging.warning(f"文件分析失败: {file_name}，总耗时: {total_time}秒")
             
@@ -612,9 +198,11 @@ class FileOrganizer:
             return {
                 'file_path': file_path,
                 'file_name': Path(file_path).name,
+                'file_metadata': {},
                 'extracted_content': '',
                 'content_summary': '',
                 'recommended_folder': None,
+                'level_tags': [],
                 'match_reason': f"分析失败: {str(e)}",
                 'success': False,
                 'error': str(e),
@@ -681,6 +269,48 @@ class FileOrganizer:
 请严格按照上述格式输出，只输出一行结果。
 """
         return prompt
+    
+    def _extract_file_metadata(self, file_path: str) -> Dict[str, Any]:
+        """
+        提取文件元数据，包括创建时间、修改时间等
+        
+        Args:
+            file_path: 文件路径
+            
+        Returns:
+            包含文件元数据的字典
+        """
+        try:
+            file_path = Path(file_path)
+            if not file_path.exists():
+                raise Exception(f"文件不存在: {file_path}")
+            
+            stat = file_path.stat()
+            
+            metadata = {
+                'file_name': file_path.name,
+                'file_extension': file_path.suffix.lower(),
+                'file_size': stat.st_size,
+                'created_time': datetime.fromtimestamp(stat.st_ctime).isoformat(),
+                'modified_time': datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                'full_path': str(file_path.absolute()),
+                'relative_path': str(file_path)
+            }
+            
+            return metadata
+            
+        except Exception as e:
+            logging.error(f"提取文件元数据失败: {e}")
+            return {
+                'file_name': Path(file_path).name,
+                'file_extension': Path(file_path).suffix.lower(),
+                'file_size': 0,
+                'created_time': datetime.now().isoformat(),
+                'modified_time': datetime.now().isoformat(),
+                'full_path': str(Path(file_path).absolute()),
+                'relative_path': str(file_path),
+                'error': str(e)
+            }
     
     def _extract_file_content(self, file_path: str, max_length: int = 3000) -> str:
         """
@@ -852,7 +482,7 @@ class FileOrganizer:
             if not content or content.startswith("无法") or content.startswith("文件内容为二进制"):
                 return f"无法生成摘要：{content[:50]}..."
             
-            if not self.ollama_client and not self.qwen_long_client:
+            if not hasattr(self, 'ai_manager') or self.ai_manager is None:
                 self.initialize_ollama()
             
             # 使用传入的摘要长度，如果没有则使用默认值
@@ -891,18 +521,8 @@ class FileOrganizer:
                 }
             ]
 
-            # 优先使用qwen-long客户端，如果失败则回退到ollama客户端
-            if self.qwen_long_client:
-                try:
-                    summary = self.qwen_long_client.chat_with_retry(messages)
-                except Exception as e:
-                    logging.warning(f"Qwen-Long模型摘要生成失败，回退到Ollama: {e}")
-                    if self.ollama_client:
-                        summary = self.ollama_client.chat_with_retry(messages)
-                    else:
-                        raise e
-            else:
-                summary = self.ollama_client.chat_with_retry(messages)
+            # 使用统一的AI管理器
+            summary = chat_with_ai(messages)
             
             # 清理可能的思考过程标签和内容
             summary = summary.replace('<think>', '').replace('</think>', '').strip()
@@ -1053,155 +673,336 @@ class FileOrganizer:
         print(f"🔧 最终清理结果: {response}")
         return response.strip()
     
-    def _recommend_target_folder(self, file_path: str, content: str, summary: str, target_directory: str, retry_count: int = 0) -> tuple:
+    def _get_level_directories(self, base_directory: str, level: int = 1) -> List[str]:
         """
-        基于文件内容和摘要推荐最匹配的目标文件夹
-        支持重试机制，当AI返回不存在的文件夹时自动重试
+        获取指定层级的所有目录
+        
+        Args:
+            base_directory: 基础目录
+            level: 层级（1表示一级目录，2表示二级目录等）
+            
+        Returns:
+            该层级的所有目录名列表
         """
         try:
-            if not self.ollama_client and not self.qwen_long_client:
-                self.initialize_ollama()
+            base_path = Path(base_directory)
+            if not base_path.exists():
+                return []
             
-            file_name = Path(file_path).name
-            file_full_path = str(Path(file_path).absolute())
+            directories = []
             
-            directory_structure = self.get_directory_tree_structure(target_directory)
+            if level == 1:
+                # 获取一级目录
+                for item in base_path.iterdir():
+                    if item.is_dir():
+                        directories.append(item.name)
+            else:
+                # 获取指定层级目录
+                for item in base_path.rglob('*'):
+                    if item.is_dir():
+                        # 计算相对路径的层级
+                        relative_path = item.relative_to(base_path)
+                        path_parts = relative_path.parts
+                        if len(path_parts) == level:
+                            directories.append(item.name)
             
-            print(f"📄 源文件完整路径: {file_full_path}")
-            print(f"📋 目录结构:\n{directory_structure}")
-            if retry_count > 0:
-                print(f"🔄 第 {retry_count} 次重试AI分类")
+            return directories
             
-            # 存储AI推荐的完整路径
-            self.recommended_folder_path = None
-            # 存储源文件完整路径
-            self.source_file_path = file_full_path
+        except Exception as e:
+            logging.error(f"获取{level}级目录失败: {e}")
+            return []
+
+    def _match_level_directory(self, file_info: Dict[str, Any], content: str, summary: str, 
+                              base_directory: str, current_path: str, level: int) -> Tuple[str, str]:
+        """
+        匹配指定层级的目录
+        
+        Args:
+            file_info: 文件信息字典
+            content: 文件内容
+            summary: 文件摘要
+            base_directory: 基础目录
+            current_path: 当前已匹配的路径
+            level: 当前匹配的层级
             
-            # 判断是否有有效的内容和摘要
-            has_valid_content = content and not content.startswith("无法") and not content.startswith("文件内容为二进制")
-            has_valid_summary = summary and not summary.startswith("无法") and not summary.startswith("摘要生成失败")
+        Returns:
+            (匹配的目录名, 匹配理由)
+        """
+        try:
+            # 获取当前层级的所有目录
+            level_dirs = self._get_level_directories(base_directory, level)
+            if not level_dirs:
+                return "", "该层级没有子目录"
             
-            print(f"📄 文件内容有效: {has_valid_content}")
-            print(f"📝 摘要有效: {has_valid_summary}")
-            if has_valid_summary:
-                print(f"📝 摘要内容: {summary[:100]}...")
+            file_name = file_info['file_name']
+            file_extension = file_info['file_extension']
             
             # 获取用户自定义分类规则
-            custom_rules = self.classification_rules_manager.get_rules_for_prompt(
-                self.scan_target_folders(target_directory)
-            )
+            custom_rules = self.classification_rules_manager.get_rules_for_prompt(level_dirs)
             
-            # 构建通用的分类提示词
-            if has_valid_content and has_valid_summary:
-                prompt = f"""你是一个专业的文件分类专家。请根据文件内容分类到最合适的目标文件夹。
-
-文件信息：
-- 文件名：{file_name}
-- 内容摘要：{summary}
-
-可选的目标文件夹路径（必须严格从以下列表中选择）：
-{directory_structure}
-
-{custom_rules}
-
-分类要求：
-1. 必须严格从上述文件夹路径列表中复制完整的路径
-2. 不能修改、缩写或添加任何内容到路径
-3. 不能创建或想象不存在的文件夹
-4. 优先选择最具体的分类（路径越深越具体）
-5. 按匹配度从高到低返回前三个路径
-6. 每行一个路径，不要包含任何其他内容
-7. 仔细分析文件内容主题，选择最匹配的文件夹
-
-输出格式（严格按此格式，每行一个完整路径）：
-第一推荐：[完整路径1]
-第二推荐：[完整路径2]
-第三推荐：[完整路径3]
-
-请开始推荐："""
-            else:
-                # 无法获取有效内容时，使用文件名进行分类
-                file_extension = Path(file_name).suffix.lower()
-                
-                prompt = f"""你是一个专业的文件分类专家。由于无法读取文件内容，请根据文件名和扩展名分类到最合适的目标文件夹。
+            # 构建匹配提示词
+            prompt = f"""你是一个专业的文件分类专家。请根据文件信息在当前层级目录中选择最匹配的一个。
 
 文件信息：
 - 文件名：{file_name}
 - 文件扩展名：{file_extension}
+- 内容摘要：{summary[:200] if summary else '无摘要'}
+- 当前路径：{current_path if current_path else '根目录'}
 
-可选的目标文件夹路径（必须严格从以下列表中选择）：
-{directory_structure}
+当前层级可选目录（必须严格从以下列表中选择一个）：
+{chr(10).join(f"{i+1}. {dir_name}" for i, dir_name in enumerate(level_dirs))}
 
 {custom_rules}
 
-分类要求：
-1. 必须严格从上述文件夹路径列表中复制完整的路径
-2. 不能修改、缩写或添加任何内容到路径
-3. 不能创建或想象不存在的文件夹
-4. 优先选择最具体的分类（路径越深越具体）
-5. 按匹配度从高到低返回前三个路径
-6. 每行一个路径，不要包含任何其他内容
-7. 仔细分析文件名关键词，选择最匹配的文件夹
+匹配优先级：
+1. 最高优先级：目录名是时间命名（如年份、月份），而文件名中包含对应时间
+2. 高优先级：目录名直接包含在文件名中
+3. 中优先级：目录名与文件内容主题高度相关
+4. 低优先级：根据文件类型和扩展名匹配
 
-输出格式（严格按此格式，每行一个完整路径）：
-第一推荐：[完整路径1]
-第二推荐：[完整路径2]
-第三推荐：[完整路径3]
+请只返回一个最匹配的目录名，不要包含任何其他内容："""
 
-请开始推荐："""
-            
-            # 在传递给大模型的完整内容最尾部添加/no_think标签
-            final_prompt = prompt + "\n\n/no_think"
-            
-            print(f"🤖 发送给AI的提示词:\n{final_prompt}")
-            
-            # 使用系统提示词来抑制思考过程
+            # 调用AI进行匹配
             messages = [
                 {
                     'role': 'system',
-                    'content': '你是一个专业的文件分类专家。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出完整路径，不要包含任何其他信息。优先选择最具体的分类（路径越深越具体）。'
+                    'content': '你是一个专业的文件分类专家。重要：不要输出任何推理过程、思考步骤或解释。直接按要求输出结果。只输出目录名，不要包含任何其他信息。'
                 },
                 {
                     'role': 'user',
-                    'content': final_prompt
+                    'content': prompt
                 }
             ]
             
-            # 优先使用qwen-long客户端，如果失败则回退到ollama客户端
-            if self.qwen_long_client:
-                try:
-                    result = self.qwen_long_client.chat_with_retry(messages)
-                    print(f"🤖 Qwen-Long AI原始返回结果: {result}")
-                except Exception as e:
-                    logging.warning(f"Qwen-Long模型分类失败，回退到Ollama: {e}")
-                    if self.ollama_client:
-                        result = self.ollama_client.chat_with_retry(messages)
-                        print(f"🤖 Ollama AI原始返回结果: {result}")
-                    else:
-                        raise e
-            else:
-                result = self.ollama_client.chat_with_retry(messages)
-                print(f"🤖 Ollama AI原始返回结果: {result}")
-            
-            # 清理结果中的思考过程（现在在_parse_classification_result中统一处理）
+            result = chat_with_ai(messages)
             result = result.strip()
             
-            # 如果结果仍然以思考过程开头，尝试更激进的清理
+            # 清理结果
             if any(keyword in result.lower() for keyword in ['好，', '嗯，', '我来', '我需要', '首先，', '让我']):
-                # 找到第一个完整的句子
                 sentences = result.split('。')
                 if len(sentences) > 1:
-                    # 跳过第一个句子（通常是思考过程），使用第二个句子开始
                     result = '。'.join(sentences[1:]).strip()
             
-            # 解析AI分类结果
-            recommended_folder, match_reason = self._parse_classification_result(result, target_directory, content, summary)
+            # 验证结果是否在可选目录中
+            if result in level_dirs:
+                # 确定匹配理由
+                match_reason = self._determine_match_reason(file_name, result, summary)
+                return result, match_reason
+            else:
+                # 如果AI返回的结果不在列表中，尝试模糊匹配
+                for dir_name in level_dirs:
+                    if self._fuzzy_match(file_name, dir_name, summary):
+                        match_reason = f"模糊匹配到: {dir_name}"
+                        return dir_name, match_reason
+                
+                # 如果都没有匹配到，返回第一个目录
+                return level_dirs[0], f"默认选择第一个目录: {level_dirs[0]}"
+                
+        except Exception as e:
+            logging.error(f"匹配{level}级目录失败: {e}")
+            return "", f"匹配失败: {str(e)}"
+
+    def _determine_match_reason(self, file_name: str, dir_name: str, summary: str) -> str:
+        """
+        确定匹配理由
+        
+        Args:
+            file_name: 文件名
+            dir_name: 目录名
+            summary: 文件摘要
+            
+        Returns:
+            匹配理由
+        """
+        # 检查时间匹配
+        if self._is_time_match(file_name, dir_name):
+            return f"时间匹配: 文件名包含时间信息，匹配到时间目录 {dir_name}"
+        
+        # 检查文件名包含目录名
+        if dir_name.lower() in file_name.lower():
+            return f"文件名匹配: 文件名包含目录名 {dir_name}"
+        
+        # 检查内容主题匹配
+        if summary and any(keyword in summary.lower() for keyword in dir_name.lower().split()):
+            return f"内容主题匹配: 文件内容与目录 {dir_name} 主题相关"
+        
+        return f"AI智能分类: 根据文件内容匹配到 {dir_name}"
+
+    def _is_time_match(self, file_name: str, dir_name: str) -> bool:
+        """
+        检查是否为时间匹配
+        
+        Args:
+            file_name: 文件名
+            dir_name: 目录名
+            
+        Returns:
+            是否为时间匹配
+        """
+        # 提取文件名中的年份
+        year_pattern = r'\b(19|20)\d{2}\b'
+        file_years = re.findall(year_pattern, file_name)
+        
+        # 检查目录名是否包含年份
+        dir_years = re.findall(year_pattern, dir_name)
+        
+        if file_years and dir_years:
+            return any(fy in dy for fy in file_years for dy in dir_years)
+        
+        return False
+
+    def _fuzzy_match(self, file_name: str, dir_name: str, summary: str) -> bool:
+        """
+        模糊匹配
+        
+        Args:
+            file_name: 文件名
+            dir_name: 目录名
+            summary: 文件摘要
+            
+        Returns:
+            是否模糊匹配
+        """
+        # 简单的关键词匹配
+        file_keywords = set(file_name.lower().split())
+        dir_keywords = set(dir_name.lower().split())
+        
+        # 检查是否有共同关键词
+        common_keywords = file_keywords.intersection(dir_keywords)
+        if len(common_keywords) > 0:
+            return True
+        
+        # 检查摘要中的关键词
+        if summary:
+            summary_keywords = set(summary.lower().split())
+            summary_dir_common = summary_keywords.intersection(dir_keywords)
+            if len(summary_dir_common) > 0:
+                return True
+        
+        return False
+
+    def _recommend_target_folder_recursive(self, file_path: str, content: str, summary: str, 
+                                         target_directory: str, retry_count: int = 0) -> Tuple[str, List[str], str]:
+        """
+        递归逐层匹配目标文件夹
+        
+        Args:
+            file_path: 文件路径
+            content: 文件内容
+            summary: 文件摘要
+            target_directory: 目标目录
+            retry_count: 重试次数
+            
+        Returns:
+            (完整匹配路径, 各级标签列表, 匹配理由)
+        """
+        try:
+            file_info = self.file_cache.get(file_path, {})
+            if not file_info:
+                file_info = self._extract_file_metadata(file_path)
+                self.file_cache[file_path] = file_info
+            
+            current_path = ""
+            full_path = ""
+            level_tags = []
+            match_reasons = []
+            
+            level = 1
+            max_levels = 10  # 防止无限递归
+            
+            while level <= max_levels:
+                # 构建当前层级的完整路径
+                if current_path:
+                    current_full_path = os.path.join(target_directory, current_path)
+                else:
+                    current_full_path = target_directory
+                
+                # 匹配当前层级
+                matched_dir, match_reason = self._match_level_directory(
+                    file_info, content, summary, current_full_path, current_path, level
+                )
+                
+                if not matched_dir:
+                    break
+                
+                # 更新路径和标签
+                if current_path:
+                    current_path = os.path.join(current_path, matched_dir)
+                else:
+                    current_path = matched_dir
+                
+                full_path = current_path
+                level_tags.append(matched_dir)
+                match_reasons.append(f"第{level}级: {match_reason}")
+                
+                # 检查下一级是否有子目录
+                next_level_path = os.path.join(current_full_path, matched_dir)
+                next_level_dirs = self._get_level_directories(next_level_path, 1)
+                
+                if not next_level_dirs:
+                    break
+                
+                level += 1
+            
+            # 缓存标签信息
+            self.level_tags[file_path] = level_tags
+            
+            # 合并匹配理由
+            combined_reason = "; ".join(match_reasons)
+            
+            return full_path, level_tags, combined_reason
+            
+        except Exception as e:
+            logging.error(f"递归匹配目标文件夹失败: {e}")
+            return "", [], f"匹配失败: {str(e)}"
+
+    def _clear_file_cache(self, file_path: str) -> None:
+        """
+        清理指定文件的缓存，但保留全局缓存
+        
+        Args:
+            file_path: 要清理缓存的文件路径
+        """
+        try:
+            # 清理文件缓存
+            if file_path in self.file_cache:
+                del self.file_cache[file_path]
+            
+            # 清理标签缓存
+            if file_path in self.level_tags:
+                del self.level_tags[file_path]
+                
+            logging.debug(f"已清理文件缓存: {file_path}")
+            
+        except Exception as e:
+            logging.error(f"清理文件缓存失败: {e}")
+
+    def _recommend_target_folder(self, file_path: str, content: str, summary: str, target_directory: str, retry_count: int = 0) -> tuple:
+        """
+        基于文件内容和摘要推荐最匹配的目标文件夹
+        使用新的递归逐层匹配逻辑
+        """
+        try:
+            file_name = Path(file_path).name
+            file_full_path = str(Path(file_path).absolute())
+            
+            print(f"📄 源文件完整路径: {file_full_path}")
+            if retry_count > 0:
+                print(f"🔄 第 {retry_count} 次重试AI分类")
+            
+            # 存储源文件完整路径
+            self.source_file_path = file_full_path
+            
+            # 使用新的递归匹配逻辑
+            recommended_folder, level_tags, match_reason = self._recommend_target_folder_recursive(
+                file_path, content, summary, target_directory, retry_count
+            )
             
             # 检查分类质量：如果推荐的是过于宽泛的分类，尝试重新分类
             if recommended_folder and retry_count < 2:
                 # 检查路径深度，如果太浅可能是过于宽泛的分类
                 path_depth = len([p for p in recommended_folder.split('\\') + recommended_folder.split('/') if p.strip()])
-                if path_depth <= 2:  # 路径深度小于等于2可能是过于宽泛
+                if path_depth <= 1:  # 路径深度小于等于1可能是过于宽泛
                     print(f"⚠️  AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试...")
                     logging.warning(f"AI推荐了过于宽泛的分类: {recommended_folder}，准备第 {retry_count + 1} 次重试")
                     
@@ -1209,7 +1010,7 @@ class FileOrganizer:
                     return self._recommend_target_folder(file_path, content, summary, target_directory, retry_count + 1)
             
             # 检查是否匹配失败，如果是且未超过重试次数，则重试
-            if recommended_folder is None and retry_count < 2:  # 最多重试2次
+            if not recommended_folder and retry_count < 2:  # 最多重试2次
                 print(f"⚠️  AI分类失败，准备第 {retry_count + 1} 次重试...")
                 logging.warning(f"AI分类失败，准备第 {retry_count + 1} 次重试")
                 
@@ -1481,7 +1282,7 @@ class FileOrganizer:
             raise FileOrganizerError(f"预览分类失败: {e}")
     def organize_file(self, file_path: str, target_directory: str) -> Tuple[bool, str]:
         try:
-            if not self.ollama_client and not self.qwen_long_client:
+            if not hasattr(self, 'ai_manager') or self.ai_manager is None:
                 self.initialize_ollama()
             
             file_path_obj = Path(file_path)
@@ -1630,6 +1431,9 @@ class FileOrganizer:
                     })
                     
                     # 构建AI结果项（基础信息）
+                    level_tags = analysis_result.get('level_tags', [])
+                    file_metadata = analysis_result.get('file_metadata', {})
+                    
                     ai_result_item = {
                         "处理时间": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         "文件名": filename,
@@ -1639,11 +1443,21 @@ class FileOrganizer:
                         "匹配理由": analysis_result.get('match_reason', ''),
                         "处理耗时信息": {
                             "总耗时(秒)": analysis_result.get('timing_info', {}).get('total_processing_time', 0),
+                            "元数据提取耗时(秒)": analysis_result.get('timing_info', {}).get('metadata_extraction_time', 0),
                             "内容提取耗时(秒)": analysis_result.get('timing_info', {}).get('content_extraction_time', 0),
                             "摘要生成耗时(秒)": analysis_result.get('timing_info', {}).get('summary_generation_time', 0),
                             "目录推荐耗时(秒)": analysis_result.get('timing_info', {}).get('folder_recommendation_time', 0)
+                        },
+                        "文件元数据": {
+                            "创建时间": file_metadata.get('created_time', ''),
+                            "修改时间": file_metadata.get('modified_time', ''),
+                            "文件大小": file_metadata.get('file_size', 0)
                         }
                     }
+                    
+                    # 添加各级标签
+                    for i, tag in enumerate(level_tags, 1):
+                        ai_result_item[f"{i}级标签"] = tag
                     
                     # 保存到迁移队列，等待迁移成功后写入完整信息
                     migration_queue.append({
@@ -1673,6 +1487,9 @@ class FileOrganizer:
                             })
                             # 立即写入失败记录
                             self._append_ai_result_to_file(ai_result_file, migration_queue[-1]['ai_result_item'])
+                        
+                        # 清理当前文件的缓存
+                        self._clear_file_cache(file_path)
                         
                         continue
                     
@@ -1746,6 +1563,9 @@ class FileOrganizer:
                                         # 立即写入成功记录
                                         self._append_ai_result_to_file(ai_result_file, queue_item['ai_result_item'])
                                         break
+                                
+                                # 清理当前文件的缓存
+                                self._clear_file_cache(file_path)
                             else:
                                 error_msg = f"文件{operation_cn}验证失败: {filename}"
                                 logging.error(error_msg)
@@ -1783,6 +1603,9 @@ class FileOrganizer:
                                 # 立即写入试运行记录
                                 self._append_ai_result_to_file(ai_result_file, queue_item['ai_result_item'])
                                 break
+                        
+                        # 清理当前文件的缓存
+                        self._clear_file_cache(file_path)
                     if self.enable_transfer_log and self.transfer_log_manager and not dry_run:
                         try:
                             file_size_raw = file_info.get('size', 0)
@@ -2016,7 +1839,7 @@ class FileOrganizer:
         timing_info = {}
         
         try:
-            if not self.ollama_client and not self.qwen_long_client:
+            if not hasattr(self, 'ai_manager') or self.ai_manager is None:
                 init_start = time.time()
                 self.initialize_ollama()
                 timing_info['ollama_init_time'] = round(time.time() - init_start, 3)

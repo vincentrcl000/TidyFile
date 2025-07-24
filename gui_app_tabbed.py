@@ -65,11 +65,18 @@ class FileOrganizerTabGUI:
     def initialize_organizers(self):
         """初始化文件整理器"""
         try:
-            from file_organizer_ai import FileOrganizer as AIFileOrganizer
-            from file_organizer_simple import FileOrganizer as SimpleFileOrganizer
+            # 优先使用新的智能文件分类器
+            try:
+                from smart_file_classifier_adapter import SmartFileClassifierAdapter
+                self.ai_organizer = SmartFileClassifierAdapter(model_name=None, enable_transfer_log=True)
+                self.log_message("新的智能文件分类器初始化完成")
+            except ImportError:
+                # 如果新分类器不可用，回退到旧分类器
+                from file_organizer_ai import FileOrganizer as AIFileOrganizer
+                self.ai_organizer = AIFileOrganizer(model_name=None, enable_transfer_log=True)
+                self.log_message("使用旧版AI文件整理器（新分类器不可用）")
             
-            # 使用自动选择模型初始化AI文件整理器（优先qwen3系列）
-            self.ai_organizer = AIFileOrganizer(model_name=None, enable_transfer_log=True)
+            from file_organizer_simple import FileOrganizer as SimpleFileOrganizer
             self.simple_organizer = SimpleFileOrganizer(enable_transfer_log=True)
             
             self.log_message("文件整理器初始化完成")
@@ -451,20 +458,13 @@ class FileOrganizerTabGUI:
         ai_button_frame = tb.Frame(ai_frame)
         ai_button_frame.grid(row=4, column=0, columnspan=3, pady=20)
         
-        # 预览按钮
-        self.ai_preview_button = tb.Button(
-            ai_button_frame,
-            text="预览AI分类结果",
-            command=self.ai_preview_classification
-        )
-        self.ai_preview_button.pack(side=LEFT, padx=5)
+
         
         # 开始整理按钮
         self.ai_organize_button = tb.Button(
             ai_button_frame,
             text="开始AI智能整理",
-            command=self.ai_start_organize,
-            bootstyle=SUCCESS
+            command=self.ai_start_organize
         )
         self.ai_organize_button.pack(side=LEFT, padx=5)
         
@@ -526,13 +526,7 @@ class FileOrganizerTabGUI:
         simple_button_frame = tb.Frame(simple_frame)
         simple_button_frame.grid(row=3, column=0, columnspan=3, pady=20)
         
-        # 预览按钮
-        self.simple_preview_button = tb.Button(
-            simple_button_frame,
-            text="预览文件分类结果",
-            command=self.simple_preview_classification
-        )
-        self.simple_preview_button.pack(side=LEFT, padx=5)
+
         
         # 开始整理按钮
         self.simple_organize_button = tb.Button(
@@ -599,6 +593,14 @@ class FileOrganizerTabGUI:
         )
         self.classification_rules_button.pack(side=LEFT, padx=5)
         
+        # AI模型配置按钮
+        self.ai_model_config_button = tb.Button(
+            tools_button_frame,
+            text="AI模型配置",
+            command=self.show_ai_model_config
+        )
+        self.ai_model_config_button.pack(side=LEFT, padx=5)
+        
     def update_summary_label(self, *args):
         """更新摘要长度标签"""
         value = self.summary_length.get()
@@ -633,171 +635,9 @@ class FileOrganizerTabGUI:
         self.log_text.insert(END, log_entry)
         self.log_text.see(END)
         
-    def ai_preview_classification(self):
-        """AI预览分类结果"""
-        source = self.source_directory.get()
-        target = self.target_directory.get()
-        
-        if not source or not target:
-            messagebox.showerror("错误", "请先选择源目录和目标目录")
-            return
+
             
-        self.log_message("开始AI预览分类...")
-        self.ai_status_label.config(text="正在预览分类...")
-        self.ai_preview_button.config(state='disabled')
-        
-        # 在新线程中执行预览
-        threading.Thread(target=self._ai_preview_worker, daemon=True).start()
-        
-    def _ai_preview_worker(self):
-        """AI预览工作线程"""
-        try:
-            source = self.source_directory.get()
-            target = self.target_directory.get()
-            
-            # 应用AI参数设置
-            self._apply_ai_parameters()
-            
-            # 获取文件列表
-            source_files = self.ai_organizer.scan_files(source)
-            if not source_files:
-                self.root.after(0, lambda: messagebox.showinfo("提示", "源目录中没有找到文件"))
-                return
-                
-            # 限制预览文件数量为5个
-            max_preview_files = 5
-            preview_files = source_files[:max_preview_files]
-            preview_count = len(preview_files)
-            preview_results = []
-            ai_result_list = []
-            ai_result_json_path = "preview_ai_result.json"
-            
-            self.root.after(0, lambda: self.log_message(f"将预览前{preview_count}个文件（共{len(source_files)}个文件）"))
-            
-            for i, file_info in enumerate(preview_files):
-                file_path = str(file_info['path'])
-                filename = str(file_info['name'])
-                
-                self.root.after(0, lambda f=filename: self.log_message(f"正在分析: {f}"))
-                
-                # 使用AI分析文件
-                result = self.ai_organizer.analyze_and_classify_file(file_path, target)
-                
-                success = result.get('success', False)
-                folder = result.get('recommended_folder', '')
-                reason = result.get('match_reason', '')
-                summary = result.get('content_summary', '')  # 修正字段名
-                timing_info = result.get('timing_info', {})
-                
-                # 构建AI结果JSON条目
-                ai_result_item = {
-                    "源文件路径": file_path,
-                    "文件摘要": summary,
-                    "最匹配的目标目录": folder if success else "无推荐",
-                    "匹配理由": reason if reason else ""
-                }
-                
-                # 添加时间信息
-                if timing_info:
-                    ai_result_item["处理耗时信息"] = {
-                        "总耗时(秒)": timing_info.get('total_processing_time', 0),
-                        "内容提取耗时(秒)": timing_info.get('content_extraction_time', 0),
-                        "摘要生成耗时(秒)": timing_info.get('summary_generation_time', 0),
-                        "目录推荐耗时(秒)": timing_info.get('folder_recommendation_time', 0)
-                    }
-                    if 'ollama_init_time' in timing_info:
-                        ai_result_item["处理耗时信息"]["Ollama初始化耗时(秒)"] = timing_info['ollama_init_time']
-                
-                ai_result_list.append(ai_result_item)
-                
-                preview_results.append({
-                    'filename': filename,
-                    'recommended_folder': folder if success else "无推荐",
-                    'reason': reason,
-                    'success': success,
-                    'timing_info': timing_info
-                })
-                
-                progress = (i + 1) / preview_count * 100
-                self.root.after(0, lambda p=progress: self.ai_progress_var.set(p))
-                
-            # 保存AI结果到JSON文件
-            with open(ai_result_json_path, 'w', encoding='utf-8') as f:
-                json.dump(ai_result_list, f, ensure_ascii=False, indent=2)
-                
-            self.root.after(0, lambda: self._show_preview_results(preview_results, preview_count, "AI分类"))
-            
-        except Exception as e:
-            error_msg = str(e)
-            self.root.after(0, lambda: self.log_message(f"AI预览失败: {error_msg}"))
-            self.root.after(0, lambda: messagebox.showerror("错误", f"AI预览失败: {error_msg}"))
-        finally:
-            self.root.after(0, lambda: self.ai_progress_var.set(0))
-            self.root.after(0, lambda: self.ai_status_label.config(text="预览完成"))
-            self.root.after(0, lambda: self.ai_preview_button.config(state='normal'))
-            
-    def simple_preview_classification(self):
-        """文件分类预览"""
-        source = self.source_directory.get()
-        target = self.target_directory.get()
-        
-        if not source or not target:
-            messagebox.showerror("错误", "请先选择源目录和目标目录")
-            return
-            
-        self.log_message("开始文件分类预览...")
-        self.simple_status_label.config(text="正在预览分类...")
-        self.simple_preview_button.config(state='disabled')
-        
-        # 在新线程中执行预览
-        threading.Thread(target=self._simple_preview_worker, daemon=True).start()
-        
-    def _simple_preview_worker(self):
-        """文件分类预览工作线程"""
-        try:
-            source = self.source_directory.get()
-            target = self.target_directory.get()
-            
-            # 获取文件列表
-            source_files = self.simple_organizer.scan_files(source)
-            if not source_files:
-                self.root.after(0, lambda: messagebox.showinfo("提示", "源目录中没有找到文件"))
-                return
-                
-            # 预览所有文件，不限制数量
-            preview_count = len(source_files)
-            preview_results = []
-            
-            for i, file_info in enumerate(source_files):
-                file_path = str(file_info['path'])
-                filename = str(file_info['name'])
-                
-                self.root.after(0, lambda f=filename: self.log_message(f"正在分析: {f}"))
-                
-                # 使用简单分类
-                folder, reason, success = self.simple_organizer.classify_file(file_path, target)
-                
-                preview_results.append({
-                    'filename': filename,
-                    'recommended_folder': folder if success else "无推荐",
-                    'reason': reason,
-                    'success': success,
-                    'timing_info': {}
-                })
-                
-                progress = (i + 1) / preview_count * 100
-                self.root.after(0, lambda p=progress: self.simple_progress_var.set(p))
-                
-            self.root.after(0, lambda: self._show_preview_results(preview_results, len(source_files), "文件分类"))
-            
-        except Exception as e:
-            error_msg = str(e)
-            self.root.after(0, lambda: self.log_message(f"文件分类预览失败: {error_msg}"))
-            self.root.after(0, lambda: messagebox.showerror("错误", f"文件分类预览失败: {error_msg}"))
-        finally:
-            self.root.after(0, lambda: self.simple_progress_var.set(0))
-            self.root.after(0, lambda: self.simple_status_label.config(text="预览完成"))
-            self.root.after(0, lambda: self.simple_preview_button.config(state='normal'))
+
             
     def _batch_read_worker(self, folder_path):
         """批量解读工作线程"""
@@ -838,12 +678,27 @@ class FileOrganizerTabGUI:
             
     def _apply_ai_parameters(self):
         """应用AI参数设置"""
-        # 这里需要修改AI文件整理器以支持动态参数设置
-        # 暂时通过修改实例属性来实现
-        if hasattr(self.ai_organizer, 'summary_length'):
-            self.ai_organizer.summary_length = self.summary_length.get()
-        if hasattr(self.ai_organizer, 'content_truncate'):
-            self.ai_organizer.content_truncate = self.content_truncate.get()
+        try:
+            # 获取当前参数值
+            summary_len = self.summary_length.get()
+            content_len = self.content_truncate.get()
+            
+            # 设置新分类器的参数
+            if hasattr(self.ai_organizer, 'set_parameters'):
+                # 新分类器适配器
+                self.ai_organizer.set_parameters(
+                    content_extraction_length=content_len,
+                    summary_length=summary_len
+                )
+            elif hasattr(self.ai_organizer, 'summary_length'):
+                # 旧分类器
+                self.ai_organizer.summary_length = summary_len
+                self.ai_organizer.content_truncate = content_len
+            
+            self.log_message(f"AI参数已更新: 摘要长度={summary_len}, 内容截取={content_len}")
+            
+        except Exception as e:
+            self.log_message(f"设置AI参数失败: {e}")
             
     def ai_start_organize(self):
         """开始AI智能整理"""
@@ -864,7 +719,6 @@ class FileOrganizerTabGUI:
         self.log_message("开始AI智能整理...")
         self.ai_status_label.config(text="正在整理文件...")
         self.ai_organize_button.config(state='disabled')
-        self.ai_preview_button.config(state='disabled')
         
         # 在新线程中执行整理
         threading.Thread(target=self._ai_organize_worker, daemon=True).start()
@@ -918,7 +772,6 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda: messagebox.showerror("错误", f"AI整理失败: {error_msg}"))
         finally:
             self.root.after(0, lambda: self.ai_organize_button.config(state='normal'))
-            self.root.after(0, lambda: self.ai_preview_button.config(state='normal'))
             self.root.after(0, lambda: self.ai_progress_var.set(0))
             self.root.after(0, lambda: self.ai_status_label.config(text="整理完成"))
             
@@ -941,7 +794,6 @@ class FileOrganizerTabGUI:
         self.log_message("开始文件分类整理...")
         self.simple_status_label.config(text="正在整理文件...")
         self.simple_organize_button.config(state='disabled')
-        self.simple_preview_button.config(state='disabled')
         
         # 在新线程中执行整理
         threading.Thread(target=self._simple_organize_worker, daemon=True).start()
@@ -980,7 +832,6 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda: messagebox.showerror("错误", f"文件分类整理失败: {error_msg}"))
         finally:
             self.root.after(0, lambda: self.simple_organize_button.config(state='normal'))
-            self.root.after(0, lambda: self.simple_preview_button.config(state='normal'))
             self.root.after(0, lambda: self.simple_progress_var.set(0))
             self.root.after(0, lambda: self.simple_status_label.config(text="整理完成"))
             
@@ -1024,79 +875,7 @@ class FileOrganizerTabGUI:
         except Exception as e:
             self.log_message(f"保存整理结果失败: {e}")
             
-    def _show_preview_results(self, preview_results, total_files, classification_type):
-        """显示预览结果"""
-        preview_window = tb.Toplevel(self.root)
-        preview_window.title(f"{classification_type}预览结果")
-        preview_window.geometry("700x500")
-        preview_window.transient(self.root)
-        preview_window.grab_set()
-        
-        # 创建预览内容
-        frame = tb.Frame(preview_window, padding="10")
-        frame.pack(fill=BOTH, expand=True)
-        
-        tb.Label(
-            frame,
-            text=f"预览前 {len(preview_results)} 个文件的{classification_type}结果（共 {total_files} 个文件）:",
-            font=('Arial', 12, 'bold')
-        ).pack(pady=(0, 10))
-        
-        # 创建结果显示区域
-        result_text = ScrolledText(frame, height=18, wrap=WORD)
-        result_text.pack(fill=BOTH, expand=True, pady=(0, 10))
-        
-        # 统计信息
-        successful_count = sum(1 for result in preview_results if result['success'])
-        failed_count = len(preview_results) - successful_count
-        
-        result_text.insert(END, f"=== {classification_type}预览统计 ===\n")
-        result_text.insert(END, f"成功推荐: {successful_count} 个文件\n")
-        result_text.insert(END, f"需要手动处理: {failed_count} 个文件\n\n")
-        
-        for i, result in enumerate(preview_results, 1):
-            filename = result['filename']
-            folder = result['recommended_folder']
-            reason = result['reason']
-            success = result['success']
-            timing_info = result.get('timing_info', {})
-            
-            result_text.insert(END, f"[{i}] 文件: {filename}\n")
-            
-            if success:
-                result_text.insert(END, f"✓ 推荐文件夹: {folder}\n")
-                result_text.insert(END, f"  {reason}\n")
-            else:
-                result_text.insert(END, f"⚠ 分类结果: {reason}\n")
-                if "建议创建新文件夹" in reason:
-                    result_text.insert(END, f"  建议操作：在目标目录中创建合适的文件夹后重新分类\n")
-            
-            # 显示时间信息（仅AI分类）
-            if timing_info and classification_type == "AI分类":
-                total_time = timing_info.get('total_processing_time', 0)
-                extract_time = timing_info.get('content_extraction_time', 0)
-                summary_time = timing_info.get('summary_generation_time', 0)
-                recommend_time = timing_info.get('folder_recommendation_time', 0)
-                
-                result_text.insert(END, f"  ⏱ 处理耗时: 总计{total_time}秒 (提取{extract_time}s + 摘要{summary_time}s + 推荐{recommend_time}s)\n")
-                
-                if 'ollama_init_time' in timing_info:
-                    init_time = timing_info['ollama_init_time']
-                    result_text.insert(END, f"  🔧 Ollama初始化: {init_time}秒\n")
-            
-            result_text.insert(END, "\n")
-            
-        # result_text.config(state='disabled')  # ttkbootstrap ScrolledText不支持state配置
-        
-        # 按钮框架
-        button_frame = tb.Frame(frame)
-        button_frame.pack(fill=X)
-        
-        tb.Button(
-            button_frame,
-            text="确定",
-            command=preview_window.destroy
-        ).pack(side=RIGHT)
+
         
     def _show_organize_results(self, operation_type):
         """显示整理结果"""
@@ -1738,6 +1517,462 @@ class FileOrganizerTabGUI:
         except Exception as e:
             self.log_message(f"打开分类规则管理器失败: {e}")
             messagebox.showerror("错误", f"打开分类规则管理器失败: {e}")
+    
+    def show_ai_model_config(self):
+        """显示AI模型配置"""
+        try:
+            # 创建AI模型配置窗口
+            config_window = tb.Toplevel(self.root)
+            config_window.title("AI模型配置")
+            config_window.geometry("800x600")
+            config_window.resizable(True, True)
+            config_window.transient(self.root)
+            config_window.grab_set()
+            
+            # 居中显示
+            config_window.update_idletasks()
+            x = (config_window.winfo_screenwidth() // 2) - (800 // 2)
+            y = (config_window.winfo_screenheight() // 2) - (600 // 2)
+            config_window.geometry(f"800x600+{x}+{y}")
+            
+            # 创建主框架
+            main_frame = tb.Frame(config_window, padding="10")
+            main_frame.pack(fill=BOTH, expand=True)
+            
+            # 标题
+            title_label = tb.Label(main_frame, text="AI模型服务配置", font=('Arial', 14, 'bold'))
+            title_label.pack(pady=(0, 20))
+            
+            # 模型列表框架
+            list_frame = tb.Frame(main_frame)
+            list_frame.pack(fill=BOTH, expand=True, pady=(0, 10))
+            
+            # 模型列表标题
+            list_title = tb.Label(list_frame, text="已配置的模型服务:", font=('Arial', 11, 'bold'))
+            list_title.pack(anchor=W, pady=(0, 10))
+            
+            # 模型列表（使用Treeview）
+            columns = ('优先级', '模型名称', '模型类型', '服务地址', '模型名', '状态')
+            model_tree = tb.Treeview(list_frame, columns=columns, show='headings', height=8)
+            
+            # 设置列标题
+            for col in columns:
+                model_tree.heading(col, text=col)
+                model_tree.column(col, width=120)
+            
+            # 添加滚动条
+            scrollbar = tb.Scrollbar(list_frame, orient=VERTICAL, command=model_tree.yview)
+            model_tree.configure(yscrollcommand=scrollbar.set)
+            
+            model_tree.pack(side=LEFT, fill=BOTH, expand=True)
+            scrollbar.pack(side=RIGHT, fill=Y)
+            
+            # 按钮框架
+            button_frame = tb.Frame(main_frame)
+            button_frame.pack(fill=X, pady=10)
+            
+            def refresh_model_list():
+                """刷新模型列表"""
+                try:
+                    # 清空现有列表
+                    for item in model_tree.get_children():
+                        model_tree.delete(item)
+                    
+                    # 从AI管理器获取模型可用性信息
+                    from ai_client_manager import get_model_availability_info
+                    model_info = get_model_availability_info()
+                    
+                    # 添加到列表
+                    for info in model_info:
+                        # 状态显示：启用状态 + 连接状态 + 可用性
+                        enabled_status = "✅ 启用" if info['enabled'] else "❌ 禁用"
+                        connection_status = "✅ 已连接" if info['client_initialized'] else "❌ 未连接"
+                        availability_status = "✅ 可用" if info['available'] else "❌ 不可用"
+                        
+                        model_tree.insert('', 'end', values=(
+                            info['priority'],
+                            info['name'],
+                            info.get('model_type', 'unknown'),
+                            info['base_url'],
+                            info['model_name'],
+                            f"{enabled_status} | {connection_status} | {availability_status}"
+                        ))
+                    
+                    self.log_message(f"模型列表刷新完成，共 {len(model_info)} 个模型")
+                    
+                except Exception as e:
+                    self.log_message(f"刷新模型列表失败: {e}")
+                    messagebox.showerror("错误", f"刷新模型列表失败: {e}")
+            
+            def add_model():
+                """添加模型"""
+                show_model_dialog()
+            
+            def edit_model():
+                """编辑模型"""
+                selected = model_tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请先选择一个模型进行编辑")
+                    return
+                
+                # 获取选中的模型信息
+                item = model_tree.item(selected[0])
+                values = item['values']
+                
+                # 显示编辑对话框
+                show_model_dialog(
+                    priority=values[0],
+                    name=values[1],
+                    base_url=values[3],  # 调整索引
+                    model_name=values[4]  # 调整索引
+                )
+            
+            def delete_model():
+                """删除模型"""
+                selected = model_tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请先选择一个模型进行删除")
+                    return
+                
+                # 获取选中的模型信息
+                item = model_tree.item(selected[0])
+                values = item['values']
+                model_name = values[1]  # 模型名称
+                
+                if messagebox.askyesno("确认删除", f"确定要删除模型 '{model_name}' 吗？"):
+                    try:
+                        from ai_client_manager import get_ai_manager
+                        manager = get_ai_manager()
+                        
+                        # 根据模型名称查找并删除
+                        for model in manager.models:
+                            if model.name == model_name:
+                                manager.delete_model(model.id)
+                                self.log_message(f"模型 '{model_name}' 删除成功")
+                                messagebox.showinfo("成功", f"模型 '{model_name}' 删除成功")
+                                refresh_model_list()  # 刷新列表
+                                return
+                        
+                        messagebox.showerror("错误", f"未找到模型 '{model_name}'")
+                        
+                    except Exception as e:
+                        self.log_message(f"删除模型失败: {e}")
+                        messagebox.showerror("错误", f"删除模型失败: {e}")
+            
+            def enable_selected_model():
+                """启用选中的模型"""
+                selected = model_tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请先选择一个模型进行启用")
+                    return
+                
+                # 获取选中的模型信息
+                item = model_tree.item(selected[0])
+                values = item['values']
+                model_name = values[1]  # 模型名称在第二列
+                
+                try:
+                    from ai_client_manager import get_ai_manager
+                    manager = get_ai_manager()
+                    
+                    # 根据模型名称查找并启用
+                    for model in manager.models:
+                        if model.name == model_name:
+                            if manager.enable_model(model.id):
+                                self.log_message(f"模型 '{model_name}' 启用成功")
+                                messagebox.showinfo("成功", f"模型 '{model_name}' 启用成功")
+                            else:
+                                self.log_message(f"模型 '{model_name}' 启用失败")
+                                messagebox.showerror("错误", f"模型 '{model_name}' 启用失败，请检查连接")
+                            refresh_model_list()  # 刷新列表
+                            return
+                    
+                    messagebox.showerror("错误", f"未找到模型 '{model_name}'")
+                    
+                except Exception as e:
+                    self.log_message(f"启用模型失败: {e}")
+                    messagebox.showerror("错误", f"启用模型失败: {e}")
+            
+            def disable_selected_model():
+                """禁用选中的模型"""
+                selected = model_tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请先选择一个模型进行禁用")
+                    return
+                
+                # 获取选中的模型信息
+                item = model_tree.item(selected[0])
+                values = item['values']
+                model_name = values[1]  # 模型名称在第二列
+                
+                if messagebox.askyesno("确认禁用", f"确定要禁用模型 '{model_name}' 吗？"):
+                    try:
+                        from ai_client_manager import get_ai_manager
+                        manager = get_ai_manager()
+                        
+                        # 根据模型名称查找并禁用
+                        for model in manager.models:
+                            if model.name == model_name:
+                                model.enabled = False
+                                if model.id in manager.clients:
+                                    del manager.clients[model.id]
+                                manager.save_config()
+                                self.log_message(f"模型 '{model_name}' 禁用成功")
+                                messagebox.showinfo("成功", f"模型 '{model_name}' 禁用成功")
+                                refresh_model_list()  # 刷新列表
+                                return
+                        
+                        messagebox.showerror("错误", f"未找到模型 '{model_name}'")
+                        
+                    except Exception as e:
+                        self.log_message(f"禁用模型失败: {e}")
+                        messagebox.showerror("错误", f"禁用模型失败: {e}")
+            
+            def show_model_details():
+                """显示模型详细信息"""
+                selected = model_tree.selection()
+                if not selected:
+                    messagebox.showwarning("提示", "请先选择一个模型查看详情")
+                    return
+                
+                try:
+                    from ai_client_manager import get_model_availability_info
+                    model_info_list = get_model_availability_info()
+                    
+                    # 获取选中的模型信息
+                    item = model_tree.item(selected[0])
+                    values = item['values']
+                    model_name = values[1]  # 模型名称在第二列
+                    
+                    # 找到对应的模型信息
+                    model_info = None
+                    for info in model_info_list:
+                        if info['name'] == model_name:
+                            model_info = info
+                            break
+                    
+                    if not model_info:
+                        messagebox.showerror("错误", "未找到模型信息")
+                        return
+                    
+                    # 显示详细信息
+                    detail_text = f"模型详细信息: {model_name}\n"
+                    detail_text += "=" * 50 + "\n\n"
+                    detail_text += f"模型ID: {model_info['id']}\n"
+                    detail_text += f"显示名称: {model_info['name']}\n"
+                    detail_text += f"服务地址: {model_info['base_url']}\n"
+                    detail_text += f"模型名称: {model_info['model_name']}\n"
+                    if model_info.get('mapped_model_name') and model_info['mapped_model_name'] != model_info['model_name']:
+                        detail_text += f"映射后模型名称: {model_info['mapped_model_name']}\n"
+                    detail_text += f"优先级: {model_info['priority']}\n"
+                    detail_text += f"客户端初始化: {'是' if model_info['client_initialized'] else '否'}\n"
+                    detail_text += f"模型可用: {'是' if model_info['available'] else '否'}\n"
+                    
+                    if not model_info['available']:
+                        detail_text += f"\n错误信息: {model_info['error']}\n"
+                        
+                        if model_info['available_models']:
+                            detail_text += f"\n可用模型: {', '.join(model_info['available_models'])}\n"
+                        
+                        if model_info['suggestions']:
+                            detail_text += f"\n解决建议:\n"
+                            for i, suggestion in enumerate(model_info['suggestions'], 1):
+                                detail_text += f"{i}. {suggestion}\n"
+                    
+                    # 创建详细信息窗口
+                    detail_window = tb.Toplevel(config_window)
+                    detail_window.title(f"模型详情 - {model_name}")
+                    detail_window.geometry("600x500")
+                    detail_window.transient(config_window)
+                    detail_window.grab_set()
+                    
+                    # 创建文本显示区域
+                    text_frame = tb.Frame(detail_window, padding="10")
+                    text_frame.pack(fill=BOTH, expand=True)
+                    
+                    text_widget = tk.Text(text_frame, wrap=tk.WORD, padx=10, pady=10)
+                    text_widget.pack(fill=BOTH, expand=True)
+                    text_widget.insert(tk.END, detail_text)
+                    text_widget.config(state=tk.DISABLED)
+                    
+                except Exception as e:
+                    self.log_message(f"获取模型详情失败: {e}")
+                    messagebox.showerror("错误", f"获取模型详情失败: {e}")
+            
+            def test_connections():
+                """测试所有模型连接"""
+                try:
+                    from ai_client_manager import test_ai_connections
+                    self.log_message("开始测试模型连接...")
+                    
+                    # 在新线程中执行测试
+                    def test_worker():
+                        try:
+                            results = test_ai_connections()
+                            
+                            # 显示测试结果
+                            result_text = "连接测试结果:\n\n"
+                            for name, result in results.items():
+                                if result.get('success'):
+                                    result_text += f"✅ {name}: 连接成功"
+                                    if result.get('response_time'):
+                                        result_text += f" (响应时间: {result['response_time']}s)"
+                                else:
+                                    result_text += f"❌ {name}: 连接失败"
+                                    if result.get('error'):
+                                        result_text += f" - {result['error']}"
+                                result_text += "\n"
+                            
+                            self.log_message(result_text)
+                            messagebox.showinfo("测试完成", result_text)
+                            
+                        except Exception as e:
+                            self.log_message(f"测试连接失败: {e}")
+                            messagebox.showerror("错误", f"测试连接失败: {e}")
+                    
+                    threading.Thread(target=test_worker, daemon=True).start()
+                    
+                except Exception as e:
+                    self.log_message(f"启动连接测试失败: {e}")
+                    messagebox.showerror("错误", f"启动连接测试失败: {e}")
+            
+            def show_model_dialog(priority=None, name="", base_url="", model_name="", api_key=""):
+                """显示模型配置对话框"""
+                # 创建对话框
+                dialog = tb.Toplevel(config_window)
+                dialog.title("模型配置")
+                dialog.geometry("500x450")
+                dialog.resizable(False, False)
+                dialog.transient(config_window)
+                dialog.grab_set()
+                
+                # 居中显示
+                dialog.update_idletasks()
+                x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+                y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+                dialog.geometry(f"500x450+{x}+{y}")
+                
+                # 创建表单
+                form_frame = tb.Frame(dialog, padding="20")
+                form_frame.pack(fill=BOTH, expand=True)
+                
+                row = 0
+                
+                # 优先级（下拉菜单）
+                tb.Label(form_frame, text="优先级:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                priority_var = tb.StringVar(value=str(priority) if priority else "1")
+                priority_combo = tb.Combobox(form_frame, textvariable=priority_var, values=["1", "2", "3", "4", "5"], width=37, state="readonly")
+                priority_combo.grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # 模型名称
+                tb.Label(form_frame, text="模型名称:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                name_var = tb.StringVar(value=name)
+                tb.Entry(form_frame, textvariable=name_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # 服务地址
+                tb.Label(form_frame, text="服务地址:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                base_url_var = tb.StringVar(value=base_url)
+                tb.Entry(form_frame, textvariable=base_url_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # 模型类型
+                tb.Label(form_frame, text="模型类型:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                model_type_var = tb.StringVar(value="ollama")
+                model_type_combo = tb.Combobox(form_frame, textvariable=model_type_var, values=["qwen_long", "ollama", "lm_studio", "openai_compatible"], width=37, state="readonly")
+                model_type_combo.grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # 模型名
+                tb.Label(form_frame, text="模型名:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                model_name_var = tb.StringVar(value=model_name)
+                tb.Entry(form_frame, textvariable=model_name_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # API密钥
+                tb.Label(form_frame, text="API密钥:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
+                api_key_var = tb.StringVar(value=api_key)
+                tb.Entry(form_frame, textvariable=api_key_var, width=40, show="*").grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
+                row += 1
+                
+                # 启用状态
+                enabled_var = tb.BooleanVar(value=True)
+                tb.Checkbutton(form_frame, text="启用此模型", variable=enabled_var).grid(row=row, column=0, columnspan=2, sticky=W, pady=10)
+                row += 1
+                
+                # 按钮框架
+                button_frame = tb.Frame(form_frame)
+                button_frame.grid(row=row, column=0, columnspan=2, pady=20)
+                
+                def save_model():
+                    try:
+                        # 验证输入
+                        if not name_var.get().strip():
+                            messagebox.showwarning("输入错误", "请输入模型名称")
+                            return
+                        if not base_url_var.get().strip():
+                            messagebox.showwarning("输入错误", "请输入服务地址")
+                            return
+                        if not model_name_var.get().strip():
+                            messagebox.showwarning("输入错误", "请输入模型名")
+                            return
+                        
+                        # 获取AI管理器
+                        from ai_client_manager import get_ai_manager, ModelConfig
+                        manager = get_ai_manager()
+                        
+                        # 创建模型配置
+                        model_id = f"model_{int(time.time())}"  # 生成唯一ID
+                        new_model = ModelConfig(
+                            id=model_id,
+                            name=name_var.get().strip(),
+                            base_url=base_url_var.get().strip(),
+                            model_name=model_name_var.get().strip(),
+                            model_type=model_type_var.get(),
+                            api_key=api_key_var.get().strip(),
+                            priority=int(priority_var.get()),
+                            enabled=enabled_var.get()
+                        )
+                        
+                        # 添加模型
+                        manager.add_model(new_model)
+                        
+                        self.log_message(f"模型 '{new_model.name}' 保存成功")
+                        messagebox.showinfo("成功", f"模型 '{new_model.name}' 保存成功")
+                        dialog.destroy()
+                        refresh_model_list()  # 刷新列表
+                        
+                    except Exception as e:
+                        self.log_message(f"保存模型失败: {e}")
+                        messagebox.showerror("错误", f"保存失败: {e}")
+                
+                def cancel():
+                    dialog.destroy()
+                
+                # 保存和取消按钮
+                tb.Button(button_frame, text="保存", command=save_model, bootstyle=SUCCESS, width=15).pack(side=LEFT, padx=(0, 10))
+                tb.Button(button_frame, text="取消", command=cancel, bootstyle=SECONDARY, width=15).pack(side=LEFT)
+                
+                # 设置列权重
+                form_frame.columnconfigure(1, weight=1)
+            
+            # 添加按钮
+            tb.Button(button_frame, text="添加模型", command=add_model, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="编辑模型", command=edit_model, bootstyle=INFO).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="删除模型", command=delete_model, bootstyle=DANGER).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="测试连接", command=test_connections, bootstyle=WARNING).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="刷新列表", command=refresh_model_list, bootstyle=SECONDARY).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="查看详情", command=show_model_details, bootstyle=PRIMARY).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="启用模型", command=enable_selected_model, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
+            tb.Button(button_frame, text="禁用模型", command=disable_selected_model, bootstyle=WARNING).pack(side=LEFT, padx=5)
+            
+            # 初始化模型列表
+            refresh_model_list()
+            
+        except Exception as e:
+            self.log_message(f"打开AI模型配置失败: {e}")
+            messagebox.showerror("错误", f"打开AI模型配置失败: {e}")
     
     def show_directory_organize_dialog(self):
         """显示文件目录智能整理对话框"""
