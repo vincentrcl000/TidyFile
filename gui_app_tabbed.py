@@ -6,6 +6,11 @@
 """
 
 import ttkbootstrap as tb
+# 兼容新版本ttkbootstrap
+try:
+    from ttkbootstrap import Style, Window
+except ImportError:
+    pass
 from ttkbootstrap.constants import *
 import tkinter as tk
 from tkinter import filedialog, messagebox, Listbox, ttk
@@ -55,8 +60,8 @@ class FileOrganizerTabGUI:
         self.target_directory = tb.StringVar()  # 目标目录路径
         
         # AI分类参数
-        self.summary_length = tb.IntVar(value=100)  # 摘要长度，默认100字符
-        self.content_truncate = tb.IntVar(value=500)  # 内容截取，默认500字符
+        self.summary_length = tb.IntVar(value=200)  # 摘要长度，默认200字符
+        self.content_truncate = tb.IntVar(value=2000)  # 内容截取，默认2000字符
         
         # 文件整理器实例
         self.ai_organizer = None
@@ -119,8 +124,7 @@ class FileOrganizerTabGUI:
                 self.ai_organizer = AIFileOrganizer(model_name=None, enable_transfer_log=True)
                 self.log_message("使用旧版AI文件整理器（新分类器不可用）")
             
-            from file_organizer_simple import FileOrganizer as SimpleFileOrganizer
-            self.simple_organizer = SimpleFileOrganizer(enable_transfer_log=True)
+            # 简单文件整理器已删除
             
             self.log_message("文件整理器初始化完成")
         except Exception as e:
@@ -166,9 +170,6 @@ class FileOrganizerTabGUI:
         
         # 创建智能分类页面
         self.create_ai_classification_tab()
-        
-        # 创建文件分类页面
-        self.create_simple_classification_tab()
         
         # 创建工具页面
         self.create_tools_tab()
@@ -365,10 +366,21 @@ class FileOrganizerTabGUI:
                     except:
                         return False
                 
-                # 检查8000和8001端口
-                if check_port(8000) or check_port(8001):
-                    self.log_message("检测到已有服务器运行，请直接在浏览器访问 http://localhost:8000/ai_result_viewer.html 或 http://localhost:8001/ai_result_viewer.html")
-                    messagebox.showinfo("提示", "检测到文章阅读助手已在运行！\n请在浏览器访问 http://localhost:8000/ai_result_viewer.html 或 http://localhost:8001/ai_result_viewer.html")
+                # 检查80和8000端口
+                if check_port(80) or check_port(8000):
+                    # 获取本机IP地址
+                    try:
+                        import socket
+                        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        s.connect(("8.8.8.8", 80))
+                        local_ip = s.getsockname()[0]
+                        s.close()
+                        lan_url = f"http://{local_ip}/viewer.html"
+                    except:
+                        lan_url = "http://[本机IP]/viewer.html"
+                    
+                    self.log_message(f"检测到已有服务器运行，请直接在浏览器访问:\n本机: http://localhost/viewer.html\n局域网: {lan_url}")
+                    messagebox.showinfo("提示", f"检测到文章阅读助手已在运行！\n\n本机访问: http://localhost/viewer.html\n局域网访问: {lan_url}")
                     return
                 
                 # 启动查看器服务器
@@ -381,8 +393,19 @@ class FileOrganizerTabGUI:
                     self.article_reader_processes = []
                 self.article_reader_processes.append(process)
                 
+                # 获取本机IP地址
+                try:
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    local_ip = s.getsockname()[0]
+                    s.close()
+                    lan_url = f"http://{local_ip}/viewer.html"
+                except:
+                    lan_url = "http://[本机IP]/viewer.html"
+                
                 self.log_message("已启动文章阅读助手服务器")
-                messagebox.showinfo("提示", "文章阅读助手已启动！\n\n服务器正在启动中，请稍后在浏览器访问：\nhttp://localhost:8000/ai_result_viewer.html 或 http://localhost:8001/ai_result_viewer.html\n关闭浏览器时服务器会自动停止。")
+                messagebox.showinfo("提示", f"文章阅读助手已启动！\n\n服务器正在启动中，请稍后在浏览器访问：\n\n本机访问: http://localhost/viewer.html\n局域网访问: {lan_url}\n\n关闭浏览器时服务器会自动停止。")
             except Exception as e:
                 self.log_message(f"启动文章阅读助手失败: {e}")
                 messagebox.showerror("错误", f"启动文章阅读助手失败: {e}")
@@ -402,7 +425,8 @@ class FileOrganizerTabGUI:
             "1. 点击上方按钮启动文章阅读助手",
             "2. 服务器将在新的控制台窗口中运行",
             "3. 浏览器会自动打开AI结果查看页面",
-            "4. 使用完毕后，直接关闭浏览器即可自动停止服务器"
+            "4. 局域网内其他设备可通过显示的IP地址访问",
+            "5. 使用完毕后，直接关闭浏览器即可自动停止服务器"
         ]
         
         for instruction in instructions:
@@ -462,17 +486,17 @@ class FileOrganizerTabGUI:
         summary_frame.grid(row=0, column=1, sticky=(W, E), padx=(5, 0), pady=3)
         summary_frame.columnconfigure(1, weight=1)
         
-        tb.Label(summary_frame, text="50", font=('Arial', 8)).grid(row=0, column=0)
+        tb.Label(summary_frame, text="100", font=('Arial', 8)).grid(row=0, column=0)
         self.summary_scale = tb.Scale(
             summary_frame, 
-            from_=50, 
-            to=200, 
+            from_=100, 
+            to=500, 
             variable=self.summary_length,
             orient=HORIZONTAL
         )
         self.summary_scale.grid(row=0, column=1, sticky=(W, E), padx=3)
-        tb.Label(summary_frame, text="200", font=('Arial', 8)).grid(row=0, column=2)
-        self.summary_value_label = tb.Label(summary_frame, text="100字符", font=('Arial', 8))
+        tb.Label(summary_frame, text="500", font=('Arial', 8)).grid(row=0, column=2)
+        self.summary_value_label = tb.Label(summary_frame, text="200字符", font=('Arial', 8))
         self.summary_value_label.grid(row=0, column=3, padx=(5, 0))
         
         # 绑定摘要长度变化事件
@@ -484,17 +508,17 @@ class FileOrganizerTabGUI:
         truncate_frame.grid(row=1, column=1, sticky=(W, E), padx=(5, 0), pady=3)
         truncate_frame.columnconfigure(1, weight=1)
         
-        tb.Label(truncate_frame, text="200", font=('Arial', 8)).grid(row=0, column=0)
+        tb.Label(truncate_frame, text="1000", font=('Arial', 8)).grid(row=0, column=0)
         self.truncate_scale = tb.Scale(
             truncate_frame, 
-            from_=200, 
-            to=2000, 
+            from_=1000, 
+            to=5000, 
             variable=self.content_truncate,
             orient=HORIZONTAL
         )
         self.truncate_scale.grid(row=0, column=1, sticky=(W, E), padx=3)
-        tb.Label(truncate_frame, text="全文", font=('Arial', 8)).grid(row=0, column=2)
-        self.truncate_value_label = tb.Label(truncate_frame, text="500字符", font=('Arial', 8))
+        tb.Label(truncate_frame, text="5000", font=('Arial', 8)).grid(row=0, column=2)
+        self.truncate_value_label = tb.Label(truncate_frame, text="2000字符", font=('Arial', 8))
         self.truncate_value_label.grid(row=0, column=3, padx=(5, 0))
         
         # 绑定字符截取变化事件
@@ -527,74 +551,7 @@ class FileOrganizerTabGUI:
         self.ai_status_label = tb.Label(ai_frame, text="请选择源目录和目标目录")
         self.ai_status_label.grid(row=6, column=0, columnspan=3, pady=5)
         
-    def create_simple_classification_tab(self):
-        """创建文件分类页面"""
-        simple_frame = tb.Frame(self.notebook, padding="10")
-        self.notebook.add(simple_frame, text="文件分类")
-        
-        simple_frame.columnconfigure(1, weight=1)
-        
-        # 说明文字
-        desc_label = tb.Label(
-            simple_frame,
-            text="基于文件名和扩展名进行快速分类，适合简单的文件整理需求",
-            font=('Arial', 10)
-        )
-        desc_label.grid(row=0, column=0, columnspan=3, pady=(0, 20))
-        
-        # 源目录选择
-        tb.Label(simple_frame, text="待整理文件目录:").grid(row=1, column=0, sticky=W, pady=5)
-        tb.Entry(
-            simple_frame, 
-            textvariable=self.source_directory, 
-            width=50
-        ).grid(row=1, column=1, sticky=(W, E), padx=(10, 5), pady=5)
-        tb.Button(
-            simple_frame, 
-            text="浏览", 
-            command=self.select_source_directory
-        ).grid(row=1, column=2, pady=5)
-        
-        # 目标目录选择
-        tb.Label(simple_frame, text="目标分类目录:").grid(row=2, column=0, sticky=W, pady=5)
-        tb.Entry(
-            simple_frame, 
-            textvariable=self.target_directory, 
-            width=50
-        ).grid(row=2, column=1, sticky=(W, E), padx=(10, 5), pady=5)
-        tb.Button(
-            simple_frame, 
-            text="浏览", 
-            command=self.select_target_directory
-        ).grid(row=2, column=2, pady=5)
-        
-        # 操作按钮框架
-        simple_button_frame = tb.Frame(simple_frame)
-        simple_button_frame.grid(row=3, column=0, columnspan=3, pady=20)
-        
-
-        
-        # 开始整理按钮
-        self.simple_organize_button = tb.Button(
-            simple_button_frame,
-            text="开始文件分类整理",
-            command=self.simple_start_organize,
-            bootstyle=SUCCESS
-        )
-        self.simple_organize_button.pack(side=LEFT, padx=5)
-        
-        # 进度条
-        self.simple_progress_var = tb.DoubleVar()
-        self.simple_progress_bar = tb.Progressbar(
-            simple_frame,
-            variable=self.simple_progress_var,
-            maximum=100
-        )
-        self.simple_progress_bar.grid(row=4, column=0, columnspan=3, sticky=(W, E), pady=10)
-        
-        # 状态标签
-        self.simple_status_label = tb.Label(simple_frame, text="请选择源目录和目标目录")
-        self.simple_status_label.grid(row=5, column=0, columnspan=3, pady=5)
+    # 文件分类页面已删除
         
     def create_tools_tab(self):
         """创建工具页面"""
@@ -920,65 +877,7 @@ class FileOrganizerTabGUI:
             self.root.after(0, lambda: self.ai_progress_var.set(0))
             self.root.after(0, lambda: self.ai_status_label.config(text="整理完成"))
             
-    def simple_start_organize(self):
-        """开始文件分类整理"""
-        source = self.source_directory.get()
-        target = self.target_directory.get()
-        
-        if not source or not target:
-            messagebox.showerror("错误", "请先选择源目录和目标目录")
-            return
-            
-        # 确认对话框
-        if not messagebox.askyesno(
-            "确认整理",
-            f"即将开始文件分类整理:\n\n源目录: {source}\n目标目录: {target}\n\n确定要继续吗？"
-        ):
-            return
-            
-        self.log_message("开始文件分类整理...")
-        self.simple_status_label.config(text="正在整理文件...")
-        self.simple_organize_button.config(state='disabled')
-        
-        # 在新线程中执行整理
-        threading.Thread(target=self._simple_organize_worker, daemon=True).start()
-        
-    def _simple_organize_worker(self):
-        """文件分类整理工作线程"""
-        try:
-            source = self.source_directory.get()
-            target = self.target_directory.get()
-            
-            # 定义进度回调函数
-            def progress_callback(percent, status_text):
-                self.root.after(0, lambda: self.simple_progress_var.set(percent))
-                self.root.after(0, lambda: self.simple_status_label.config(text=status_text))
-                self.root.after(0, lambda: self.log_message(f"[简单分类] {status_text}"))
-            
-            # 执行文件整理
-            self.organize_results = self.simple_organizer.organize_files(
-                source_directory=source, 
-                target_directory=target,
-                progress_callback=progress_callback
-            )
-            
-            # 生成结果JSON文件
-            self._generate_organize_result_json(self.organize_results, "simple_organize_result.json")
-            
-            # 更新进度
-            self.root.after(0, lambda: self.simple_progress_var.set(100))
-            
-            # 显示结果
-            self.root.after(0, lambda: self._show_organize_results("文件分类整理"))
-            
-        except Exception as e:
-            error_msg = str(e)
-            self.root.after(0, lambda: self.log_message(f"文件分类整理失败: {error_msg}"))
-            self.root.after(0, lambda: messagebox.showerror("错误", f"文件分类整理失败: {error_msg}"))
-        finally:
-            self.root.after(0, lambda: self.simple_organize_button.config(state='normal'))
-            self.root.after(0, lambda: self.simple_progress_var.set(0))
-            self.root.after(0, lambda: self.simple_status_label.config(text="整理完成"))
+    # 简单分类相关方法已删除
             
     def _generate_organize_result_json(self, results, filename):
         """生成整理结果JSON文件"""
@@ -1340,7 +1239,7 @@ class FileOrganizerTabGUI:
             from duplicate_file_remover_gui import show_duplicate_remover_dialog
             show_duplicate_remover_dialog(self.root)
         except Exception as e:
-            logger.error(f"显示重复文件删除对话框失败: {e}")
+            self.log_message(f"显示重复文件删除对话框失败: {e}")
             messagebox.showerror("错误", f"显示重复文件删除对话框失败: {e}")
         
     def show_classification_rules_manager(self):

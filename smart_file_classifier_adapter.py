@@ -27,7 +27,7 @@ class SmartFileClassifierAdapter:
         """
         # 默认参数，可通过set_parameters方法动态设置
         self._content_extraction_length = 2000
-        self._summary_length = 150
+        self._summary_length = 200
         self._timeout_seconds = timeout_seconds
         
         # 兼容旧接口的属性

@@ -15,16 +15,15 @@ import ollama
 from transfer_log_manager import TransferLogManager
 from classification_rules_manager import ClassificationRulesManager
 import PyPDF2
+from PyPDF2 import PdfReader, PdfWriter
 import docx
+from docx import Document
 import time
 import requests
 from ai_client_manager import get_ai_manager, chat_with_ai, refresh_ai_clients
 
 class FileOrganizerError(Exception):
     pass
-
-# 使用统一的AI客户端管理器
-from ai_client_manager import get_ai_manager, chat_with_ai, refresh_ai_clients
 
 class FileOrganizer:
     def __init__(self, model_name: str = None, enable_transfer_log: bool = True):
@@ -354,7 +353,7 @@ class FileOrganizer:
         """
         try:
             with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
+                pdf_reader = PdfReader(file)
                 content = ""
                 
                 # 读取前几页内容
@@ -389,7 +388,7 @@ class FileOrganizer:
             
             # 尝试读取Word文档
             try:
-                doc = docx.Document(file_path)
+                doc = Document(file_path)
                 content = ""
                 
                 # 提取段落内容
@@ -454,6 +453,11 @@ class FileOrganizer:
         """
         try:
             from PIL import Image
+            # 兼容新版本Pillow
+            try:
+                from PIL import ImageDraw, ImageFont
+            except ImportError:
+                pass
             with Image.open(file_path) as img:
                 info = f"图片文件信息:\n"
                 info += f"格式: {img.format}\n"
@@ -1791,7 +1795,7 @@ class FileOrganizer:
                     return f.read(max_length)
             elif ext == '.pdf':
                 with open(file_path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
+                    reader = PdfReader(f)
                     text = ''
                     for i, page in enumerate(reader.pages):
                         if i >= max_pages or (time.time() - start_time) > max_seconds:
@@ -1804,7 +1808,7 @@ class FileOrganizer:
                         return '提取超时，已跳过'
                     return text[:max_length] if text else '未能提取正文'
             elif ext == '.docx':
-                doc = docx.Document(file_path)
+                doc = Document(file_path)
                 text = ''
                 for i, para in enumerate(doc.paragraphs):
                     if (time.time() - start_time) > max_seconds:

@@ -28,13 +28,13 @@ def timeout_handler(signum, frame):
 class SmartFileClassifier:
     """智能文件分类器"""
     
-    def __init__(self, content_extraction_length: int = 2000, summary_length: int = 150, timeout_seconds: int = 180):
+    def __init__(self, content_extraction_length: int = 2000, summary_length: int = 200, timeout_seconds: int = 180):
         """
         初始化智能文件分类器
         
         Args:
-            content_extraction_length: 内容提取长度（从GUI获取）
-            summary_length: 摘要长度（从GUI获取）
+            content_extraction_length: 内容提取长度（从GUI获取），默认2000字符
+            summary_length: 摘要长度（从GUI获取），默认200字符
             timeout_seconds: 单个文件处理超时时间（秒），默认3分钟
         """
         self.content_extraction_length = content_extraction_length
@@ -143,8 +143,9 @@ class SmartFileClassifier:
         """提取PDF内容"""
         try:
             import PyPDF2
+            from PyPDF2 import PdfReader, PdfWriter
             with open(file_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
+                reader = PdfReader(f)
                 text = ""
                 for page in reader.pages:
                     text += page.extract_text() or ""
@@ -159,7 +160,8 @@ class SmartFileClassifier:
         """提取DOCX内容"""
         try:
             import docx
-            doc = docx.Document(file_path)
+            from docx import Document
+            doc = Document(file_path)
             text = ""
             for para in doc.paragraphs:
                 text += para.text + "\n"
@@ -332,7 +334,7 @@ class SmartFileClassifier:
 文件信息：
 - 文件名：{file_name}
 - 文件扩展名：{file_extension}
-- 内容摘要：{summary[:150] if summary else '无摘要'}
+                - 内容摘要：{summary[:200] if summary else '无摘要'}
 
 当前层级可选目录（必须严格从以下列表中选择一个，不要添加任何序号、标点或额外字符）：
 {chr(10).join(level_dirs)}
@@ -723,7 +725,7 @@ class SmartFileClassifier:
             del self.level_tags[file_path]
     
     def append_result_to_file(self, ai_result_file: str, result: dict, target_directory: str = "") -> None:
-        """将AI结果追加到JSON文件"""
+        """将AI结果追加到JSON文件（使用并发管理器）"""
         try:
             # 构建结果条目
             entry = {
@@ -747,6 +749,25 @@ class SmartFileClassifier:
                 }
             }
             
+            # 使用并发管理器写入结果
+            try:
+                from concurrent_result_manager import append_classification_result
+                success = append_classification_result(entry)
+                if success:
+                    logging.info(f"文件分类结果已安全写入: {ai_result_file}")
+                else:
+                    logging.error(f"文件分类结果写入失败: {ai_result_file}")
+            except ImportError:
+                # 如果并发管理器不可用，使用原来的方法
+                logging.warning("并发管理器不可用，使用传统方法写入")
+                self._legacy_append_result(ai_result_file, entry)
+            
+        except Exception as e:
+            logging.error(f"写入结果文件失败: {e}")
+    
+    def _legacy_append_result(self, ai_result_file: str, entry: dict) -> None:
+        """传统方法写入结果（备用）"""
+        try:
             # 读取现有文件
             existing_data = []
             if os.path.exists(ai_result_file):
@@ -766,7 +787,7 @@ class SmartFileClassifier:
             logging.info(f"结果已写入: {ai_result_file}")
             
         except Exception as e:
-            logging.error(f"写入结果文件失败: {e}") 
+            logging.error(f"传统方法写入结果文件失败: {e}") 
 
     def run_with_timeout(self, func, *args, **kwargs):
         """

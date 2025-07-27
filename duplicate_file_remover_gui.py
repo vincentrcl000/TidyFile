@@ -3,6 +3,11 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as tb
+# 兼容新版本ttkbootstrap
+try:
+    from ttkbootstrap import Style, Window
+except ImportError:
+    pass
 from ttkbootstrap.scrolled import ScrolledText
 from datetime import datetime
 import logging

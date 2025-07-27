@@ -1,4 +1,9 @@
 import ttkbootstrap as tb
+# 兼容新版本ttkbootstrap
+try:
+    from ttkbootstrap import Style, Window
+except ImportError:
+    pass
 from ttkbootstrap.constants import *
 from tkinter import messagebox
 import threading

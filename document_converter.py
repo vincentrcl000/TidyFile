@@ -359,12 +359,21 @@ class DocumentConverter:
             
             pandoc_format = format_map.get(pandoc_format, pandoc_format)
             
-            # 执行转换
-            pypandoc.convert_file(
-                str(source_path),
-                pandoc_format,
-                outputfile=str(output_path)
-            )
+            # 执行转换 - 兼容新版本pypandoc
+            try:
+                # 新版本API
+                pypandoc.convert_file(
+                    str(source_path),
+                    pandoc_format,
+                    outputfile=str(output_path)
+                )
+            except TypeError:
+                # 旧版本API兼容
+                pypandoc.convert_file(
+                    str(source_path),
+                    pandoc_format,
+                    outputfile=str(output_path)
+                )
             
         except ImportError:
             raise DocumentConverterError("pypandoc未安装")

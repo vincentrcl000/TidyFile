@@ -12,7 +12,9 @@ from pathlib import Path
 from transfer_log_manager import TransferLogManager
 import difflib
 import PyPDF2
+from PyPDF2 import PdfReader, PdfWriter
 import docx
+from docx import Document
 import time
 
 class FileOrganizerError(Exception):
@@ -501,7 +503,7 @@ class FileOrganizer:
                     return f.read(max_length)
             elif ext == '.pdf':
                 with open(file_path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
+                    reader = PdfReader(f)
                     text = ''
                     for i, page in enumerate(reader.pages):
                         if i >= max_pages or (time.time() - start_time) > max_seconds:
@@ -514,7 +516,7 @@ class FileOrganizer:
                         return '提取超时，已跳过'
                     return text[:max_length] if text else '未能提取正文'
             elif ext == '.docx':
-                doc = docx.Document(file_path)
+                doc = Document(file_path)
                 text = ''
                 for i, para in enumerate(doc.paragraphs):
                     if (time.time() - start_time) > max_seconds:

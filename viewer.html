@@ -15,16 +15,109 @@
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            height: 100vh;
         }
 
         .container {
-            max-width: 1400px;
-            margin: 0 auto;
+            width: 100%;
+            height: 100vh;
             background: rgba(255, 255, 255, 0.98);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 320px;
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            transition: all 0.3s ease;
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            z-index: 1000;
+            flex-shrink: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+
+        .sidebar.collapsed {
+            width: 60px;
+        }
+
+        .main-content.sidebar-collapsed {
+            margin-left: 60px;
+        }
+
+        .sidebar-toggle {
+            position: absolute;
+            top: 20px;
+            right: -15px;
+            width: 30px;
+            height: 30px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            z-index: 1000;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .sidebar-toggle:hover {
+            background: #0056b3;
+            transform: scale(1.1);
+        }
+
+        .sidebar-content {
+            padding: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .sidebar.collapsed .sidebar-content {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            text-align: center;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .sidebar.collapsed .sidebar-header {
+            padding: 10px;
+        }
+
+        .sidebar.collapsed .sidebar-header h2 {
+            display: none;
+        }
+
+        .sidebar.collapsed .sidebar-header .sidebar-icon {
+            display: block;
+            font-size: 24px;
+        }
+
+        .sidebar-icon {
+            display: none;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            margin-left: 320px;
+            height: 100vh;
             overflow: hidden;
         }
 
@@ -48,17 +141,16 @@
 
         /* 标签筛选区域 */
         .filter-section {
-            background: #f8f9fa;
-            padding: 20px 25px;
-            border-bottom: 1px solid #e9ecef;
+            background: transparent;
+            padding: 0;
+            border-bottom: none;
         }
 
         .filter-row {
-            margin-bottom: 15px;
+            margin-bottom: 20px;
             display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .filter-row:last-child {
@@ -68,15 +160,15 @@
         .filter-label {
             font-weight: 600;
             color: #495057;
-            min-width: 80px;
             font-size: 0.9em;
+            margin-bottom: 5px;
         }
 
         .tag-container {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
-            flex: 1;
+            gap: 6px;
+            padding-right: 5px;
         }
 
         .tag-item {
@@ -89,6 +181,7 @@
             font-size: 0.85em;
             color: #495057;
             user-select: none;
+            white-space: nowrap;
         }
 
         .tag-item:hover {
@@ -118,9 +211,9 @@
 
         .filter-controls {
             display: flex;
-            gap: 15px;
-            align-items: center;
-            margin-top: 15px;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
             padding-top: 15px;
             border-top: 1px solid #dee2e6;
         }
@@ -135,7 +228,7 @@
             transition: all 0.3s ease;
             font-size: 0.9em;
             white-space: nowrap;
-            margin-left: 10px;
+            align-self: center;
         }
 
         .clear-filters:hover {
@@ -146,8 +239,7 @@
         .active-filters {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
-            flex: 1;
+            gap: 6px;
         }
 
         .active-filter {
@@ -220,7 +312,9 @@
 
         .content {
             padding: 25px;
-            min-height: 400px;
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         .file-item {
@@ -474,8 +568,35 @@
         /* 响应式设计 */
         @media (max-width: 768px) {
             .container {
-                margin: 10px;
-                border-radius: 15px;
+                flex-direction: column;
+            }
+
+            .sidebar {
+                position: relative;
+                width: 100%;
+                height: auto;
+                max-height: none;
+                z-index: auto;
+            }
+
+            .sidebar.collapsed {
+                width: 100%;
+                max-height: 60px;
+            }
+
+            .sidebar-toggle {
+                top: 10px;
+                right: 10px;
+            }
+
+            .main-content {
+                margin-left: 0;
+                max-width: 100%;
+                height: auto;
+            }
+
+            .main-content.sidebar-collapsed {
+                margin-left: 0;
             }
 
             .header {
@@ -526,7 +647,13 @@
 
         @media (max-width: 480px) {
             body {
-                padding: 10px;
+                padding: 0;
+                overflow: auto;
+            }
+
+            .container {
+                height: auto;
+                overflow: visible;
             }
 
             .header h1 {
@@ -551,59 +678,76 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>📚 智能文章阅读器</h1>
-            <p>基于AI标签的智能筛选与阅读体验</p>
-        </div>
-
-        <div class="controls">
-            <div class="refresh-btn">
-                <button id="refreshBtn" onclick="cleanDuplicateFiles()">🔄 清理重复并检查路径</button>
+        <!-- 侧边栏 -->
+        <div class="sidebar" id="sidebar">
+            <button class="sidebar-toggle" onclick="toggleSidebar()" title="收起/展开侧边栏">
+                <span id="toggleIcon">◀</span>
+            </button>
+            
+            <div class="sidebar-header">
+                <h2>🏷️ 标签筛选</h2>
+                <div class="sidebar-icon">🏷️</div>
             </div>
-            <div class="search-box">
-                <input type="text" id="searchInput" placeholder="🔍 搜索文件名、摘要或路径...">
-            </div>
-            <div class="stats" id="stats">
-                <span>总计: <strong>0</strong></span>
-                <span>筛选: <strong>0</strong></span>
-                <span>成功: <strong>0</strong></span>
-            </div>
-            <div class="pagination-info" id="paginationInfo">
-                <span>显示: <strong id="currentRange">0-0</strong> / <strong id="totalCount">0</strong></span>
-            </div>
-        </div>
-
-        <!-- 标签筛选区域 -->
-        <div class="filter-section">
-            <div class="filter-row">
-                <div class="filter-label">1级分类:</div>
-                <div class="tag-container" id="level1Tags"></div>
-            </div>
-            <div class="filter-row">
-                <div class="filter-label">2级分类:</div>
-                <div class="tag-container" id="level2Tags"></div>
-            </div>
-            <div class="filter-row">
-                <div class="filter-label">3级分类:</div>
-                <div class="tag-container" id="level3Tags"></div>
-            </div>
-            <div class="filter-row">
-                <div class="filter-label">年份:</div>
-                <div class="tag-container" id="yearTags"></div>
-                <button class="clear-filters" onclick="clearAllFilters()">🗑️ 清除所有筛选</button>
-            </div>
-            <div class="filter-controls">
-                <div class="active-filters" id="activeFilters"></div>
+            
+            <div class="sidebar-content">
+                <!-- 标签筛选区域 -->
+                <div class="filter-section">
+                    <div class="filter-row">
+                        <div class="filter-label">1级分类:</div>
+                        <div class="tag-container" id="level1Tags"></div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-label">2级分类:</div>
+                        <div class="tag-container" id="level2Tags"></div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-label">3级分类:</div>
+                        <div class="tag-container" id="level3Tags"></div>
+                    </div>
+                    <div class="filter-row">
+                        <div class="filter-label">年份:</div>
+                        <div class="tag-container" id="yearTags"></div>
+                        <button class="clear-filters" onclick="clearAllFilters()">🗑️ 清除所有筛选</button>
+                    </div>
+                    <div class="filter-controls">
+                        <div class="active-filters" id="activeFilters"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="content" id="content">
-            <div class="empty-state">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
-                </svg>
-                <h3>请选择AI整理结果文件</h3>
-                <p>点击上方按钮选择 ai_organize_result.json 文件</p>
+        <!-- 主内容区域 -->
+        <div class="main-content">
+            <div class="header">
+                <h1>📚 智能文章阅读器</h1>
+                <p>基于AI标签的智能筛选与阅读体验</p>
+            </div>
+
+            <div class="controls">
+                <div class="refresh-btn">
+                    <button id="refreshBtn" onclick="cleanDuplicateFiles()">🔄 清理重复并检查路径</button>
+                </div>
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="🔍 搜索文件名、摘要或路径...">
+                </div>
+                <div class="stats" id="stats">
+                    <span>总计: <strong>0</strong></span>
+                    <span>筛选: <strong>0</strong></span>
+                    <span>成功: <strong>0</strong></span>
+                </div>
+                <div class="pagination-info" id="paginationInfo">
+                    <span>显示: <strong id="currentRange">0-0</strong> / <strong id="totalCount">0</strong></span>
+                </div>
+            </div>
+
+            <div class="content" id="content">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                    </svg>
+                    <h3>请选择AI整理结果文件</h3>
+                    <p>点击上方按钮选择 ai_organize_result.json 文件</p>
+                </div>
             </div>
         </div>
     </div>
@@ -627,9 +771,43 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadDefaultFile();
             startHeartbeat();
+            
+            // 从本地存储恢复侧边栏状态
+            const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            if (sidebarCollapsed) {
+                const sidebar = document.getElementById('sidebar');
+                const mainContent = document.querySelector('.main-content');
+                const toggleIcon = document.getElementById('toggleIcon');
+                
+                sidebar.classList.add('collapsed');
+                mainContent.classList.add('sidebar-collapsed');
+                toggleIcon.textContent = '▶';
+            }
         });
 
         document.getElementById('searchInput').addEventListener('input', handleSearch);
+
+        // 侧边栏切换函数
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const mainContent = document.querySelector('.main-content');
+            const toggleIcon = document.getElementById('toggleIcon');
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            
+            if (isCollapsed) {
+                // 展开侧边栏
+                sidebar.classList.remove('collapsed');
+                mainContent.classList.remove('sidebar-collapsed');
+                toggleIcon.textContent = '◀';
+                localStorage.setItem('sidebarCollapsed', 'false');
+            } else {
+                // 收起侧边栏
+                sidebar.classList.add('collapsed');
+                mainContent.classList.add('sidebar-collapsed');
+                toggleIcon.textContent = '▶';
+                localStorage.setItem('sidebarCollapsed', 'true');
+            }
+        }
 
         async function loadDefaultFile() {
             try {
@@ -1474,8 +1652,112 @@
             } else if (filePath.endsWith('.json') && filePath.includes('weixin_articles')) {
                 openWeixinArticle(filePath);
             } else {
-                openWithCommandLine(filePath);
+                // 检测是否为移动设备或远程访问
+                if (isMobileDevice() || isRemoteAccess()) {
+                    downloadFile(filePath);
+                } else {
+                    openWithCommandLine(filePath);
+                }
             }
+        }
+        
+        function isMobileDevice() {
+            return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        }
+        
+        function isRemoteAccess() {
+            // 检查是否通过IP地址访问（非localhost）
+            return window.location.hostname !== 'localhost' && 
+                   window.location.hostname !== '127.0.0.1' &&
+                   !window.location.hostname.includes('localhost');
+        }
+        
+        function downloadFile(filePath) {
+            const fileName = filePath.split(/[\\/]/).pop();
+            
+            // 显示打开文件提示
+            const openMsg = `正在打开文件: ${fileName}\n\n请稍候...`;
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center;
+            `;
+            loadingDiv.innerHTML = openMsg;
+            document.body.appendChild(loadingDiv);
+            
+            // 创建文件打开链接
+            const fileUrl = `/api/download-file?path=${encodeURIComponent(filePath)}`;
+            console.log('文件URL:', fileUrl);
+            console.log('原始文件路径:', filePath);
+            
+            // 直接在新窗口打开文件
+            const newWindow = window.open(fileUrl, '_blank');
+            
+            // 延迟移除加载提示
+            setTimeout(() => {
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                // 显示成功提示
+                const successMsg = `文件 "${fileName}" 正在打开！\n\n在移动设备上：\n• 文件将在新标签页中直接打开\n• 支持PDF、图片、视频等格式的在线预览\n• 如果无法预览，会自动下载到设备`;
+                alert(successMsg);
+            }, 1000);
+            
+            // 如果打开失败，显示备用提示
+            setTimeout(() => {
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                    
+                    // 创建可复制的提示框
+                    const copyDialog = document.createElement('div');
+                    copyDialog.style.cssText = `
+                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                        background: white; border: 2px solid #007bff; border-radius: 10px;
+                        padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                        z-index: 10001; max-width: 500px; min-width: 300px;
+                    `;
+                    
+                    copyDialog.innerHTML = `
+                        <h3 style="margin: 0 0 15px 0; color: #007bff;">文件打开失败</h3>
+                        <p style="margin: 0 0 15px 0;">如果文件没有自动打开，请复制以下链接到浏览器地址栏：</p>
+                        <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; margin: 10px 0;">
+                            <input type="text" value="${fileUrl}" readonly style="width: 100%; border: none; background: transparent; font-family: monospace; font-size: 12px;" id="copyUrl">
+                        </div>
+                        <div style="text-align: center; margin-top: 15px;">
+                            <button onclick="copyToClipboard()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; margin-right: 10px;">复制链接</button>
+                            <button onclick="closeCopyDialog()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">关闭</button>
+                        </div>
+                    `;
+                    
+                    document.body.appendChild(copyDialog);
+                    
+                    // 添加复制功能
+                    window.copyToClipboard = function() {
+                        const urlInput = document.getElementById('copyUrl');
+                        urlInput.select();
+                        urlInput.setSelectionRange(0, 99999);
+                        document.execCommand('copy');
+                        
+                        // 显示复制成功提示
+                        const copyBtn = copyDialog.querySelector('button');
+                        const originalText = copyBtn.textContent;
+                        copyBtn.textContent = '已复制！';
+                        copyBtn.style.background = '#28a745';
+                        setTimeout(() => {
+                            copyBtn.textContent = originalText;
+                            copyBtn.style.background = '#007bff';
+                        }, 2000);
+                    };
+                    
+                    window.closeCopyDialog = function() {
+                        if (document.body.contains(copyDialog)) {
+                            document.body.removeChild(copyDialog);
+                        }
+                    };
+                }
+            }, 3000);
         }
         
         function openWeixinArticle(jsonFilePath) {

@@ -12,7 +12,7 @@
 作者: AI Assistant
 创建时间: 2025-01-15
 """
-
+import concurrent.futures
 import os
 import sys
 import logging
@@ -27,23 +27,30 @@ from io import BytesIO
 # 第三方库导入
 try:
     import PyPDF2
+    # 兼容新版本PyPDF2
+    from PyPDF2 import PdfReader, PdfWriter
 except ImportError:
     print("请安装PyPDF2库: pip install PyPDF2")
     sys.exit(1)
 
 try:
     import docx
+    from docx import Document
 except ImportError:
     print("请安装python-docx库: pip install python-docx")
     sys.exit(1)
 
 try:
     from PIL import Image
+    # 兼容新版本Pillow
+    try:
+        from PIL import ImageDraw, ImageFont
+    except ImportError:
+        pass
 except ImportError:
     print("请安装Pillow库: pip install Pillow")
     sys.exit(1)
 
-import json
 from ai_client_manager import chat_with_ai
 
 
@@ -149,7 +156,25 @@ class FileReader:
         """
         兼容旧接口，使用统一的AI管理器
         """
-        logging.info("AI客户端已通过统一管理器初始化")
+        try:
+            from ai_client_manager import get_ai_manager
+            ai_manager = get_ai_manager()
+            
+            # 确保AI客户端管理器已初始化
+            if ai_manager.get_available_models_count() == 0:
+                logging.info("AI客户端管理器未初始化，正在初始化...")
+                ai_manager.refresh_clients()
+                
+                if ai_manager.get_available_models_count() == 0:
+                    logging.warning("AI客户端管理器初始化失败，没有可用的模型")
+                else:
+                    logging.info(f"AI客户端管理器初始化成功，可用模型数量: {ai_manager.get_available_models_count()}")
+            else:
+                logging.info(f"AI客户端管理器已初始化，可用模型数量: {ai_manager.get_available_models_count()}")
+                
+        except Exception as e:
+            logging.error(f"AI客户端管理器初始化失败: {e}")
+            raise FileReaderError(f"AI客户端管理器初始化失败: {e}")
 
     def extract_file_content(self, file_path: str, max_length: int = 2000) -> str:
         """
@@ -191,7 +216,7 @@ class FileReader:
         """提取PDF文件内容"""
         try:
             with open(file_path, 'rb') as file:
-                pdf_reader = PyPDF2.PdfReader(file)
+                pdf_reader = PdfReader(file)
                 content = ""
                 
                 # 读取前几页内容
@@ -224,7 +249,7 @@ class FileReader:
             
             # 尝试读取Word文档
             try:
-                doc = docx.Document(file_path)
+                doc = Document(file_path)
                 content = ""
                 
                 # 提取段落内容
@@ -414,16 +439,138 @@ class FileReader:
             logging.error(f"详细错误信息: {traceback.format_exc()}")
             return f"图像分析失败: {str(e)}"
     
-    def generate_summary(self, file_path: str, max_summary_length: int = 50) -> Dict[str, Any]:
+    def _is_duplicate_in_result(self, file_path: str, ai_result_file: str = "ai_organize_result.json") -> Dict[str, Any]:
+        """
+        检查ai_organize_result.json中是否已处理过该文件
+        
+        Args:
+            file_path: 文件路径
+            ai_result_file: 结果记录文件
+            
+        Returns:
+            包含去重检测结果的字典：
+            - is_duplicate: 是否重复
+            - duplicate_info: 重复记录的详细信息（如果重复）
+            - error: 错误信息（如果有）
+        """
+        result = {
+            'is_duplicate': False,
+            'duplicate_info': None,
+            'error': None
+        }
+        
+        try:
+            if not os.path.exists(ai_result_file):
+                return result
+                
+            with open(ai_result_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            file_name = Path(file_path).name
+            abs_path = str(Path(file_path).absolute())
+            file_size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
+            
+            # 查找匹配的记录
+            for entry in data:
+                # 精确匹配：文件名 + 最终目标路径 + 文件大小
+                if (entry.get("文件名") == file_name and 
+                    entry.get("最终目标路径") == abs_path and
+                    entry.get("文件元数据", {}).get("file_size") == file_size):
+                    
+                    result['is_duplicate'] = True
+                    result['duplicate_info'] = {
+                        '处理时间': entry.get("处理时间", ""),
+                        '文件摘要': entry.get("文件摘要", ""),
+                        '处理状态': entry.get("处理状态", ""),
+                        '操作类型': entry.get("操作类型", ""),
+                        '处理耗时': entry.get("处理耗时", 0),
+                        '标签': entry.get("标签", {})
+                    }
+                    return result
+                    
+        except json.JSONDecodeError as e:
+            result['error'] = f"JSON文件格式错误: {e}"
+            logging.error(f"去重检测失败 - JSON格式错误: {e}")
+        except Exception as e:
+            result['error'] = f"去重检测异常: {e}"
+            logging.error(f"去重检测失败: {e}")
+            
+        return result
+
+    def generate_summary(self, file_path: str, max_summary_length: int = 50, ai_result_file: str = "ai_organize_result.json") -> Dict[str, Any]:
         """
         生成文件内容摘要（与智能文件分类器保持一致）
         
         Args:
             file_path: 文件路径
             max_summary_length: 摘要最大长度
+            ai_result_file: 结果记录文件
             
         Returns:
             包含摘要信息的字典，包括原始文本和摘要
+        """
+        # 先查重，若已处理则直接返回
+        duplicate_check = self._is_duplicate_in_result(file_path, ai_result_file)
+        
+        if duplicate_check['error']:
+            logging.warning(f"去重检测失败，继续处理文件: {file_path}, 错误: {duplicate_check['error']}")
+        elif duplicate_check['is_duplicate']:
+            duplicate_info = duplicate_check['duplicate_info']
+            logging.info(f"文件已处理，跳过: {file_path}")
+            logging.info(f"原处理信息: {duplicate_info['处理时间']}, 状态: {duplicate_info['处理状态']}, 摘要: {duplicate_info['文件摘要'][:50]}...")
+            
+            return {
+                'file_path': file_path,
+                'file_name': Path(file_path).name,
+                'success': True,
+                'extracted_text': '',
+                'summary': f"已处理 (原处理时间: {duplicate_info['处理时间']}, 状态: {duplicate_info['处理状态']})",
+                'error': '',
+                'model_used': self.model_name,
+                'timestamp': datetime.now().isoformat(),
+                'timing_info': {'skipped': True, 'duplicate_info': duplicate_info},
+                'processing_status': '已跳过',  # 明确标识处理状态
+                'original_summary': duplicate_info['文件摘要']  # 保存原摘要
+            }
+        
+        # 超时控制
+        def _inner_summary():
+            return self._generate_summary_inner(file_path, max_summary_length)
+        
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_inner_summary)
+                return future.result(timeout=180)  # 3分钟超时
+        except concurrent.futures.TimeoutError:
+            logging.error(f"文件处理超时: {file_path}")
+            return {
+                'file_path': file_path,
+                'file_name': Path(file_path).name,
+                'success': False,
+                'extracted_text': '',
+                'summary': '',
+                'error': '处理超时',
+                'model_used': self.model_name,
+                'timestamp': datetime.now().isoformat(),
+                'timing_info': {'timeout': True}
+            }
+        except Exception as e:
+            logging.error(f"文件处理异常: {e}")
+            return {
+                'file_path': file_path,
+                'file_name': Path(file_path).name,
+                'success': False,
+                'extracted_text': '',
+                'summary': '',
+                'error': str(e),
+                'model_used': self.model_name,
+                'timestamp': datetime.now().isoformat(),
+                'timing_info': {'exception': True}
+            }
+
+    def _generate_summary_inner(self, file_path: str, max_summary_length: int = 50) -> Dict[str, Any]:
+        """
+        内部方法：执行实际的文件摘要生成逻辑
         """
         start_time = time.time()
         timing_info = {}
@@ -612,7 +759,7 @@ class FileReader:
             logging.error(error_msg)
         
         return result
-    
+
     def _build_summary_prompt(self, file_content: str, max_length: int) -> str:
         """构建摘要生成提示词"""
         prompt = f"""请为以下文件内容生成一个{max_length}字以内的中文摘要。
@@ -713,6 +860,18 @@ class FileReader:
             FileReaderError: 当所有重试都失败时抛出
         """
         try:
+            # 确保AI客户端管理器正常工作
+            from ai_client_manager import get_ai_manager
+            ai_manager = get_ai_manager()
+            
+            # 检查是否有可用的模型
+            if ai_manager.get_available_models_count() == 0:
+                logging.warning("没有可用的AI模型，尝试刷新客户端...")
+                ai_manager.refresh_clients()
+                
+                if ai_manager.get_available_models_count() == 0:
+                    raise FileReaderError("没有可用的AI模型，请检查Ollama服务")
+            
             # 如果有图像数据，添加到消息中
             if images and messages and len(messages) > 0:
                 messages[0]['images'] = images
@@ -742,18 +901,33 @@ class FileReader:
             return []
     
     def append_result_to_file(self, ai_result_file: str, result: dict, base_folder: str = "") -> None:
-        """将文件解读结果追加到JSON文件（与智能文件分类器保持一致）"""
+        """将文件解读结果追加到JSON文件（使用并发管理器）"""
         try:
+            # 检查是否为重复文件
+            is_duplicate = result.get('timing_info', {}).get('skipped', False)
+            
+            # 如果是重复文件，直接跳过写入，只记录日志
+            if is_duplicate:
+                duplicate_info = result.get('timing_info', {}).get('duplicate_info', {})
+                logging.info(f"跳过重复文件，不写入结果文件: {result['file_name']}")
+                logging.info(f"原处理信息: {duplicate_info.get('处理时间', '')}, 状态: {duplicate_info.get('处理状态', '')}")
+                return
+            
+            # 确定处理状态
+            processing_status = "解读成功" if result['success'] else "解读失败"
+            operation_type = "文件解读"
+            summary = result['summary']
+            
             # 构建结果条目
             entry = {
                 "处理时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "文件名": result['file_name'],
-                "文件摘要": result['summary'],
+                "文件摘要": summary,
                 "最匹配的目标目录": "",  # 文件解读功能不涉及目录匹配
                 "处理耗时": result['timing_info'].get('total_processing_time', 0),
                 "最终目标路径": result['file_path'],  # 文件当前存储的完整路径
-                "操作类型": "文件解读",
-                "处理状态": "解读成功" if result['success'] else "解读失败",
+                "操作类型": operation_type,
+                "处理状态": processing_status,
                 "标签": result.get('tags', {}),
                 "文件元数据": {
                     "file_name": result['file_metadata']['file_name'],
@@ -764,6 +938,25 @@ class FileReader:
                 }
             }
             
+            # 使用并发管理器写入结果
+            try:
+                from concurrent_result_manager import append_file_reader_result
+                success = append_file_reader_result(entry)
+                if success:
+                    logging.info(f"文件解读结果已安全写入: {ai_result_file}")
+                else:
+                    logging.error(f"文件解读结果写入失败: {ai_result_file}")
+            except ImportError:
+                # 如果并发管理器不可用，使用原来的方法
+                logging.warning("并发管理器不可用，使用传统方法写入")
+                self._legacy_append_result(ai_result_file, entry)
+            
+        except Exception as e:
+            logging.error(f"写入结果文件失败: {e}")
+    
+    def _legacy_append_result(self, ai_result_file: str, entry: dict) -> None:
+        """传统方法写入结果（备用）"""
+        try:
             # 读取现有文件
             existing_data = []
             if os.path.exists(ai_result_file):
@@ -783,4 +976,4 @@ class FileReader:
             logging.info(f"文件解读结果已写入: {ai_result_file}")
             
         except Exception as e:
-            logging.error(f"写入结果文件失败: {e}")
+            logging.error(f"传统方法写入结果文件失败: {e}")

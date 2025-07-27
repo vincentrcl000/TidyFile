@@ -3,9 +3,11 @@
 """
 本地HTTP服务器启动脚本
 用于解决浏览器CORS策略限制，使ai_result_viewer.html能够正常加载JSON文件
+支持局域网访问
 
 作者: AI助手
 创建时间: 2025-01-20
+更新时间: 2025-01-27 - 重构为统一的服务管理逻辑
 """
 
 import http.server
@@ -18,16 +20,49 @@ import urllib.parse
 import subprocess
 import threading
 import time
+import socket
 from pathlib import Path
 from datetime import datetime
 
+def get_local_ip():
+    """获取本机局域网IP地址"""
+    try:
+        # 创建一个UDP套接字连接到外部地址
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        # 如果获取失败，返回默认地址
+        return "0.0.0.0"
+
+def check_server_running(port=80):
+    """检查服务器是否已经在运行"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            result = s.connect_ex(('localhost', port))
+            return result == 0
+    except:
+        return False
+
+
+
+def open_browser_with_urls(local_ip):
+    """打开浏览器并显示访问地址"""
+    try:
+        # 打开浏览器
+        webbrowser.open("http://localhost/viewer.html")
+        
+    except Exception as e:
+        print(f"无法自动打开浏览器: {e}")
+        print(f"请手动访问: http://localhost/viewer.html")
+
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """
-    自定义HTTP请求处理器，支持清理重复文件的API和心跳检测
+    自定义HTTP请求处理器，支持清理重复文件的API
     """
-    
-    # 类变量，用于跟踪最后一次心跳时间
-    last_heartbeat = time.time()
     
     def end_headers(self):
         """重写end_headers方法，添加缓存控制头"""
@@ -46,10 +81,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_check_and_fix_paths()
         elif self.path == '/api/open-file':
             self.handle_open_file()
-        elif self.path == '/api/heartbeat':
-            self.handle_heartbeat()
         else:
             self.send_error(404, "API endpoint not found")
+    
+    def do_GET(self):
+        """处理GET请求"""
+        if self.path.startswith('/api/download-file'):
+            self.handle_download_file()
+        else:
+            super().do_GET()
     
     def handle_clean_duplicates(self):
         """处理清理重复文件的请求
@@ -100,20 +140,25 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 data = json.load(f)
             
             # 检查并修复文件路径
-            result = self.check_and_fix_file_paths(data)
+            fixed_data = self.check_and_fix_file_paths(data)
             
-            # 如果有路径被修复，保存更新后的数据
-            if result['fixed_paths'] > 0:
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, ensure_ascii=False, indent=2)
+            # 保存修复后的数据
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(fixed_data, f, ensure_ascii=False, indent=2)
+            
+            # 统计修复结果
+            total_files = len(fixed_data)
+            valid_paths = sum(1 for item in fixed_data if os.path.exists(item.get('最终目标路径', '')))
+            fixed_paths = sum(1 for item in fixed_data if item.get('路径已修复', False))
+            not_found = total_files - valid_paths - fixed_paths
             
             self.send_json_response({
                 'success': True,
-                'total_files': result['total_files'],
-                'valid_paths': result['valid_paths'],
-                'fixed_paths': result['fixed_paths'],
-                'not_found': result['not_found'],
-                'message': f"检查完成：{result['total_files']}个文件，{result['valid_paths']}个正常，{result['fixed_paths']}个已修复，{result['not_found']}个未找到"
+                'message': f'路径检查完成',
+                'total_files': total_files,
+                'valid_paths': valid_paths,
+                'fixed_paths': fixed_paths,
+                'not_found': not_found
             })
             
         except Exception as e:
@@ -121,381 +166,371 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def check_and_fix_file_paths(self, data):
         """检查并修复文件路径"""
-        total_files = len(data)
-        valid_paths = 0
-        fixed_paths = 0
-        not_found = 0
+        fixed_data = []
         
-        print(f"🔍 开始检查 {total_files} 个文件的路径...")
-        
-        for i, item in enumerate(data):
-            if (i + 1) % 10 == 0:
-                print(f"   进度: {i + 1}/{total_files}")
-            
+        for item in data:
             target_path = item.get('最终目标路径', '')
-            if not target_path:
-                not_found += 1
+            if target_path and os.path.exists(target_path):
+                # 路径存在，无需修复
+                item['路径已修复'] = False
+                fixed_data.append(item)
                 continue
             
-            # 检查文件是否存在
-            if os.path.exists(target_path):
-                valid_paths += 1
-                continue
-            
-            # 文件不存在，尝试在系统中搜索
-            file_name = os.path.basename(target_path)
+            # 路径不存在，尝试修复
+            file_name = item.get('文件名', '')
             if not file_name:
-                not_found += 1
+                item['路径已修复'] = False
+                fixed_data.append(item)
                 continue
             
             # 搜索文件
             found_path = self.search_file_in_system(file_name)
             if found_path:
-                # 更新路径
                 item['最终目标路径'] = found_path
-                fixed_paths += 1
-                print(f"    ✅ 修复: {file_name} -> {found_path}")
+                item['路径已修复'] = True
+                print(f"修复路径: {file_name} -> {found_path}")
             else:
-                not_found += 1
-                print(f"    ❌ 未找到: {file_name}")
+                item['路径已修复'] = False
+            
+            fixed_data.append(item)
         
-        print(f"🔍 路径检查完成: 有效 {valid_paths}, 修复 {fixed_paths}, 未找到 {not_found}")
-        
-        return {
-            'total_files': total_files,
-            'valid_paths': valid_paths,
-            'fixed_paths': fixed_paths,
-            'not_found': not_found
-        }
+        return fixed_data
     
     def search_file_in_system(self, file_name):
-        """在系统中搜索文件，使用Windows搜索API"""
-        try:
-            # 使用Windows搜索API
-            found_path = self.search_with_windows_api(file_name)
-            if found_path:
-                return found_path
-            
-            # 如果Windows搜索API失败，回退到传统搜索
-            return self.fallback_search(file_name)
-            
-        except Exception as e:
-            print(f"搜索文件时出错: {e}")
-            return self.fallback_search(file_name)
+        """在系统中搜索文件"""
+        # 首先尝试使用Windows API搜索
+        found_path = self.search_with_windows_api(file_name)
+        if found_path:
+            return found_path
+        
+        # 如果Windows API搜索失败，尝试在C盘用户目录搜索
+        found_path = self.search_c_drive_user_dirs(file_name)
+        if found_path:
+            return found_path
+        
+        # 最后尝试备用搜索方法
+        return self.fallback_search(file_name)
     
     def search_with_windows_api(self, file_name):
-        """使用Windows搜索API搜索文件"""
+        """使用Windows API搜索文件"""
         try:
             import subprocess
-            
-            # 优先搜索最可能的驱动器（根据测试结果，F盘最有可能）
-            priority_drives = ['F:', 'D:', 'E:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:', 'Q:', 'R:', 'S:', 'T:', 'U:', 'V:', 'W:', 'X:', 'Y:', 'Z:']
-            
-            # 先搜索其他驱动器
-            for drive in priority_drives:
-                if os.path.exists(drive):
-                    # 使用dir命令搜索，/s表示递归搜索，/b表示只显示文件名和路径
-                    # 缩短超时时间，提高搜索效率
-                    cmd = f'dir /s /b "{drive}\\{file_name}"'
-                    try:
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8)
-                        if result.returncode == 0 and result.stdout.strip():
-                            # 找到文件，返回第一个结果
-                            paths = result.stdout.strip().split('\n')
-                            for path in paths:
-                                if os.path.exists(path):
-                                    return path
-                    except subprocess.TimeoutExpired:
-                        continue
-                    except Exception:
-                        continue
-            
-            # 最后搜索C盘的用户目录
-            if os.path.exists('C:'):
-                found_path = self.search_c_drive_user_dirs(file_name)
-                if found_path:
-                    return found_path
-            
-            return None
-            
-        except Exception as e:
-            print(f"Windows搜索API出错: {e}")
-            return None
+            # 使用where命令搜索文件
+            result = subprocess.run(['where', file_name], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                if lines and lines[0]:
+                    return lines[0]
+        except Exception:
+            pass
+        return None
     
     def search_c_drive_user_dirs(self, file_name):
-        """专门搜索C盘的用户目录"""
+        """在C盘用户目录搜索文件"""
         try:
-            import subprocess
-            
-            # C盘用户目录列表
-            user_dirs = [
-                'C:\\Users',
-                'C:\\Documents and Settings',  # 兼容旧版Windows
-                'C:\\Users\\Public\\Documents',
-                'C:\\Users\\Public\\Desktop'
+            # 搜索常见的用户目录
+            search_dirs = [
+                os.path.expanduser("~"),  # 当前用户目录
+                os.path.expanduser("~/Desktop"),  # 桌面
+                os.path.expanduser("~/Documents"),  # 文档
+                os.path.expanduser("~/Downloads"),  # 下载
+                "C:/Users",  # 所有用户目录
             ]
             
-            # 获取当前用户名，添加到搜索路径
-            import getpass
-            current_user = getpass.getuser()
-            if current_user:
-                user_dirs.extend([
-                    f'C:\\Users\\{current_user}\\Documents',
-                    f'C:\\Users\\{current_user}\\Desktop',
-                    f'C:\\Users\\{current_user}\\Downloads',
-                    f'C:\\Users\\{current_user}\\Pictures',
-                    f'C:\\Users\\{current_user}\\Videos',
-                    f'C:\\Users\\{current_user}\\Music'
-                ])
-            
-            # 搜索用户目录
-            for user_dir in user_dirs:
-                if os.path.exists(user_dir):
-                    cmd = f'dir /s /b "{user_dir}\\{file_name}"'
-                    try:
-                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=3)
-                        if result.returncode == 0 and result.stdout.strip():
-                            paths = result.stdout.strip().split('\n')
-                            for path in paths:
-                                if os.path.exists(path):
-                                    return path
-                    except subprocess.TimeoutExpired:
-                        continue
-                    except Exception:
-                        continue
-            
-            return None
-            
-        except Exception as e:
-            print(f"C盘用户目录搜索出错: {e}")
-            return None
-    
-
-    
-    def fallback_search(self, file_name):
-        """回退搜索方法，使用传统文件系统搜索"""
-        try:
-            # 优先搜索的目录（按优先级排序）
-            priority_dirs = [
-                '重新整理的文件目录',
-                '保险行业资料',
-                'Documents',
-                '文档',
-                'Downloads', 
-                '下载',
-                'Desktop',
-                '桌面',
-                'Users'
-            ]
-            
-            # 先搜索其他驱动器
-            other_drives = ['D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:', 'K:', 'L:', 'M:', 'N:', 'O:', 'P:', 'Q:', 'R:', 'S:', 'T:', 'U:', 'V:', 'W:', 'X:', 'Y:', 'Z:']
-            
-            for drive in other_drives:
-                if os.path.exists(drive):
-                    # 按优先级添加目录
-                    for dir_name in priority_dirs:
-                        common_dir = os.path.join(drive, dir_name)
-                        if os.path.exists(common_dir):
-                            found_path = self.search_file_recursive(common_dir, file_name)
-                            if found_path:
-                                return found_path
-            
-            # 最后搜索C盘的用户目录
-            if os.path.exists('C:'):
-                found_path = self.search_c_drive_user_dirs_fallback(file_name)
-                if found_path:
-                    return found_path
-            
-            return None
-            
-        except Exception as e:
-            print(f"回退搜索出错: {e}")
-            return None
-    
-    def search_c_drive_user_dirs_fallback(self, file_name):
-        """回退搜索C盘的用户目录"""
-        try:
-            # C盘用户目录列表
-            user_dirs = [
-                'C:\\Users',
-                'C:\\Documents and Settings',  # 兼容旧版Windows
-                'C:\\Users\\Public\\Documents',
-                'C:\\Users\\Public\\Desktop'
-            ]
-            
-            # 获取当前用户名，添加到搜索路径
-            import getpass
-            current_user = getpass.getuser()
-            if current_user:
-                user_dirs.extend([
-                    f'C:\\Users\\{current_user}\\Documents',
-                    f'C:\\Users\\{current_user}\\Desktop',
-                    f'C:\\Users\\{current_user}\\Downloads',
-                    f'C:\\Users\\{current_user}\\Pictures',
-                    f'C:\\Users\\{current_user}\\Videos',
-                    f'C:\\Users\\{current_user}\\Music'
-                ])
-            
-            # 搜索用户目录
-            for user_dir in user_dirs:
-                if os.path.exists(user_dir):
-                    found_path = self.search_file_recursive(user_dir, file_name)
+            for search_dir in search_dirs:
+                if os.path.exists(search_dir):
+                    found_path = self.search_file_recursive(search_dir, file_name, max_depth=3)
                     if found_path:
                         return found_path
             
-            return None
+            # 如果上述目录没找到，尝试更广泛的搜索
+            return self.search_c_drive_user_dirs_fallback(file_name)
             
-        except Exception as e:
-            print(f"C盘用户目录回退搜索出错: {e}")
+        except Exception:
             return None
+    
+    def fallback_search(self, file_name):
+        """备用搜索方法"""
+        try:
+            # 在常见目录中搜索
+            common_dirs = [
+                "C:/",
+                "D:/",
+                "E:/",
+                os.path.expanduser("~"),
+            ]
+            
+            for base_dir in common_dirs:
+                if os.path.exists(base_dir):
+                    found_path = self.search_file_recursive(base_dir, file_name, max_depth=2)
+                    if found_path:
+                        return found_path
+        except Exception:
+            pass
+        return None
+    
+    def search_c_drive_user_dirs_fallback(self, file_name):
+        """在C盘用户目录的备用搜索方法"""
+        try:
+            users_dir = "C:/Users"
+            if not os.path.exists(users_dir):
+                return None
+            
+            # 遍历用户目录
+            for user_dir in os.listdir(users_dir):
+                user_path = os.path.join(users_dir, user_dir)
+                if os.path.isdir(user_path):
+                    # 在用户目录的常见子目录中搜索
+                    sub_dirs = ["Desktop", "Documents", "Downloads", "Pictures", "Videos"]
+                    for sub_dir in sub_dirs:
+                        sub_path = os.path.join(user_path, sub_dir)
+                        if os.path.exists(sub_path):
+                            found_path = self.search_file_recursive(sub_path, file_name, max_depth=2)
+                            if found_path:
+                                return found_path
+        except Exception:
+            pass
+        return None
     
     def search_file_recursive(self, directory, file_name, max_depth=3):
         """递归搜索文件"""
         try:
-            # 跳过一些不需要搜索的目录
-            skip_dirs = {'.git', '__pycache__', 'node_modules', '.vscode', '.idea', 'System Volume Information', '$Recycle.Bin', 'Windows', 'Program Files', 'Program Files (x86)'}
-            
             for root, dirs, files in os.walk(directory):
-                # 限制搜索深度
+                # 检查深度
                 depth = root[len(directory):].count(os.sep)
                 if depth > max_depth:
                     continue
                 
-                # 跳过不需要的目录
-                dirs[:] = [d for d in dirs if d not in skip_dirs]
+                # 在当前目录中搜索文件
+                if file_name in files:
+                    return os.path.join(root, file_name)
                 
-                # 检查文件
+                # 模糊匹配（忽略大小写）
                 for file in files:
-                    if file == file_name:
+                    if file.lower() == file_name.lower():
                         return os.path.join(root, file)
-                
-                # 如果已经搜索了太多文件，停止搜索
-                if len(files) > 1000:  # 避免在大型目录中搜索过久
-                    break
-            
-            return None
-        except PermissionError:
-            # 权限不足，跳过
-            return None
-        except Exception as e:
-            print(f"递归搜索出错: {e}")
-            return None
+        except Exception:
+            pass
+        return None
     
     def handle_open_file(self):
         """处理打开文件的请求"""
         try:
-            # 读取请求体
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
-            request_data = json.loads(post_data.decode('utf-8'))
+            data = json.loads(post_data.decode('utf-8'))
             
-            file_path = request_data.get('filePath')
+            file_path = data.get('filePath', '')
             if not file_path:
-                self.send_json_response({'success': False, 'error': '文件路径不能为空'})
+                self.send_json_response({'success': False, 'error': '文件路径为空'})
                 return
             
             # 检查文件是否存在
             if not os.path.exists(file_path):
-                self.send_json_response({'success': False, 'error': f'文件不存在: {file_path}'})
+                self.send_json_response({'success': False, 'error': '文件不存在'})
                 return
             
-            # 使用os.startfile直接打开文件（等同于双击文件）
+            # 使用系统默认程序打开文件
             try:
-                # os.startfile是Windows专用的方法，会使用默认程序打开文件
-                os.startfile(file_path)
+                if os.name == 'nt':  # Windows
+                    os.startfile(file_path)
+                else:  # Linux/Mac
+                    subprocess.run(['xdg-open', file_path])
                 
-                self.send_json_response({
-                    'success': True, 
-                    'message': f'文件已打开: {file_path}'
-                })
-                    
-            except OSError as e:
-                # 处理文件不存在、权限不足等系统错误
-                self.send_json_response({
-                    'success': False, 
-                    'error': f'无法打开文件: {str(e)}'
-                })
+                self.send_json_response({'success': True})
             except Exception as e:
-                # 处理其他未知错误
-                self.send_json_response({
-                    'success': False, 
-                    'error': f'打开文件失败: {str(e)}'
-                })
+                self.send_json_response({'success': False, 'error': f'打开文件失败: {str(e)}'})
                 
-        except json.JSONDecodeError:
-            self.send_json_response({'success': False, 'error': '请求数据格式错误'})
         except Exception as e:
             self.send_json_response({'success': False, 'error': f'处理请求失败: {str(e)}'})
     
     def remove_duplicate_files(self, data):
-        """移除重复文件，只保留每个文件的最新记录
-        - 所有文件：只按文件名判断重复，保留最新的记录
-        """
-        file_map = {}
-        # 按处理时间排序，最新的在前
-        data.sort(key=lambda x: datetime.fromisoformat(x.get('处理时间', '1970-01-01 00:00:00')), reverse=True)
+        """移除重复文件记录，保留最新的"""
+        file_dict = {}
+        
         for item in data:
-            file_name = item.get('文件名')
-            # 兼容文章标题字段
+            file_name = item.get('文件名', '')
             if not file_name:
-                file_name = item.get('文章标题', '')
+                continue
             
-            if file_name and file_name not in file_map:
-                file_map[file_name] = item
-        return list(file_map.values())
+            # 如果文件已存在，比较时间戳
+            if file_name in file_dict:
+                existing_time = file_dict[file_name].get('处理时间', '')
+                current_time = item.get('处理时间', '')
+            
+                # 保留时间较新的记录
+                if current_time > existing_time:
+                    file_dict[file_name] = item
+            else:
+                file_dict[file_name] = item
+        
+        return list(file_dict.values())
     
     def send_json_response(self, data):
         """发送JSON响应"""
-        response = json.dumps(data, ensure_ascii=False)
         self.send_response(200)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-type', 'application/json; charset=utf-8')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
-        self.wfile.write(response.encode('utf-8'))
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
-    def handle_heartbeat(self):
-        """处理心跳请求"""
-        CustomHTTPRequestHandler.last_heartbeat = time.time()
-        self.send_json_response({'status': 'alive', 'timestamp': time.time()})
+    def handle_download_file(self):
+        """处理文件下载请求"""
+        try:
+            # 解析文件路径参数
+            from urllib.parse import parse_qs, urlparse, unquote
+            
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            file_path = query_params.get('path', [None])[0]
+            
+            if not file_path:
+                self.send_error(400, "Missing file path parameter")
+                return
+            
+            # URL解码文件路径
+            file_path = unquote(file_path)
+            
+            # 处理Windows路径分隔符和空格问题
+            file_path = file_path.replace('/', '\\')
+            
+            # 调试信息
+            print(f"请求下载文件: {file_path}")
+            print(f"文件是否存在: {os.path.exists(file_path)}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                
+                # 尝试从JSON文件中查找文件路径
+                json_file = Path('ai_organize_result.json')
+                if json_file.exists():
+                    with open(json_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    # 查找匹配的文件
+                    for item in data:
+                        target_path = item.get('最终目标路径', '')
+                        file_name = item.get('文件名', '')
+                        
+                        # 检查路径是否匹配
+                        if (target_path == file_path or 
+                            file_name in file_path or 
+                            file_path in target_path):
+                            
+                            if target_path and os.path.exists(target_path):
+                                file_path = target_path
+                                print(f"从JSON中找到文件: {file_path}")
+                                break
+                
+                # 如果仍然找不到，尝试不同的路径格式
+                if not os.path.exists(file_path):
+                    alt_path = file_path.replace('\\', '/')
+                    if os.path.exists(alt_path):
+                        file_path = alt_path
+                        print(f"使用备用路径: {file_path}")
+                    else:
+                        # 如果文件确实不存在，返回404
+                        self.send_response(404)
+                        self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(f"File not found: {file_path}".encode('utf-8'))
+                        return
+            
+            # 获取文件信息
+            file_size = os.path.getsize(file_path)
+            file_name = os.path.basename(file_path)
+            
+            # 根据文件扩展名设置正确的MIME类型
+            mime_type = self.get_mime_type(file_name)
+            
+            # 简化文件名处理，避免编码问题
+            file_ext = os.path.splitext(file_name)[1]
+            safe_filename = f"file{file_ext}" if file_ext else "file"
+            
+            # 设置响应头 - 让浏览器直接打开文件
+            self.send_response(200)
+            self.send_header('Content-Type', mime_type)
+            self.send_header('Content-Disposition', f'inline; filename="{safe_filename}"')
+            self.send_header('Content-Length', str(file_size))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 直接发送文件内容
+            with open(file_path, 'rb') as f:
+                self.wfile.write(f.read())
+                
+        except Exception as e:
+            print(f"下载文件时出错: {e}")
+            # 返回简单的错误信息，避免编码问题
+            try:
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                error_msg = f"Download failed: {str(e)}"
+                self.wfile.write(error_msg.encode('utf-8'))
+            except:
+                # 如果还是有问题，发送最简单的错误信息
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(b"Download failed")
+    
+    def get_mime_type(self, filename):
+        """根据文件扩展名获取MIME类型"""
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(filename)
+        if mime_type:
+            return mime_type
+        
+        # 常见文件类型的MIME类型映射
+        mime_map = {
+            '.pdf': 'application/pdf',
+            '.doc': 'application/msword',
+            '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            '.xls': 'application/vnd.ms-excel',
+            '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            '.ppt': 'application/vnd.ms-powerpoint',
+            '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            '.txt': 'text/plain',
+            '.rtf': 'application/rtf',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.gif': 'image/gif',
+            '.bmp': 'image/bmp',
+            '.mp4': 'video/mp4',
+            '.avi': 'video/x-msvideo',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav',
+            '.zip': 'application/zip',
+            '.rar': 'application/x-rar-compressed',
+            '.7z': 'application/x-7z-compressed'
+        }
+        
+        ext = os.path.splitext(filename)[1].lower()
+        return mime_map.get(ext, 'application/octet-stream')
     
     def do_OPTIONS(self):
-        """处理OPTIONS请求（CORS预检）"""
+        """处理预检请求"""
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
-def monitor_browser_connection(httpd):
-    """
-    监控浏览器连接状态，如果超过60秒没有心跳，则关闭服务器
-    
-    Args:
-        httpd: HTTP服务器实例
-    """
-    # 等待60秒后开始监控，给浏览器足够时间启动和发送第一次心跳
-    time.sleep(60)
-    
-    while True:
-        time.sleep(15)  # 每15秒检查一次
-        current_time = time.time()
-        time_since_last_heartbeat = current_time - CustomHTTPRequestHandler.last_heartbeat
-        
-        # 如果超过45秒没有心跳，认为浏览器已关闭
-        if time_since_last_heartbeat > 45:
-            print("\n检测到浏览器已关闭，正在停止服务器...")
-            httpd.shutdown()
-            break
-
-def start_local_server(port=8000):
+def start_local_server(port=80, bind_address="0.0.0.0"):
     """
     启动本地HTTP服务器
     
     Args:
-        port (int): 服务器端口号，默认8000
+        port (int): 服务器端口号，默认80（隐藏端口）
+        bind_address (str): 绑定地址，默认0.0.0.0（所有网络接口）
     """
     try:
         # 确保在正确的目录下启动服务器
@@ -503,52 +538,52 @@ def start_local_server(port=8000):
         os.chdir(script_dir)
         
         # 检查必要文件是否存在
-        html_file = script_dir / 'ai_result_viewer.html'
+        html_file = script_dir / 'viewer.html'
+        fallback_html_file = script_dir / 'ai_result_viewer.html'
         json_file = script_dir / 'ai_organize_result.json'
-        
-        if not html_file.exists():
-            print(f"错误: 找不到HTML文件 {html_file}")
-            return False
-            
-        if not json_file.exists():
-            print(f"警告: JSON文件 {json_file} 不存在，将显示空数据")
-            # 创建空的JSON文件
-            with open(json_file, 'w', encoding='utf-8') as f:
-                f.write('[]')
         
         # 创建HTTP服务器
         handler = CustomHTTPRequestHandler
         
         # 尝试启动服务器
-        with socketserver.TCPServer(("", port), handler) as httpd:
-            server_url = f"http://localhost:{port}"
-            viewer_url = f"{server_url}/ai_result_viewer.html"
+        with socketserver.TCPServer((bind_address, port), handler) as httpd:
+            # 获取本机IP地址
+            local_ip = get_local_ip()
             
-            print(f"\n=== AI结果查看器服务器 ===")
-            print(f"服务器地址: {server_url}")
-            print(f"查看器地址: {viewer_url}")
-            print(f"API端点:")
-            print(f"  - 清理重复文件: {server_url}/api/clean-duplicates")
-            print(f"  - 检查并修复路径: {server_url}/api/check-and-fix-paths")
-            print(f"  - 打开文件: {server_url}/api/open-file")
-            print(f"  - 心跳检测: {server_url}/api/heartbeat")
-            print(f"工作目录: {script_dir}")
-            print(f"按 Ctrl+C 停止服务器，或关闭浏览器自动停止")
-            print("=" * 40)
+            # 构建服务器URL
+            if bind_address == "0.0.0.0":
+                server_url = f"http://{local_ip}" if port == 80 else f"http://{local_ip}:{port}"
+                localhost_url = f"http://localhost" if port == 80 else f"http://localhost:{port}"
+            else:
+                server_url = f"http://{bind_address}" if port == 80 else f"http://{bind_address}:{port}"
+                localhost_url = server_url
             
-            # 自动打开浏览器
-            try:
-                webbrowser.open(viewer_url)
-                print(f"已在浏览器中打开: {viewer_url}")
-            except Exception as e:
-                print(f"无法自动打开浏览器: {e}")
-                print(f"请手动访问: {viewer_url}")
+            # 优先使用viewer.html，如果不存在则使用ai_result_viewer.html
+            if html_file.exists():
+                primary_html = 'viewer.html'
+                primary_url = f"{server_url}/viewer.html"
+                localhost_primary_url = f"{localhost_url}/viewer.html"
+            elif fallback_html_file.exists():
+                primary_html = 'ai_result_viewer.html'
+                primary_url = f"{server_url}/ai_result_viewer.html"
+                localhost_primary_url = f"{localhost_url}/ai_result_viewer.html"
+                print(f"注意: 使用备用HTML文件 {fallback_html_file}")
+            else:
+                print(f"错误: 找不到HTML文件 viewer.html 或 ai_result_viewer.html")
+                return False
             
-            print("\n服务器正在运行...")
+            if not json_file.exists():
+                print(f"警告: JSON文件 {json_file} 不存在，将显示空数据")
+                # 创建空的JSON文件
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    f.write('[]')
             
-            # 启动浏览器连接监控线程
-            monitor_thread = threading.Thread(target=monitor_browser_connection, args=(httpd,), daemon=True)
-            monitor_thread.start()
+            print(f"服务器已启动 - 本机: {localhost_primary_url}")
+            
+            # 启动服务器后立即打开浏览器
+            open_browser_with_urls(local_ip)
+            
+
             
             # 启动服务器
             httpd.serve_forever()
@@ -556,7 +591,7 @@ def start_local_server(port=8000):
     except OSError as e:
         if e.errno == 10048:  # 端口被占用
             print(f"错误: 端口 {port} 已被占用，尝试使用端口 {port + 1}")
-            return start_local_server(port + 1)
+            return start_local_server(port + 1, bind_address)
         else:
             print(f"启动服务器失败: {e}")
             return False
@@ -571,19 +606,28 @@ def main():
     """
     主函数
     """
-    print("AI结果查看器 - 本地服务器启动器")
-    print("解决浏览器CORS策略限制问题")
     
     # 检查命令行参数
-    port = 8000
-    if len(sys.argv) > 1:
-        try:
-            port = int(sys.argv[1])
-        except ValueError:
-            print(f"无效的端口号: {sys.argv[1]}，使用默认端口 8000")
+    port = 80  # 默认使用80端口，浏览器不显示端口号
+    bind_address = "0.0.0.0"  # 默认绑定到所有网络接口
+    
+    # 解析命令行参数
+    for i, arg in enumerate(sys.argv[1:], 1):
+        if arg.isdigit():
+            port = int(arg)
+        elif arg in ["0.0.0.0", "localhost", "127.0.0.1"]:
+            bind_address = arg
+        else:
+            print(f"未知参数: {arg}")
+    
+    # 检查服务器是否已经在运行
+    if check_server_running(port):
+        local_ip = get_local_ip()
+        open_browser_with_urls(local_ip)
+        return True
     
     # 启动服务器
-    success = start_local_server(port)
+    success = start_local_server(port, bind_address)
     
     if not success:
         print("\n服务器启动失败，请检查错误信息")

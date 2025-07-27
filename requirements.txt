@@ -1,6 +1,6 @@
 # 核心依赖
 ollama>=0.1.0
-Pillow>=9.0.0
+Pillow>=10.0.0
 
 # GUI界面依赖
 tkinter-tooltip>=2.0.0
@@ -8,14 +8,14 @@ ttkbootstrap>=1.10.1
 
 # 文档处理依赖
 PyPDF2>=3.0.0
-python-docx>=0.8.11
+python-docx>=1.0.0
 
 # Windows文档转换依赖（可选）
 pywin32>=306; sys_platform == "win32"
 pypandoc>=1.11
 
 # 图像处理依赖
-opencv-python>=4.5.0
+opencv-python>=4.8.0
 numpy>=1.21.0
 
 # 文件处理依赖
@@ -27,13 +27,13 @@ pyyaml>=6.0
 coloredlogs>=15.0
 
 # 网络请求依赖
-requests>=2.28.0
+requests>=2.31.0
 
 # AI模型依赖
 openai>=1.0.0
 
 # 微信文章内容抓取与AI摘要依赖
-beautifulsoup4>=4.13.0
+beautifulsoup4>=4.12.0
 html2text>=2025.4.15
 fake-useragent>=2.2.0
 

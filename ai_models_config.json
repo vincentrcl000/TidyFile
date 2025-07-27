@@ -1,23 +1,13 @@
 {
   "models": [
     {
-      "id": "qwen-long",
-      "name": "Qwen-Long在线模型",
-      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "model_name": "qwen-long",
-      "model_type": "openai_compatible",
-      "api_key": "sk-9b728f2f153f4a81b507caeced3380d1",
-      "priority": 4,
-      "enabled": true
-    },
-    {
       "id": "ollama-local",
       "name": "本地Ollama模型",
       "base_url": "http://localhost:11434",
       "model_name": "qwen3:4b",
       "model_type": "ollama",
       "api_key": "",
-      "priority": 2,
+      "priority": 3,
       "enabled": true
     },
     {
@@ -28,7 +18,7 @@
       "model_type": "ollama",
       "api_key": "",
       "priority": 1,
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "LM studio-局域网",
@@ -37,8 +27,8 @@
       "model_name": "qwen/qwen3-8b",
       "model_type": "lm_studio",
       "api_key": "",
-      "priority": 3,
-      "enabled": true
+      "priority": 2,
+      "enabled": false
     }
   ]
 }
