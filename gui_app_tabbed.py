@@ -26,6 +26,332 @@ import time
 from file_reader import FileReader
 from transfer_log_manager import TransferLogManager
 
+class TagManagerGUI:
+    """标签管理器GUI类"""
+    
+    def __init__(self, parent_frame, root_window):
+        """初始化标签管理器"""
+        self.parent_frame = parent_frame
+        self.root_window = root_window
+        self.json_file_path = "ai_organize_result.json"
+        self.tags_data = []
+        self.first_level_tags = set()
+        
+        # 创建界面
+        self.create_widgets()
+        
+        # 加载数据
+        self.load_tags_data()
+    
+    def create_widgets(self):
+        """创建界面组件"""
+        # 创建左右分栏框架
+        content_frame = tb.Frame(self.parent_frame)
+        content_frame.pack(fill=BOTH, expand=True)
+        content_frame.columnconfigure(0, weight=1)
+        content_frame.columnconfigure(1, weight=1)
+        content_frame.rowconfigure(0, weight=1)
+        
+        # 左侧：标签列表区域
+        left_frame = tb.LabelFrame(content_frame, text="一级标签列表", padding="10")
+        left_frame.grid(row=0, column=0, sticky=(W, E, N, S), padx=(0, 5))
+        
+        # 左侧顶部：统计信息
+        self.stats_label = tb.Label(left_frame, text="正在加载...", font=('Arial', 10))
+        self.stats_label.pack(anchor=W, pady=(0, 10))
+        
+        # 左侧中间：标签列表
+        list_frame = tb.Frame(left_frame)
+        list_frame.pack(fill=BOTH, expand=True)
+        
+        # 创建标签列表（使用Treeview）
+        columns = ('标签名称', '使用次数', '选择')
+        self.tag_tree = tb.Treeview(list_frame, columns=columns, show='headings', height=15)
+        
+        # 设置列标题和宽度
+        column_widths = [200, 80, 60]
+        for i, col in enumerate(columns):
+            self.tag_tree.heading(col, text=col)
+            self.tag_tree.column(col, width=column_widths[i], minwidth=50)
+        
+        # 添加滚动条
+        scrollbar = tb.Scrollbar(list_frame, orient=VERTICAL, command=self.tag_tree.yview)
+        self.tag_tree.configure(yscrollcommand=scrollbar.set)
+        
+        self.tag_tree.pack(side=LEFT, fill=BOTH, expand=True)
+        scrollbar.pack(side=RIGHT, fill=Y)
+        
+        # 绑定点击事件
+        self.tag_tree.bind('<Button-1>', self.on_tag_click)
+        
+        # 左侧底部：操作按钮
+        button_frame = tb.Frame(left_frame)
+        button_frame.pack(fill=X, pady=(10, 0))
+        
+        tb.Button(button_frame, text="全选", command=self.select_all_tags, bootstyle=INFO).pack(side=LEFT, padx=(0, 5))
+        tb.Button(button_frame, text="取消全选", command=self.deselect_all_tags, bootstyle=SECONDARY).pack(side=LEFT, padx=(0, 5))
+        tb.Button(button_frame, text="刷新", command=self.refresh_tags, bootstyle=WARNING).pack(side=LEFT)
+        
+        # 右侧：预览和操作区域
+        right_frame = tb.LabelFrame(content_frame, text="操作预览", padding="10")
+        right_frame.grid(row=0, column=1, sticky=(W, E, N, S), padx=(5, 0))
+        
+        # 右侧顶部：操作说明
+        preview_label = tb.Label(right_frame, text="选中要删除的标签，点击下方按钮执行操作", font=('Arial', 10))
+        preview_label.pack(anchor=W, pady=(0, 10))
+        
+        # 右侧中间：预览文本区域
+        preview_frame = tb.Frame(right_frame)
+        preview_frame.pack(fill=BOTH, expand=True)
+        
+        self.preview_text = ScrolledText(preview_frame, height=15, width=50)
+        self.preview_text.pack(fill=BOTH, expand=True)
+        
+        # 右侧底部：操作按钮
+        action_frame = tb.Frame(right_frame)
+        action_frame.pack(fill=X, pady=(10, 0))
+        
+        tb.Button(action_frame, text="预览删除效果", command=self.preview_deletion, bootstyle=INFO).pack(side=LEFT, padx=(0, 5))
+        tb.Button(action_frame, text="执行删除", command=self.execute_deletion, bootstyle=DANGER).pack(side=LEFT, padx=(0, 5))
+        tb.Button(action_frame, text="备份原文件", command=self.backup_file, bootstyle=SUCCESS).pack(side=LEFT)
+    
+    def load_tags_data(self):
+        """加载标签数据"""
+        try:
+            if not os.path.exists(self.json_file_path):
+                messagebox.showerror("错误", f"文件 {self.json_file_path} 不存在")
+                return
+            
+            with open(self.json_file_path, 'r', encoding='utf-8') as f:
+                self.tags_data = json.load(f)
+            
+            # 提取一级标签
+            self.first_level_tags = set()
+            tag_counts = {}
+            
+            for item in self.tags_data:
+                if isinstance(item, dict) and '标签' in item:
+                    tags = item['标签']
+                    if isinstance(tags, dict) and '链式标签' in tags:
+                        chain_tag = tags['链式标签']
+                        if isinstance(chain_tag, str):
+                            # 处理包含"/"的多级标签
+                            if '/' in chain_tag:
+                                first_tag = chain_tag.split('/')[0]
+                            else:
+                                # 处理单级标签
+                                first_tag = chain_tag
+                            
+                            self.first_level_tags.add(first_tag)
+                            tag_counts[first_tag] = tag_counts.get(first_tag, 0) + 1
+            
+            # 更新统计信息
+            self.stats_label.config(text=f"共找到 {len(self.first_level_tags)} 个一级标签，{len(self.tags_data)} 条记录")
+            
+            # 更新标签列表
+            self.refresh_tag_list()
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"加载标签数据失败: {e}")
+    
+    def refresh_tag_list(self):
+        """刷新标签列表"""
+        # 清空现有项目
+        for item in self.tag_tree.get_children():
+            self.tag_tree.delete(item)
+        
+        # 重新计算标签使用次数（确保与load_tags_data中的逻辑一致）
+        tag_counts = {}
+        for item in self.tags_data:
+            if isinstance(item, dict) and '标签' in item:
+                tags = item['标签']
+                if isinstance(tags, dict) and '链式标签' in tags:
+                    chain_tag = tags['链式标签']
+                    if isinstance(chain_tag, str):
+                        # 处理包含"/"的多级标签
+                        if '/' in chain_tag:
+                            first_tag = chain_tag.split('/')[0]
+                        else:
+                            # 处理单级标签
+                            first_tag = chain_tag
+                        
+                        tag_counts[first_tag] = tag_counts.get(first_tag, 0) + 1
+        
+        # 添加标签到列表（使用重新计算的数据）
+        inserted_count = 0
+        for tag in sorted(tag_counts.keys()):
+            count = tag_counts[tag]
+            self.tag_tree.insert('', 'end', values=(tag, count, '□'))
+            inserted_count += 1
+        
+        # 更新统计信息以显示实际插入的项目数
+        current_text = self.stats_label.cget("text")
+        if "个一级标签" in current_text:
+            # 更新标签数量信息
+            self.stats_label.config(text=f"共找到 {len(tag_counts)} 个一级标签，{len(self.tags_data)} 条记录，界面显示 {inserted_count} 项")
+    
+    def select_all_tags(self):
+        """全选标签"""
+        for item in self.tag_tree.get_children():
+            values = list(self.tag_tree.item(item)['values'])
+            values[2] = '☑'
+            self.tag_tree.item(item, values=values)
+    
+    def deselect_all_tags(self):
+        """取消全选标签"""
+        for item in self.tag_tree.get_children():
+            values = list(self.tag_tree.item(item)['values'])
+            values[2] = '□'
+            self.tag_tree.item(item, values=values)
+    
+    def refresh_tags(self):
+        """刷新标签数据"""
+        self.load_tags_data()
+    
+    def get_selected_tags(self):
+        """获取选中的标签"""
+        selected_tags = []
+        for item in self.tag_tree.get_children():
+            values = self.tag_tree.item(item)['values']
+            if values[2] == '☑':
+                selected_tags.append(values[0])
+        return selected_tags
+    
+    def on_tag_click(self, event):
+        """处理标签点击事件"""
+        region = self.tag_tree.identify("region", event.x, event.y)
+        if region == "cell":
+            column = self.tag_tree.identify_column(event.x)
+            if column == '#3':  # 选择列
+                item = self.tag_tree.identify_row(event.y)
+                if item:
+                    values = list(self.tag_tree.item(item)['values'])
+                    # 切换选择状态
+                    values[2] = '☑' if values[2] == '□' else '□'
+                    self.tag_tree.item(item, values=values)
+    
+    def preview_deletion(self):
+        """预览删除效果"""
+        selected_tags = self.get_selected_tags()
+        if not selected_tags:
+            messagebox.showwarning("警告", "请先选择要删除的标签")
+            return
+        
+        self.preview_text.delete(1.0, END)
+        preview_content = f"将要删除以下 {len(selected_tags)} 个一级标签：\n\n"
+        
+        for tag in selected_tags:
+            preview_content += f"• {tag}\n"
+        
+        preview_content += f"\n影响范围：\n"
+        
+        # 统计影响
+        affected_count = 0
+        examples = []
+        
+        for item in self.tags_data:
+            if isinstance(item, dict) and '标签' in item:
+                tags = item['标签']
+                if isinstance(tags, dict) and '链式标签' in tags:
+                    chain_tag = tags['链式标签']
+                    if isinstance(chain_tag, str):
+                        # 处理包含"/"的多级标签
+                        if '/' in chain_tag:
+                            first_tag = chain_tag.split('/')[0]
+                        else:
+                            # 处理单级标签
+                            first_tag = chain_tag
+                        
+                        if first_tag in selected_tags:
+                            affected_count += 1
+                            if len(examples) < 5:  # 只显示前5个例子
+                                filename = item.get('文件名', '未知文件')
+                                old_tag = chain_tag
+                                # 如果是多级标签，删除第一级；如果是单级标签，删除整个标签
+                                if '/' in chain_tag:
+                                    new_tag = '/'.join(chain_tag.split('/')[1:]) if len(chain_tag.split('/')) > 1 else ''
+                                else:
+                                    new_tag = ''
+                                examples.append(f"  {filename}\n    原标签: {old_tag}\n    新标签: {new_tag}\n")
+        
+        preview_content += f"将影响 {affected_count} 条记录\n\n"
+        preview_content += "示例：\n" + ''.join(examples)
+        
+        if affected_count > 5:
+            preview_content += f"\n... 还有 {affected_count - 5} 条记录\n"
+        
+        self.preview_text.insert(1.0, preview_content)
+    
+    def execute_deletion(self):
+        """执行删除操作"""
+        selected_tags = self.get_selected_tags()
+        if not selected_tags:
+            messagebox.showwarning("警告", "请先选择要删除的标签")
+            return
+        
+        # 确认删除
+        result = messagebox.askyesno(
+            "确认删除", 
+            f"确定要删除选中的 {len(selected_tags)} 个标签吗？\n此操作不可撤销！"
+        )
+        
+        if not result:
+            return
+        
+        try:
+            # 执行删除
+            modified_count = 0
+            
+            for item in self.tags_data:
+                if isinstance(item, dict) and '标签' in item:
+                    tags = item['标签']
+                    if isinstance(tags, dict) and '链式标签' in tags:
+                        chain_tag = tags['链式标签']
+                        if isinstance(chain_tag, str):
+                            # 处理包含"/"的多级标签
+                            if '/' in chain_tag:
+                                first_tag = chain_tag.split('/')[0]
+                            else:
+                                # 处理单级标签
+                                first_tag = chain_tag
+                            
+                            if first_tag in selected_tags:
+                                # 如果是多级标签，删除第一个标签段；如果是单级标签，删除整个标签
+                                if '/' in chain_tag:
+                                    new_chain_tag = '/'.join(chain_tag.split('/')[1:])
+                                else:
+                                    new_chain_tag = ''
+                                tags['链式标签'] = new_chain_tag
+                                modified_count += 1
+            
+            # 保存文件
+            with open(self.json_file_path, 'w', encoding='utf-8') as f:
+                json.dump(self.tags_data, f, ensure_ascii=False, indent=2)
+            
+            messagebox.showinfo("成功", f"删除操作完成！\n修改了 {modified_count} 条记录")
+            
+            # 刷新数据
+            self.load_tags_data()
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"执行删除操作失败: {e}")
+    
+    def backup_file(self):
+        """备份原文件"""
+        try:
+            import shutil
+            from datetime import datetime
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = f"{self.json_file_path}.backup_{timestamp}"
+            
+            shutil.copy2(self.json_file_path, backup_path)
+            
+            messagebox.showinfo("成功", f"文件已备份到：\n{backup_path}")
+            
+        except Exception as e:
+            messagebox.showerror("错误", f"备份文件失败: {e}")
+
 class FileOrganizerTabGUI:
     """文件整理器分页图形用户界面类"""
     
@@ -113,18 +439,10 @@ class FileOrganizerTabGUI:
     def initialize_organizers(self):
         """初始化文件整理器"""
         try:
-            # 优先使用新的智能文件分类器
-            try:
-                from smart_file_classifier_adapter import SmartFileClassifierAdapter
-                self.ai_organizer = SmartFileClassifierAdapter(model_name=None, enable_transfer_log=True)
-                self.log_message("新的智能文件分类器初始化完成")
-            except ImportError:
-                # 如果新分类器不可用，回退到旧分类器
-                from file_organizer_ai import FileOrganizer as AIFileOrganizer
-                self.ai_organizer = AIFileOrganizer(model_name=None, enable_transfer_log=True)
-                self.log_message("使用旧版AI文件整理器（新分类器不可用）")
-            
-            # 简单文件整理器已删除
+            # 使用新的智能文件分类器
+            from smart_file_classifier_adapter import SmartFileClassifierAdapter
+            self.ai_organizer = SmartFileClassifierAdapter(model_name=None, enable_transfer_log=True)
+            self.log_message("智能文件分类器初始化完成")
             
             self.log_message("文件整理器初始化完成")
         except Exception as e:
@@ -353,7 +671,6 @@ class FileOrganizerTabGUI:
         def start_article_reader():
             try:
                 import subprocess
-                import sys
                 import socket
                 
                 # 检查是否已经有服务器在运行
@@ -380,32 +697,36 @@ class FileOrganizerTabGUI:
                         lan_url = "http://[本机IP]/viewer.html"
                     
                     self.log_message(f"检测到已有服务器运行，请直接在浏览器访问:\n本机: http://localhost/viewer.html\n局域网: {lan_url}")
-                    messagebox.showinfo("提示", f"检测到文章阅读助手已在运行！\n\n本机访问: http://localhost/viewer.html\n局域网访问: {lan_url}")
+                    
+                    # 创建可复制的链接对话框
+                    self._show_article_reader_urls("http://localhost/viewer.html", lan_url, "服务器已在运行")
                     return
                 
-                # 启动查看器服务器
-                process = subprocess.Popen([sys.executable, "start_viewer_server.py"], 
-                                         cwd=os.getcwd(), 
-                                         creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0)
+                # 直接调用VBS脚本启动服务器
+                vbs_script = "启动文章阅读助手.vbs"
+                if os.path.exists(vbs_script):
+                    subprocess.Popen(["cscript", "//nologo", vbs_script], 
+                                   cwd=os.getcwd(), 
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                    
+                    self.log_message("已启动文章阅读助手服务器")
+                    
+                    # 获取本机IP地址并显示URL对话框
+                    try:
+                        import socket
+                        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                        s.connect(("8.8.8.8", 80))
+                        local_ip = s.getsockname()[0]
+                        s.close()
+                        lan_url = f"http://{local_ip}/viewer.html"
+                    except:
+                        lan_url = "http://[本机IP]/viewer.html"
+                    
+                    # 显示URL对话框
+                    self._show_article_reader_urls("http://localhost/viewer.html", lan_url, "启动成功")
+                else:
+                    messagebox.showerror("错误", f"找不到启动脚本: {vbs_script}")
                 
-                # 存储进程引用以便后续管理
-                if not hasattr(self, 'article_reader_processes'):
-                    self.article_reader_processes = []
-                self.article_reader_processes.append(process)
-                
-                # 获取本机IP地址
-                try:
-                    import socket
-                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                    s.connect(("8.8.8.8", 80))
-                    local_ip = s.getsockname()[0]
-                    s.close()
-                    lan_url = f"http://{local_ip}/viewer.html"
-                except:
-                    lan_url = "http://[本机IP]/viewer.html"
-                
-                self.log_message("已启动文章阅读助手服务器")
-                messagebox.showinfo("提示", f"文章阅读助手已启动！\n\n服务器正在启动中，请稍后在浏览器访问：\n\n本机访问: http://localhost/viewer.html\n局域网访问: {lan_url}\n\n关闭浏览器时服务器会自动停止。")
             except Exception as e:
                 self.log_message(f"启动文章阅读助手失败: {e}")
                 messagebox.showerror("错误", f"启动文章阅读助手失败: {e}")
@@ -431,6 +752,145 @@ class FileOrganizerTabGUI:
         
         for instruction in instructions:
             tb.Label(status_frame, text=instruction, font=('Arial', 9)).pack(anchor=W, pady=2)
+    
+    def _show_article_reader_urls(self, local_url, lan_url, status):
+        """显示文章阅读助手URL对话框"""
+        # 创建自定义对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("文章阅读助手 - " + status)
+        dialog.geometry("600x450")
+        dialog.resizable(True, True)
+        dialog.minsize(500, 350)
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 居中显示
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (600 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (450 // 2)
+        dialog.geometry(f"600x450+{x}+{y}")
+        
+        # 主框架
+        main_frame = tb.Frame(dialog, padding="20")
+        main_frame.pack(fill=BOTH, expand=True)
+        
+        # 配置主框架的网格权重
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)  # 让说明文字区域可以扩展
+        
+        # 标题
+        title_label = tb.Label(main_frame, text="文章阅读助手已启动", font=('Arial', 16, 'bold'))
+        title_label.grid(row=0, column=0, pady=(0, 20), sticky=W)
+        
+        # 链接框架
+        links_frame = tb.Frame(main_frame)
+        links_frame.grid(row=1, column=0, sticky=EW, pady=(0, 20))
+        links_frame.columnconfigure(0, weight=1)
+        
+        # 本机访问
+        local_frame = tb.LabelFrame(links_frame, text="本机访问", padding="10")
+        local_frame.grid(row=0, column=0, sticky=EW, pady=(0, 10))
+        local_frame.columnconfigure(0, weight=1)
+        
+        local_entry = tb.Entry(local_frame, font=('Arial', 11), width=60)
+        local_entry.grid(row=0, column=0, sticky=EW, padx=(0, 10))
+        local_entry.insert(0, local_url)
+        local_entry.config(state='readonly')
+        
+        def copy_local():
+            dialog.clipboard_clear()
+            dialog.clipboard_append(local_url)
+            dialog.update()
+            # 显示复制成功提示
+            copy_btn.config(text="已复制")
+            dialog.after(1000, lambda: copy_btn.config(text="复制"))
+        
+        copy_btn = tb.Button(local_frame, text="复制", command=copy_local, bootstyle=INFO)
+        copy_btn.grid(row=0, column=1)
+        
+        # 局域网访问
+        lan_frame = tb.LabelFrame(links_frame, text="局域网访问", padding="10")
+        lan_frame.grid(row=1, column=0, sticky=EW, pady=(0, 10))
+        lan_frame.columnconfigure(0, weight=1)
+        
+        lan_entry = tb.Entry(lan_frame, font=('Arial', 11), width=60)
+        lan_entry.grid(row=0, column=0, sticky=EW, padx=(0, 10))
+        lan_entry.insert(0, lan_url)
+        lan_entry.config(state='readonly')
+        
+        def copy_lan():
+            dialog.clipboard_clear()
+            dialog.clipboard_append(lan_url)
+            dialog.update()
+            # 显示复制成功提示
+            copy_lan_btn.config(text="已复制")
+            dialog.after(1000, lambda: copy_lan_btn.config(text="复制"))
+        
+        copy_lan_btn = tb.Button(lan_frame, text="复制", command=copy_lan, bootstyle=INFO)
+        copy_lan_btn.grid(row=0, column=1)
+        
+        # 说明文字框架（可滚动）
+        info_frame = tb.LabelFrame(main_frame, text="使用说明", padding="10")
+        info_frame.grid(row=2, column=0, sticky=NSEW, pady=(0, 20))
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.rowconfigure(0, weight=1)
+        
+        # 创建文本框用于显示说明文字
+        info_text = tk.Text(info_frame, font=('Arial', 10), wrap=tk.WORD, height=8, 
+                           relief=tk.FLAT, fg='black')
+        info_text.grid(row=0, column=0, sticky=NSEW)
+        
+        # 添加滚动条
+        scrollbar = tk.Scrollbar(info_frame, orient=tk.VERTICAL, command=info_text.yview)
+        scrollbar.grid(row=0, column=1, sticky=NS)
+        info_text.config(yscrollcommand=scrollbar.set)
+        
+        # 插入说明文字
+        instructions = [
+            "📋 使用说明：",
+            "",
+            "• 点击复制按钮可复制链接到剪贴板",
+            "• 在浏览器中粘贴链接即可访问",
+            "• 局域网内其他设备可通过局域网链接访问",
+            "• 关闭浏览器时服务器会自动停止",
+            "",
+            "🔧 功能特性：",
+            "",
+            "• 查看AI分析结果和文件摘要",
+            "• 直接打开文件进行查看",
+            "• 重复解读后点击刷新删除重复记录",
+            "• 友好的Web界面，支持搜索和筛选",
+            "",
+            "💡 提示：",
+            "",
+            "• 如果本机访问失败，请尝试局域网访问",
+            "• 确保防火墙允许程序访问网络",
+            "• 服务器启动后会自动打开浏览器"
+        ]
+        
+        for instruction in instructions:
+            info_text.insert(tk.END, instruction + "\n")
+        
+        info_text.config(state=tk.DISABLED)  # 设置为只读
+        
+        # 按钮框架
+        button_frame = tb.Frame(main_frame)
+        button_frame.grid(row=3, column=0, pady=(0, 10))
+        
+        def open_local():
+            import webbrowser
+            webbrowser.open(local_url)
+        
+        def open_lan():
+            import webbrowser
+            webbrowser.open(lan_url)
+        
+        def close_dialog():
+            dialog.destroy()
+        
+        tb.Button(button_frame, text="本机打开", command=open_local, bootstyle=SUCCESS).pack(side=LEFT, padx=(0, 10))
+        tb.Button(button_frame, text="局域网打开", command=open_lan, bootstyle=WARNING).pack(side=LEFT, padx=(0, 10))
+        tb.Button(button_frame, text="关闭", command=close_dialog, bootstyle=SECONDARY).pack(side=LEFT)
         
     def create_ai_classification_tab(self):
         """创建智能分类页面"""
@@ -555,57 +1015,97 @@ class FileOrganizerTabGUI:
         
     def create_tools_tab(self):
         """创建工具页面"""
-        tools_frame = tb.Frame(self.notebook, padding="5")
+        tools_frame = tb.Frame(self.notebook, padding="10")
         self.notebook.add(tools_frame, text="工具")
         
-        # 工具按钮框架 - 使用网格布局确保按钮紧凑排列
+        # 标题
+        title_label = tb.Label(tools_frame, text="系统工具", font=("Arial", 16, "bold"))
+        title_label.pack(pady=(0, 20))
+        
+        # 工具按钮框架 - 使用垂直布局
         tools_button_frame = tb.Frame(tools_frame)
-        tools_button_frame.grid(row=0, column=0, pady=10)
-        tools_button_frame.columnconfigure(0, weight=1)
-        tools_button_frame.columnconfigure(1, weight=1)
-        tools_button_frame.columnconfigure(2, weight=1)
+        tools_button_frame.pack(fill=X, padx=20)
         
-        # 第一行按钮
-        self.directory_organize_button = tb.Button(
-            tools_button_frame,
-            text="文件目录智能整理",
-            command=self.show_directory_organize_dialog,
-            style='info.TButton'
-        )
-        self.directory_organize_button.grid(row=0, column=0, padx=3, pady=3, sticky=(W, E))
+        # 工具配置 - 按要求的顺序排列
+        tools_config = [
+            {
+                "name": "删除重复文件",
+                "command": self.show_duplicate_removal_dialog,
+                "style": "warning.TButton",
+                "description": "扫描并删除系统中的重复文件，节省存储空间"
+            },
+            {
+                "name": "分类规则管理",
+                "command": self.show_classification_rules_manager,
+                "style": "info.TButton",
+                "description": "管理文件分类规则，自定义文件整理策略"
+            },
+            {
+                "name": "AI模型配置",
+                "command": self.show_ai_model_config,
+                "style": "info.TButton",
+                "description": "配置和管理AI模型参数，优化智能分类效果"
+            },
+            {
+                "name": "标签管理",
+                "command": self.show_tag_manager,
+                "style": "info.TButton",
+                "description": "管理文件标签，批量删除和整理标签体系"
+            },
+            {
+                "name": "日志",
+                "command": self.show_transfer_logs,
+                "style": "secondary.TButton",
+                "description": "查看文件操作历史记录，支持操作回滚"
+            }
+        ]
         
-        self.duplicate_button = tb.Button(
-            tools_button_frame,
-            text="删除重复文件",
-            command=self.show_duplicate_removal_dialog,
-            style='warning.TButton'
-        )
-        self.duplicate_button.grid(row=0, column=1, padx=3, pady=3, sticky=(W, E))
+        # 创建工具按钮和描述
+        for i, tool in enumerate(tools_config):
+            # 工具行框架
+            tool_row = tb.Frame(tools_button_frame)
+            tool_row.pack(fill=X, pady=8)
+            
+            # 按钮
+            button = tb.Button(
+                tool_row,
+                text=tool["name"],
+                command=tool["command"],
+                style=tool["style"],
+                width=15
+            )
+            button.pack(side=LEFT, padx=(0, 15))
+            
+            # 描述标签
+            desc_label = tb.Label(
+                tool_row,
+                text=tool["description"],
+                font=("Arial", 10),
+                foreground="gray",
+                anchor=W
+            )
+            desc_label.pack(side=LEFT, fill=X, expand=True)
+            
+            # 保存按钮引用（如果需要）
+            if tool["name"] == "删除重复文件":
+                self.duplicate_button = button
+            elif tool["name"] == "分类规则管理":
+                self.classification_rules_button = button
+            elif tool["name"] == "AI模型配置":
+                self.ai_model_config_button = button
+            elif tool["name"] == "标签管理":
+                self.tag_manager_button = button
+            elif tool["name"] == "日志":
+                self.log_button = button
         
-        self.log_button = tb.Button(
-            tools_button_frame,
-            text="日志",
-            command=self.show_transfer_logs,
-            style='secondary.TButton'
-        )
-        self.log_button.grid(row=0, column=2, padx=3, pady=3, sticky=(W, E))
-        
-        # 第二行按钮
-        self.classification_rules_button = tb.Button(
-            tools_button_frame,
-            text="分类规则管理",
-            command=self.show_classification_rules_manager,
-            style='info.TButton'
-        )
-        self.classification_rules_button.grid(row=1, column=0, padx=3, pady=3, sticky=(W, E))
-        
-        self.ai_model_config_button = tb.Button(
-            tools_button_frame,
-            text="AI模型配置",
-            command=self.show_ai_model_config,
-            style='info.TButton'
-        )
-        self.ai_model_config_button.grid(row=1, column=1, padx=3, pady=3, sticky=(W, E))
+        # 文件目录智能整理功能暂时隐藏，保留代码
+        # self.directory_organize_button = tb.Button(
+        #     tools_button_frame,
+        #     text="文件目录智能整理",
+        #     command=self.show_directory_organize_dialog,
+        #     style='info.TButton'
+        # )
+        # self.directory_organize_button.pack(pady=5)
         
     def update_summary_label(self, *args):
         """更新摘要长度标签"""
@@ -735,21 +1235,8 @@ class FileOrganizerTabGUI:
                         }
                         results.append(error_result)
                 
-                # 保存结果到文件
-                result_file = "batch_read_results.json"
-                try:
-                    import json
-                    with open(result_file, 'w', encoding='utf-8') as f:
-                        json.dump({
-                            'folder_path': folder_path,
-                            'total_files': total_files,
-                            'successful_reads': successful_reads,
-                            'failed_reads': failed_reads,
-                            'results': results,
-                            'timestamp': datetime.now().isoformat()
-                        }, f, ensure_ascii=False, indent=2)
-                except Exception as e:
-                    print(f"保存结果文件失败: {e}")
+                # 批量解读结果已通过file_reader.append_result_to_file写入ai_organize_result.json
+                # 不再需要单独的batch_read_results.json文件
                 
                 batch_results = {
                     'success': True,
@@ -757,8 +1244,7 @@ class FileOrganizerTabGUI:
                     'total_files': total_files,
                     'successful_reads': successful_reads,
                     'failed_reads': failed_reads,
-                    'results': results,
-                    'result_file': result_file
+                    'results': results
                 }
             
             # 显示结果
@@ -1725,6 +2211,45 @@ class FileOrganizerTabGUI:
         except Exception as e:
             self.log_message(f"打开AI模型配置失败: {e}")
             messagebox.showerror("错误", f"打开AI模型配置失败: {e}")
+    
+    def show_tag_manager(self):
+        """显示标签管理器"""
+        try:
+            # 创建标签管理窗口
+            tag_window = tb.Toplevel(self.root)
+            tag_window.title("标签管理器")
+            
+            # 设置响应式窗口
+            self.setup_responsive_window(tag_window, 900, 700, 700, 500)
+            tag_window.resizable(True, True)
+            tag_window.transient(self.root)
+            tag_window.grab_set()
+            
+            # 创建主框架
+            main_frame = tb.Frame(tag_window, padding="10")
+            main_frame.pack(fill=BOTH, expand=True)
+            
+            # 标题
+            title_label = tb.Label(main_frame, text="标签管理器", font=('Arial', 14, 'bold'))
+            title_label.pack(pady=(0, 15))
+            
+            # 说明文字
+            info_label = tb.Label(
+                main_frame, 
+                text="从ai_organize_result.json中提取所有链式标签的第一个标签段，支持批量删除",
+                font=('Arial', 10),
+                foreground="gray"
+            )
+            info_label.pack(pady=(0, 15))
+            
+            # 创建标签管理器GUI
+            tag_manager = TagManagerGUI(main_frame, self.root)
+            
+            self.log_message("标签管理器已打开")
+            
+        except Exception as e:
+            self.log_message(f"打开标签管理器失败: {e}")
+            messagebox.showerror("错误", f"打开标签管理器失败: {e}")
     
     def show_directory_organize_dialog(self):
         """显示文件目录智能整理对话框"""

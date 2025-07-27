@@ -47,19 +47,30 @@ class TransferLogManager:
         
     def _setup_logging(self) -> None:
         """设置日志记录配置"""
-        log_filename = f"transfer_manager_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        log_path = self.log_directory / log_filename
-        
-        # 创建专用的logger
+        # 只在有实际转移操作时才创建日志文件
         self.logger = logging.getLogger('transfer_log_manager')
         self.logger.setLevel(logging.INFO)
         
         # 避免重复添加handler
         if not self.logger.handlers:
-            handler = logging.FileHandler(log_path, encoding='utf-8')
+            # 使用StreamHandler而不是FileHandler，避免创建空文件
+            handler = logging.StreamHandler()
             formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
+    
+    def _create_log_file(self) -> None:
+        """创建转移操作日志文件"""
+        log_filename = f"transfer_manager_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log_path = self.log_directory / log_filename
+        
+        # 创建专用的文件handler
+        file_handler = logging.FileHandler(log_path, encoding='utf-8')
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+        
+        self.logger.info(f"创建转移日志文件: {log_path}")
         
     def start_transfer_session(self, session_name: str = None) -> str:
         """
@@ -94,6 +105,9 @@ class TransferLogManager:
         # 写入初始日志
         with open(self.current_log_file, 'w', encoding='utf-8') as f:
             json.dump(initial_log, f, ensure_ascii=False, indent=2)
+        
+        # 创建转移操作日志文件
+        self._create_log_file()
         
         self.logger.info(f"开始转移会话: {session_name}")
         return str(self.current_log_file)

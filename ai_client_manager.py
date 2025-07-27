@@ -10,8 +10,41 @@
 - 统一的接口，简化调用
 - JSON配置文件支持
 
+单独执行使用方法:
+    python ai_client_manager.py [选项]
+
+使用示例:
+    # 测试所有AI模型连接
+    python ai_client_manager.py --test
+    
+    # 刷新AI客户端
+    python ai_client_manager.py --refresh
+    
+    # 显示模型可用性信息
+    python ai_client_manager.py --info
+    
+    # 交互式测试AI对话
+    python ai_client_manager.py --chat
+
+支持的参数:
+    --test, -t              测试所有AI模型连接
+    --refresh, -r           刷新AI客户端
+    --info, -i              显示模型可用性信息
+    --chat, -c              交互式测试AI对话
+
+配置文件:
+    ai_models_config.json - AI模型配置文件
+    包含模型ID、名称、URL、API密钥、优先级等信息
+
+支持的模型类型:
+    - qwen-long: 通义千问长文本模型
+    - ollama: 本地Ollama模型
+    - openai: OpenAI兼容模型
+    - lmstudio: LM Studio本地模型
+
 作者: AI Assistant
 创建时间: 2025-01-15
+更新时间: 2025-07-27
 """
 
 import logging
@@ -170,15 +203,9 @@ class OllamaClient(AIClient):
     
     def _initialize_client(self):
         try:
-            import ollama
-            # 从base_url中提取host
-            if self.config.base_url.startswith('http://'):
-                host = self.config.base_url
-            else:
-                host = f"http://{self.config.base_url}"
-            self.client = ollama.Client(host=host)
-        except ImportError:
-            raise AIClientError("需要安装ollama库: pip install ollama")
+            # 不在这里初始化ollama客户端，直接使用requests调用API
+            # 这样可以避免ollama库的依赖问题
+            self.client = None
         except Exception as e:
             raise AIClientError(f"初始化Ollama客户端失败: {e}")
     
@@ -1192,3 +1219,81 @@ def get_model_availability_info() -> List[Dict[str, Any]]:
     """获取所有模型的可用性信息"""
     manager = get_ai_manager()
     return manager.get_model_availability_info()
+
+
+def main():
+    """单独执行时的主函数"""
+    import sys
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="AI客户端管理器")
+    parser.add_argument("--test", "-t", action="store_true", help="测试所有AI模型连接")
+    parser.add_argument("--refresh", "-r", action="store_true", help="刷新AI客户端")
+    parser.add_argument("--info", "-i", action="store_true", help="显示模型可用性信息")
+    parser.add_argument("--chat", "-c", action="store_true", help="交互式测试AI对话")
+    
+    args = parser.parse_args()
+    
+    if not any([args.test, args.refresh, args.info, args.chat]):
+        parser.print_help()
+        sys.exit(1)
+    
+    try:
+        if args.test:
+            print("=== 测试AI模型连接 ===")
+            results = test_ai_connections()
+            for model_id, result in results.items():
+                status = "✓ 可用" if result['available'] else "✗ 不可用"
+                print(f"{model_id}: {status}")
+                if not result['available']:
+                    print(f"  错误: {result.get('error', '未知错误')}")
+        
+        elif args.refresh:
+            print("=== 刷新AI客户端 ===")
+            refresh_ai_clients()
+            print("✓ AI客户端已刷新")
+        
+        elif args.info:
+            print("=== 模型可用性信息 ===")
+            info = get_model_availability_info()
+            for model_info in info:
+                status = "✓ 可用" if model_info['available'] else "✗ 不可用"
+                print(f"{model_info['name']} ({model_info['type']}): {status}")
+                if model_info['available']:
+                    print(f"  优先级: {model_info['priority']}")
+                    print(f"  响应时间: {model_info.get('response_time', 'N/A')}ms")
+                else:
+                    print(f"  错误: {model_info.get('error', '未知错误')}")
+        
+        elif args.chat:
+            print("=== 交互式AI对话测试 ===")
+            print("输入 'quit' 或 'exit' 退出")
+            
+            while True:
+                try:
+                    user_input = input("\n你: ").strip()
+                    if user_input.lower() in ['quit', 'exit', '退出']:
+                        break
+                    
+                    if not user_input:
+                        continue
+                    
+                    messages = [{"role": "user", "content": user_input}]
+                    print("AI: 正在思考...")
+                    
+                    response = chat_with_ai(messages)
+                    print(f"AI: {response}")
+                    
+                except KeyboardInterrupt:
+                    print("\n退出对话")
+                    break
+                except Exception as e:
+                    print(f"对话失败: {e}")
+    
+    except Exception as e:
+        print(f"执行失败: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

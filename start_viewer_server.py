@@ -77,8 +77,16 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         """处理POST请求"""
         if self.path == '/api/clean-duplicates':
             self.handle_clean_duplicates()
+        elif self.path == '/api/check-paths':
+            self.handle_check_paths()
+        elif self.path == '/api/search-and-update-paths':
+            self.handle_search_and_update_paths()
         elif self.path == '/api/check-and-fix-paths':
             self.handle_check_and_fix_paths()
+        elif self.path == '/api/shutdown':
+            self.handle_shutdown()
+        elif self.path == '/api/heartbeat':
+            self.handle_heartbeat()
         elif self.path == '/api/open-file':
             self.handle_open_file()
         else:
@@ -164,6 +172,116 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_json_response({'success': False, 'message': f'路径检查失败: {str(e)}'})
     
+    def handle_check_paths(self):
+        """处理路径检查请求 - 只检查不修复"""
+        try:
+            json_file = Path('ai_organize_result.json')
+            
+            if not json_file.exists():
+                self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
+                return
+            
+            # 读取现有数据
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 只进行路径检查
+            check_result = self.check_file_paths_only(data)
+            
+            self.send_json_response({
+                'success': True,
+                'message': f'路径检查完成',
+                'total_files': check_result['total'],
+                'valid_paths': check_result['valid'],
+                'missing_paths': check_result['missing'],
+                'checked': check_result['total']
+            })
+            
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'路径检查失败: {str(e)}'})
+    
+    def handle_search_and_update_paths(self):
+        """处理搜索和更新文件路径的请求"""
+        try:
+            json_file = Path('ai_organize_result.json')
+            
+            if not json_file.exists():
+                self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
+                return
+            
+            # 读取现有数据
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 搜索并更新文件路径
+            updated_data = self.search_and_update_file_paths(data)
+            
+            # 保存更新后的数据
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(updated_data, f, ensure_ascii=False, indent=2)
+            
+            # 统计更新结果
+            total_files = len(updated_data)
+            valid_paths = sum(1 for item in updated_data if os.path.exists(item.get('最终目标路径', '')))
+            fixed_paths = sum(1 for item in updated_data if item.get('路径已修复', False))
+            not_found = total_files - valid_paths
+            
+            self.send_json_response({
+                'success': True,
+                'message': f'搜索和更新完成',
+                'total_files': total_files,
+                'valid_paths': valid_paths,
+                'fixed_paths': fixed_paths,
+                'not_found': not_found,
+                'checked': total_files,
+                'current_file': '更新完成',
+                'last_fixed': None
+            })
+            
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'搜索和更新失败: {str(e)}'})
+    
+    def handle_shutdown(self):
+        """处理关闭服务器的请求"""
+        try:
+            # 先发送响应
+            self.send_json_response({'success': True, 'message': '服务器即将关闭'})
+            
+            # 强制退出整个Python进程
+            import os
+            import sys
+            import signal
+            
+            # 获取当前进程ID
+            pid = os.getpid()
+            
+            # 在Windows上使用taskkill强制终止进程
+            if os.name == 'nt':
+                import subprocess
+                # 立即执行taskkill，不等待
+                subprocess.Popen(['taskkill', '/F', '/PID', str(pid)], 
+                               stdout=subprocess.DEVNULL, 
+                               stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+            else:
+                # 在Unix系统上发送SIGKILL信号
+                os.kill(pid, signal.SIGKILL)
+            
+            # 如果上述方法都失败，使用os._exit
+            os._exit(0)
+            
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'关闭失败: {str(e)}'})
+    
+    def handle_heartbeat(self):
+        """处理心跳检测请求"""
+        import time
+        self.send_json_response({
+            'success': True, 
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'message': '服务器运行正常'
+        })
+    
     def check_and_fix_file_paths(self, data):
         """检查并修复文件路径"""
         fixed_data = []
@@ -195,6 +313,86 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             fixed_data.append(item)
         
         return fixed_data
+    
+    def check_file_paths_only(self, data):
+        """只检查文件路径是否存在，不进行搜索"""
+        # 过滤掉迁移失败的文件
+        valid_data = [item for item in data if '失败' not in (item.get('处理状态', ''))]
+        total_files = len(valid_data)
+        valid_count = 0
+        missing_count = 0
+        
+        print(f"开始检查：验证 {total_files} 个文件的路径...")
+        
+        for i, item in enumerate(valid_data):
+            target_path = item.get('最终目标路径', '')
+            file_name = item.get('文件名', '')
+            
+            if not file_name:
+                missing_count += 1
+                continue
+            
+            # 检查路径是否存在
+            if target_path and os.path.exists(target_path):
+                valid_count += 1
+            else:
+                missing_count += 1
+            
+            # 每100个文件打印一次进度
+            if (i + 1) % 100 == 0:
+                print(f"进度: {i + 1}/{total_files} - 路径正常: {valid_count}个, 文件已不在原位置: {missing_count}个")
+        
+        print(f"检查完成 - 正常: {valid_count}, 文件已不在原位置: {missing_count}")
+        return {'total': total_files, 'valid': valid_count, 'missing': missing_count}
+    
+    def search_and_update_file_paths(self, data):
+        """搜索并更新文件路径"""
+        # 过滤掉迁移失败的文件
+        valid_data = [item for item in data if '失败' not in (item.get('处理状态', ''))]
+        total_files = len(valid_data)
+        fixed_count = 0
+        not_found_count = 0
+        need_search_files = []
+        
+        print(f"开始搜索：为 {total_files} 个文件搜索当前位置...")
+        
+        # 第一轮：找出需要搜索的文件
+        for i, item in enumerate(valid_data):
+            target_path = item.get('最终目标路径', '')
+            file_name = item.get('文件名', '')
+            
+            if not file_name:
+                continue
+            
+            # 如果路径不存在，需要搜索
+            if not (target_path and os.path.exists(target_path)):
+                need_search_files.append((i, item))
+        
+        print(f"需要搜索的文件数: {len(need_search_files)}")
+        
+        # 第二轮：搜索文件
+        for search_index, (original_index, item) in enumerate(need_search_files):
+            file_name = item.get('文件名', '')
+            print(f"搜索进度: {search_index + 1}/{len(need_search_files)} - 搜索文件: {file_name}")
+            
+            # 搜索文件
+            found_path = self.search_file_in_system(file_name)
+            
+            if found_path:
+                item['最终目标路径'] = found_path
+                item['路径已修复'] = True
+                fixed_count += 1
+                print(f"搜索成功: {file_name} -> {found_path}")
+            else:
+                item['路径已修复'] = False
+                not_found_count += 1
+                print(f"搜索失败: {file_name}")
+            
+            # 更新原始数据
+            data[original_index] = item
+        
+        print(f"搜索完成 - 修复: {fixed_count}, 未找到: {not_found_count}")
+        return data
     
     def search_file_in_system(self, file_name):
         """在系统中搜索文件"""

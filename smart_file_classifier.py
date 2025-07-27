@@ -3,6 +3,39 @@
 """
 智能文件分类器 - 全新实现
 按照用户提供的业务逻辑：递归逐层匹配，每次只传递一层目录
+
+单独执行使用方法:
+    python smart_file_classifier.py <文件路径> <目标目录>
+
+使用示例:
+    # 分类单个文件
+    python smart_file_classifier.py "E:/待整理/文档.pdf" "E:/资料整理"
+    
+    # 分类多个文件（用空格分隔）
+    python smart_file_classifier.py "文件1.pdf" "文件2.docx" "E:/资料整理"
+
+功能说明:
+    1. 智能分析文件内容，推荐最佳目标目录
+    2. 递归逐层匹配，每次只处理一层目录
+    3. 支持自定义分类规则（classification_rules.json）
+    4. 自动生成链式标签
+    5. 结果保存到 ai_organize_result.json
+    6. 支持超时控制和错误处理
+
+分类规则:
+    - 基于文件内容摘要进行智能匹配
+    - 支持时间匹配（文件名中的年份）
+    - 支持模糊匹配和精确匹配
+    - 可自定义匹配规则和权重
+
+支持的文件格式:
+    - 文本文件: .txt, .md, .py, .js, .html, .css, .json, .xml, .csv
+    - 文档文件: .pdf, .docx, .doc
+    - 图片文件: .jpg, .jpeg, .png, .bmp, .gif, .tiff, .webp
+
+作者: AI Assistant
+创建时间: 2025-01-15
+更新时间: 2025-07-27
 """
 import os
 import sys
@@ -43,7 +76,7 @@ class SmartFileClassifier:
         
         # 文件缓存
         self.file_cache = {}  # 缓存文件信息和元数据
-        self.level_tags = {}  # 缓存各级标签
+        self.chain_tags = {}  # 缓存链式标签
         
         # 设置日志
         self.setup_logging()
@@ -533,7 +566,7 @@ class SmartFileClassifier:
             target_directory: 目标目录
             
         Returns:
-            (推荐路径, 各级标签, 匹配理由)
+            (推荐路径, 链式标签, 匹配理由)
         """
         try:
             file_info = self.extract_file_metadata(file_path)
@@ -659,7 +692,7 @@ class SmartFileClassifier:
                 logging.info(f"文件分类完成: {file_name} -> {recommended_folder}，总耗时: {total_time}秒")
                 logging.info(f"摘要: {summary}")
                 logging.info(f"推荐理由: {match_reason}")
-                logging.info(f"各级标签: {level_tags}")
+                logging.info(f"链式标签: {chain_tags}")
             else:
                 # 如果匹配失败，设置默认的失败理由
                 if not match_reason:
@@ -724,9 +757,45 @@ class SmartFileClassifier:
         if file_path in self.level_tags:
             del self.level_tags[file_path]
     
+    def _build_tags_with_chain(self, result: dict) -> Dict[str, str]:
+        """构建包含链式标签的标签字典（使用统一的标签构建工具）"""
+        try:
+            from path_utils import build_tags_with_chain
+            level_tags = result.get('level_tags', [])
+            return build_tags_with_chain(level_tags)
+        except ImportError:
+            # 如果path_utils不可用，使用备用方法
+            tags = {}
+            
+            # 添加链式标签
+            if result.get('level_tags'):
+                chain_path = '/'.join(result['level_tags'])
+                tags["链式标签"] = chain_path
+            
+            return tags
+    
     def append_result_to_file(self, ai_result_file: str, result: dict, target_directory: str = "") -> None:
         """将AI结果追加到JSON文件（使用并发管理器）"""
         try:
+            # 构建最终目标路径
+            final_target_path = ""
+            if result['success'] and result['recommended_folder']:
+                final_target_path = os.path.join(target_directory, result['recommended_folder'], result['file_name'])
+            
+            # 根据最终目标路径生成标签（与batch_add_chain_tags.py保持一致）
+            tags = {}
+            if final_target_path:
+                try:
+                    from path_utils import extract_chain_tags_from_final_path, build_chain_tags
+                    chain_tags = extract_chain_tags_from_final_path(final_target_path)
+                    tags = {"链式标签": chain_tags}
+                except ImportError:
+                    # 如果path_utils不可用，使用备用方法
+                    tags = self._build_tags_with_chain(result)
+            else:
+                # 如果没有最终目标路径，使用原有方法
+                tags = self._build_tags_with_chain(result)
+            
             # 构建结果条目
             entry = {
                 "处理时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -734,12 +803,10 @@ class SmartFileClassifier:
                 "文件摘要": result['content_summary'],
                 "最匹配的目标目录": result['recommended_folder'] if result['success'] else "分类失败",
                 "处理耗时": result['timing_info'].get('total_processing_time', 0),
-                "最终目标路径": os.path.join(target_directory, result['recommended_folder'], result['file_name']) if result['success'] and result['recommended_folder'] else "",
+                "最终目标路径": final_target_path,
                 "操作类型": "文件迁移",
                 "处理状态": "迁移成功" if result['success'] else "迁移失败",
-                "标签": {
-                    f"{i+1}级标签": tag for i, tag in enumerate(result['level_tags'])
-                },
+                "标签": tags,
                 "文件元数据": {
                     "file_name": result['file_metadata']['file_name'],
                     "file_extension": result['file_metadata']['file_extension'],
@@ -825,3 +892,72 @@ class SmartFileClassifier:
             raise exception[0]
         
         return result[0] 
+
+
+def main():
+    """单独执行时的主函数"""
+    import sys
+    
+    if len(sys.argv) < 3:
+        print("使用方法: python smart_file_classifier.py <文件路径> <目标目录>")
+        print("示例: python smart_file_classifier.py \"E:/待整理/文档.pdf\" \"E:/资料整理\"")
+        sys.exit(1)
+    
+    # 获取参数
+    target_directory = sys.argv[-1]  # 最后一个参数是目标目录
+    file_paths = sys.argv[1:-1]  # 其他参数是文件路径
+    
+    if not os.path.exists(target_directory):
+        print(f"错误: 目标目录不存在: {target_directory}")
+        sys.exit(1)
+    
+    try:
+        # 初始化智能文件分类器
+        classifier = SmartFileClassifier()
+        
+        print(f"开始分类文件到目标目录: {target_directory}")
+        print(f"待处理文件数量: {len(file_paths)}")
+        
+        success_count = 0
+        failed_count = 0
+        
+        for i, file_path in enumerate(file_paths, 1):
+            if not os.path.exists(file_path):
+                print(f"跳过不存在的文件: {file_path}")
+                failed_count += 1
+                continue
+            
+            print(f"\n[{i}/{len(file_paths)}] 处理文件: {file_path}")
+            
+            try:
+                # 分类文件
+                result = classifier.classify_file(file_path, target_directory)
+                
+                if result['success']:
+                    print(f"✓ 分类成功: {result['file_name']} -> {result['recommended_folder']}")
+                    print(f"  摘要: {result['content_summary'][:100]}...")
+                    print(f"  处理耗时: {result['timing_info'].get('total_processing_time', 0):.2f} 秒")
+                    success_count += 1
+                else:
+                    print(f"✗ 分类失败: {result.get('error', '未知错误')}")
+                    failed_count += 1
+                    
+            except Exception as e:
+                print(f"✗ 处理异常: {e}")
+                failed_count += 1
+        
+        print(f"\n=== 处理完成 ===")
+        print(f"成功: {success_count}")
+        print(f"失败: {failed_count}")
+        print(f"结果已保存到 ai_organize_result.json")
+        
+        if failed_count > 0:
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f"执行失败: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main() 

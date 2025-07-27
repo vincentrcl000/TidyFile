@@ -7,7 +7,17 @@
       "model_name": "qwen3:4b",
       "model_type": "ollama",
       "api_key": "",
-      "priority": 3,
+      "priority": 1,
+      "enabled": true
+    },
+    {
+      "id": "ollama-local-2",
+      "name": "本地Ollama模型2",
+      "base_url": "http://localhost:11434",
+      "model_name": "deepseek-r1:8b",
+      "model_type": "ollama",
+      "api_key": "",
+      "priority": 2,
       "enabled": true
     },
     {
@@ -17,7 +27,7 @@
       "model_name": "qwen3:8b",
       "model_type": "ollama",
       "api_key": "",
-      "priority": 1,
+      "priority": 3,
       "enabled": false
     },
     {
@@ -27,7 +37,7 @@
       "model_name": "qwen/qwen3-8b",
       "model_type": "lm_studio",
       "api_key": "",
-      "priority": 2,
+      "priority": 4,
       "enabled": false
     }
   ]

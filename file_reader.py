@@ -9,8 +9,34 @@
 3. 生成文件内容摘要
 4. 错误处理和日志记录
 
+单独执行使用方法:
+    python file_reader.py <文件路径> [摘要长度]
+
+使用示例:
+    # 解读单个文件，使用默认摘要长度(200字符)
+    python file_reader.py "E:/资料整理/文档.pdf"
+    
+    # 解读单个文件，指定摘要长度为100字符
+    python file_reader.py "E:/资料整理/文档.pdf" 100
+    
+    # 解读图片文件（需要多模态模型支持）
+    python file_reader.py "E:/资料整理/图片.jpg"
+
+支持的文件格式:
+    - 文本文件: .txt, .md, .py, .js, .html, .css, .json, .xml, .csv
+    - 文档文件: .pdf, .docx, .doc
+    - 图片文件: .jpg, .jpeg, .png, .bmp, .gif, .tiff, .webp
+
+功能说明:
+    1. 自动检测文件类型并选择合适的提取方法
+    2. 支持多模态模型处理图片文件
+    3. 自动去重检测，避免重复处理
+    4. 结果保存到 ai_organize_result.json
+    5. 支持超时控制和错误处理
+
 作者: AI Assistant
 创建时间: 2025-01-15
+更新时间: 2025-07-27
 """
 import concurrent.futures
 import os
@@ -127,28 +153,35 @@ class FileReader:
             }
     
     def extract_path_tags(self, file_path: str, base_folder: str = None) -> Dict[str, str]:
-        """从文件路径中提取标签（去掉盘符和一级目录，从二级目录开始）"""
-        import os
-        from pathlib import Path
-        tags = {}
+        """从文件路径中提取标签（使用统一的路径处理工具）"""
         try:
-            file_path_obj = Path(os.path.abspath(file_path)).resolve()
-            file_parent = file_path_obj.parent
-            
-            # 获取完整的路径层级
-            path_parts = list(file_parent.parts)
-            
-            # 去掉盘符和一级目录，从二级目录开始
-            if len(path_parts) >= 2:
-                # 从索引2开始（跳过盘符和一级目录）
-                business_parts = path_parts[2:]
+            from path_utils import extract_path_tags as extract_tags
+            return extract_tags(file_path, base_folder)
+        except ImportError:
+            # 如果path_utils不可用，使用备用方法
+            import os
+            from pathlib import Path
+            tags = {}
+            try:
+                file_path_obj = Path(os.path.abspath(file_path)).resolve()
+                file_parent = file_path_obj.parent
                 
-                for i, part in enumerate(business_parts):
-                    tags[f"{i+1}级标签"] = part
+                # 获取完整的路径层级
+                path_parts = list(file_parent.parts)
+                
+                # 去掉盘符和一级目录，从二级目录开始
+                if len(path_parts) >= 2:
+                    # 从索引2开始（跳过盘符和一级目录）
+                    business_parts = path_parts[2:]
                     
-        except Exception as e:
-            logging.error(f"提取路径标签失败: {e}")
-        return tags
+                    # 添加链式标签：将完整路径转换为'/'分隔符格式
+                    if business_parts:
+                        chain_path = '/'.join(business_parts)
+                        tags["链式标签"] = chain_path
+                        
+            except Exception as e:
+                logging.error(f"提取路径标签失败: {e}")
+            return tags
     
 
 
@@ -977,3 +1010,51 @@ class FileReader:
             
         except Exception as e:
             logging.error(f"传统方法写入结果文件失败: {e}")
+
+
+def main():
+    """单独执行时的主函数"""
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("使用方法: python file_reader.py <文件路径> [摘要长度]")
+        print("示例: python file_reader.py \"E:/资料整理/文档.pdf\" 200")
+        sys.exit(1)
+    
+    file_path = sys.argv[1]
+    summary_length = int(sys.argv[2]) if len(sys.argv) > 2 else 200
+    
+    if not os.path.exists(file_path):
+        print(f"错误: 文件不存在: {file_path}")
+        sys.exit(1)
+    
+    try:
+        # 初始化文件解读器
+        file_reader = FileReader()
+        
+        print(f"开始解读文件: {file_path}")
+        print(f"摘要长度: {summary_length} 字符")
+        
+        # 生成摘要
+        result = file_reader.generate_summary(file_path, summary_length)
+        
+        if result['success']:
+            print(f"\n✓ 文件解读成功")
+            print(f"文件名: {result['file_name']}")
+            print(f"摘要: {result['summary']}")
+            print(f"处理耗时: {result['timing_info'].get('total_processing_time', 0):.2f} 秒")
+            
+            # 保存结果
+            file_reader.append_result_to_file("ai_organize_result.json", result)
+            print(f"结果已保存到 ai_organize_result.json")
+        else:
+            print(f"\n✗ 文件解读失败: {result.get('error', '未知错误')}")
+            sys.exit(1)
+            
+    except Exception as e:
+        print(f"执行失败: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

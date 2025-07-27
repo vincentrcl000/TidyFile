@@ -45,7 +45,7 @@
 
 1. **启动主程序**：
    ```
-   双击运行：启动文件整理器_新版本.bat
+   双击运行：启动文件整理器_新版本.bat 或 启动文件整理器.vbs
    ```
 
 2. **启动文章阅读助手**：
@@ -134,6 +134,7 @@ TidyFile/
 ├── weixin_manager_gui.py      # 微信文章管理
 ├── duplicate_file_remover_gui.py # 重复文件清理
 ├── 启动文件整理器_新版本.bat    # 主程序启动脚本
+├── 启动文件整理器.vbs          # VBS启动脚本
 ├── 启动局域网服务器.bat        # 服务器启动脚本
 └── 用户手册.md                # 详细使用说明
 ```
@@ -141,7 +142,7 @@ TidyFile/
 ## 📝 日志和结果
 
 - **处理结果**：`ai_organize_result.json`
-- **批量处理日志**：`batch_read_results.json`
+- **批量处理日志**：已删除，结果统一保存到 `ai_organize_result.json`
 - **系统日志**：`logs/` 目录
 - **传输日志**：`transfer_logs/` 目录
 
