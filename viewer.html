@@ -1817,7 +1817,7 @@
             }, 30000); // 每30秒检测一次
         }
 
-        // 简化版本的清理重复文件函数
+        // 完整版本的清理重复文件函数
         async function cleanDuplicateFiles() {
             try {
                 const refreshBtn = document.getElementById('refreshBtn');
@@ -1825,19 +1825,423 @@
                 refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 清理重复中...';
                 refreshBtn.disabled = true;
                 
+                // 第一步：清理重复记录
+                const cleanResponse = await fetch('/api/clean-duplicates', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const cleanResult = await cleanResponse.json();
+                
+                if (!cleanResult.success) {
+                    alert(`清理重复记录失败: ${cleanResult.message}`);
+                    refreshBtn.innerHTML = originalText;
+                    refreshBtn.disabled = false;
+                    return;
+                }
+                
+                // 构建清理结果消息
+                let message = '';
+                if (cleanResult.removed_count > 0) {
+                    message += `✅ 重复记录清理完成！\n`;
+                    message += `原始记录: ${cleanResult.original_count}\n`;
+                    message += `清理后记录: ${cleanResult.cleaned_count}\n`;
+                    message += `删除重复: ${cleanResult.removed_count}\n\n`;
+                } else {
+                    message += `✅ 数据已是最新状态，无需清理重复记录！\n`;
+                    message += `当前记录数: ${cleanResult.original_count}\n\n`;
+                }
+                
+                // 显示清理结果
+                alert(message);
+                
                 // 重新加载数据
                 await loadDefaultFile();
                 
+                // 恢复按钮状态
                 refreshBtn.innerHTML = originalText;
                 refreshBtn.disabled = false;
                 
-                alert('数据已重新加载完成！');
+                // 异步启动路径检查（不阻塞用户界面）
+                startAsyncPathCheck();
                 
             } catch (error) {
                 alert(`操作失败: ${error.message}`);
                 const refreshBtn = document.getElementById('refreshBtn');
                 refreshBtn.innerHTML = originalText;
                 refreshBtn.disabled = false;
+            }
+        }
+        
+        // 路径检查相关函数
+        async function startAsyncPathCheck() {
+            // 创建状态显示区域
+            pathCheckStatusDiv = createPathCheckStatus();
+            
+            // 创建AbortController用于停止检查
+            pathCheckController = new AbortController();
+            
+            try {
+                // 异步检查文件路径
+                const pathCheckResponse = await fetch('/api/check-paths', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    signal: pathCheckController.signal
+                });
+                
+                const pathResult = await pathCheckResponse.json();
+                
+                // 更新状态显示
+                if (pathResult.success) {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'check_complete', {
+                        total: pathResult.total_files,
+                        valid: pathResult.valid_paths,
+                        missing: pathResult.missing_paths
+                    });
+                } else {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: pathResult.message
+                    });
+                }
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    // 用户主动停止
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: '检查已停止'
+                    });
+                } else {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: error.message
+                    });
+                }
+            } finally {
+                // 清理状态
+                pathCheckController = null;
+            }
+        }
+        
+        function stopPathCheck() {
+            if (pathCheckController) {
+                pathCheckController.abort();
+                console.log('路径检查已停止');
+            }
+            
+            // 显示停止提示
+            alert('正在停止服务器...\n\n如果服务器没有立即停止，请手动关闭浏览器窗口。');
+            
+            // 关闭服务器
+            fetch('/api/shutdown', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            })
+            .then(response => {
+                console.log('服务器关闭信号已发送');
+                // 立即刷新页面
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            })
+            .catch(error => {
+                console.error('发送关闭信号失败:', error);
+                // 如果请求失败，说明服务器可能已经关闭
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            });
+            
+            // 备用方案：如果3秒后页面还在，强制刷新
+            setTimeout(() => {
+                if (document.readyState === 'complete') {
+                    window.location.reload();
+                }
+            }, 3000);
+        }
+        
+        async function startSearchAndUpdate() {
+            if (!pathCheckStatusDiv) {
+                console.error('状态窗口不存在');
+                return;
+            }
+            
+            // 更新状态窗口
+            const spinner = pathCheckStatusDiv.querySelector('div[style*="animation"]');
+            if (spinner) {
+                spinner.style.animation = 'spin 1s linear infinite';
+                spinner.style.border = '2px solid #007bff';
+                spinner.innerHTML = '';
+            }
+            
+            pathCheckStatusDiv.querySelector('strong').textContent = '正在搜索文件当前位置...';
+            pathCheckStatusDiv.style.borderColor = '#007bff';
+            
+            // 更新按钮
+            const searchBtn = pathCheckStatusDiv.querySelector('#stopPathCheckBtn');
+            if (searchBtn) {
+                searchBtn.textContent = '停止搜索';
+                searchBtn.style.background = '#dc3545';
+                searchBtn.onclick = () => stopPathCheck();
+            }
+            
+            // 创建AbortController用于停止搜索
+            pathCheckController = new AbortController();
+            
+            try {
+                // 异步搜索并更新文件路径
+                const searchResponse = await fetch('/api/search-and-update-paths', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    signal: pathCheckController.signal
+                });
+                
+                const searchResult = await searchResponse.json();
+                
+                // 更新状态显示
+                if (searchResult.success) {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'success', {
+                        total: searchResult.total_files,
+                        valid: searchResult.valid_paths,
+                        fixed: searchResult.fixed_paths,
+                        notFound: searchResult.not_found
+                    });
+                    
+                    // 如果有修复的文件，重新加载数据
+                    if (searchResult.fixed_paths > 0) {
+                        setTimeout(() => {
+                            loadDefaultFile();
+                        }, 2000); // 延迟2秒重新加载，让用户看到结果
+                    }
+                } else {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: searchResult.message
+                    });
+                }
+                
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    // 用户主动停止
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: '搜索已停止'
+                    });
+                } else {
+                    updatePathCheckStatus(pathCheckStatusDiv, 'error', {
+                        message: error.message
+                    });
+                }
+            } finally {
+                // 清理状态
+                pathCheckController = null;
+            }
+        }
+        
+        function createPathCheckStatus() {
+            // 检查是否已存在状态显示
+            let statusDiv = document.getElementById('pathCheckStatus');
+            if (statusDiv) {
+                statusDiv.remove();
+            }
+            
+            // 创建新的状态显示区域
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'pathCheckStatus';
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: #f8f9fa;
+                border: 2px solid #007bff;
+                border-radius: 10px;
+                padding: 15px;
+                max-width: 350px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                z-index: 1000;
+                font-size: 14px;
+            `;
+            
+            statusDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <div style="width: 20px; height: 20px; border: 2px solid #007bff; border-top: 2px solid transparent; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <strong>正在检查文件路径...</strong>
+                    <button id="stopPathCheckBtn" onclick="stopPathCheck()" style="background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: auto;">停止检查</button>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; font-size: 18px; cursor: pointer;">×</button>
+                </div>
+                <div id="pathCheckProgress">准备开始检查...</div>
+                <div id="pathCheckDetails" style="margin-top: 10px; font-size: 12px; color: #6c757d;"></div>
+            `;
+            
+            // 添加CSS动画
+            if (!document.getElementById('pathCheckStyles')) {
+                const style = document.createElement('style');
+                style.id = 'pathCheckStyles';
+                style.textContent = `
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            document.body.appendChild(statusDiv);
+            return statusDiv;
+        }
+        
+        function updatePathCheckStatus(statusDiv, type, data) {
+            const progressDiv = statusDiv.querySelector('#pathCheckProgress');
+            const detailsDiv = statusDiv.querySelector('#pathCheckDetails');
+            const spinner = statusDiv.querySelector('div[style*="animation"]');
+            
+            if (type === 'check_complete') {
+                // 移除加载动画
+                if (spinner) {
+                    spinner.style.animation = 'none';
+                    spinner.style.border = '2px solid #28a745';
+                    spinner.innerHTML = '✅';
+                }
+                
+                // 更新标题
+                statusDiv.querySelector('strong').textContent = '路径检查完成';
+                statusDiv.style.borderColor = '#28a745';
+                
+                // 更新停止按钮为搜索按钮
+                const stopBtn = statusDiv.querySelector('#stopPathCheckBtn');
+                if (stopBtn) {
+                    stopBtn.textContent = '开始搜索';
+                    stopBtn.style.background = '#28a745';
+                    stopBtn.onclick = () => startSearchAndUpdate();
+                }
+                
+                // 显示检查结果
+                progressDiv.innerHTML = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>检查结果:</strong>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <div>📊 检查文件数: ${data.total}</div>
+                        <div>✅ 路径正常: ${data.valid}</div>
+                        <div>❌ 文件已不在原位置: ${data.missing}</div>
+                    </div>
+                    ${data.missing > 0 ? '<div style="margin-top: 8px; color: #ffc107; font-weight: bold;">⚠️ 点击"开始搜索"按钮搜索文件当前位置并更新</div>' : ''}
+                `;
+                
+                // 清空详细信息
+                if (detailsDiv) {
+                    detailsDiv.innerHTML = '';
+                }
+                
+            } else if (type === 'success') {
+                // 移除加载动画
+                if (spinner) {
+                    spinner.style.animation = 'none';
+                    spinner.style.border = '2px solid #28a745';
+                    spinner.innerHTML = '✅';
+                }
+                
+                // 更新标题
+                statusDiv.querySelector('strong').textContent = '搜索和更新完成';
+                statusDiv.style.borderColor = '#28a745';
+                
+                // 隐藏按钮
+                const stopBtn = statusDiv.querySelector('#stopPathCheckBtn');
+                if (stopBtn) {
+                    stopBtn.style.display = 'none';
+                }
+                
+                // 显示结果
+                progressDiv.innerHTML = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>更新结果:</strong>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <div>📊 检查文件数: ${data.total}</div>
+                        <div>✅ 路径正常: ${data.valid}</div>
+                        <div>🔧 路径已修复: ${data.fixed}</div>
+                        <div>❌ 未找到文件: ${data.notFound}</div>
+                    </div>
+                    ${data.fixed > 0 ? '<div style="margin-top: 8px; color: #28a745; font-weight: bold;">📝 已自动更新文件路径信息</div>' : ''}
+                    ${data.notFound > 0 ? '<div style="margin-top: 8px; color: #dc3545; font-weight: bold;">⚠️ 有文件未找到，请手动检查</div>' : ''}
+                `;
+                
+                // 清空详细信息
+                if (detailsDiv) {
+                    detailsDiv.innerHTML = '';
+                }
+                
+                // 5秒后自动隐藏
+                setTimeout(() => {
+                    if (statusDiv.parentElement) {
+                        statusDiv.remove();
+                    }
+                }, 5000);
+                
+            } else if (type === 'error') {
+                // 移除加载动画
+                if (spinner) {
+                    spinner.style.animation = 'none';
+                    spinner.style.border = '2px solid #dc3545';
+                    spinner.innerHTML = '❌';
+                }
+                
+                // 更新标题
+                statusDiv.querySelector('strong').textContent = '操作失败';
+                statusDiv.style.borderColor = '#dc3545';
+                
+                // 隐藏停止按钮
+                const stopBtn = statusDiv.querySelector('#stopPathCheckBtn');
+                if (stopBtn) {
+                    stopBtn.style.display = 'none';
+                }
+                
+                // 显示错误信息
+                progressDiv.innerHTML = `
+                    <div style="color: #dc3545; font-weight: bold;">
+                        错误: ${data.message}
+                    </div>
+                `;
+                
+                // 清空详细信息
+                if (detailsDiv) {
+                    detailsDiv.innerHTML = '';
+                }
+                
+                // 10秒后自动隐藏
+                setTimeout(() => {
+                    if (statusDiv.parentElement) {
+                        statusDiv.remove();
+                    }
+                }, 10000);
+            } else if (type === 'progress') {
+                // 更新进度信息
+                progressDiv.innerHTML = `
+                    <div style="margin-bottom: 8px;">
+                        <strong>检查进度:</strong>
+                    </div>
+                    <div style="font-size: 12px; line-height: 1.4;">
+                        <div>📊 已检查: ${data.checked}/${data.total}</div>
+                        <div>✅ 路径正常: ${data.valid}</div>
+                        <div>🔧 路径已修复: ${data.fixed}</div>
+                        <div>❌ 未找到文件: ${data.notFound}</div>
+                    </div>
+                `;
+                
+                // 更新详细信息
+                if (detailsDiv) {
+                    detailsDiv.innerHTML = `
+                        <div style="border-top: 1px solid #dee2e6; padding-top: 8px;">
+                            <div>🔄 检查中: ${data.currentFile || '准备中...'}</div>
+                            ${data.lastFixed ? `<div style="color: #28a745;">🔧 刚修复: ${data.lastFixed}</div>` : ''}
+                        </div>
+                    `;
+                }
             }
         }
     </script>

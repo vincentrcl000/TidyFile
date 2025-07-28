@@ -75,6 +75,8 @@ test_*.py
 *.log
 *.tmp
 *.bak
+ai_organize_result.json
+ai_organize_result.json.*
 
 # 构建产物
 dist/

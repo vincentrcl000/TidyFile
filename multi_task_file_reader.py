@@ -67,6 +67,7 @@ class FileReadTask:
         self.successful_reads = 0
         self.failed_reads = 0
         self.skipped_reads = 0  # 新增：跳过的文件数
+        self.path_updated_reads = 0  # 新增：路径更新的文件数
         self.start_time = None
         self.end_time = None
         self.error_message = ""
@@ -154,16 +155,27 @@ class FileReadTask:
                     # 解读单个文件（使用与file_reader.py相同的流程）
                     result = file_reader.generate_summary(file_path, self.summary_length)
                     
-                    # 检查是否为重复文件（跳过）
-                    if result.get('processing_status') == '已跳过':
+                    # 检查处理状态
+                    processing_status = result.get('processing_status', '')
+                    
+                    if processing_status == '已跳过':
+                        # 完全重复的文件，跳过处理
                         self.skipped_reads += 1
-                        logging.info(f"文件已处理，跳过: {filename}")
+                        logging.info(f"文件完全重复，跳过: {filename}")
+                        continue
+                    elif processing_status == '路径已更新':
+                        # 同名但路径不同的文件，复用摘要并更新路径
+                        self.path_updated_reads += 1
+                        logging.info(f"文件路径已更新: {filename}")
+                        # 写入结果到ai_organize_result.json
+                        file_reader.append_result_to_file("ai_organize_result.json", result, self.folder_path)
                         continue
                     
                     # 检查处理结果
                     if result['success']:
-                        # 提取路径标签
-                        result['tags'] = file_reader.extract_path_tags(file_path, self.folder_path)
+                        # 提取路径标签（如果不是路径更新情况）
+                        if not result.get('tags'):
+                            result['tags'] = file_reader.extract_path_tags(file_path, self.folder_path)
                         self.successful_reads += 1
                         
                         # 写入结果到ai_organize_result.json
@@ -182,7 +194,7 @@ class FileReadTask:
             
             if not self.stop_flag:
                 self.status = "已完成"
-                logging.info(f"任务 {self.task_id} 完成: 成功 {self.successful_reads}, 失败 {self.failed_reads}, 跳过 {self.skipped_reads}")
+                logging.info(f"任务 {self.task_id} 完成: 成功 {self.successful_reads}, 失败 {self.failed_reads}, 跳过 {self.skipped_reads}, 路径更新 {self.path_updated_reads}")
             self.end_time = datetime.now()
             
         except Exception as e:
@@ -348,7 +360,7 @@ class MultiTaskFileReaderGUI:
         list_frame.pack(fill=BOTH, expand=True, pady=(0, 10))
         
         # 创建Treeview，添加勾选列
-        columns = ('选择', '任务ID', '文件夹', '状态', '进度', '当前文件', '成功/失败/跳过', '开始时间')
+        columns = ('选择', '任务ID', '文件夹', '状态', '进度', '当前文件', '成功/失败/跳过/更新', '开始时间')
         self.task_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=10)
         
         # 设置列标题
@@ -362,7 +374,7 @@ class MultiTaskFileReaderGUI:
         self.task_tree.column('文件夹', width=200)
         self.task_tree.column('当前文件', width=150)
         self.task_tree.column('开始时间', width=150)
-        self.task_tree.column('成功/失败/跳过', width=150)
+        self.task_tree.column('成功/失败/跳过/更新', width=180)
         
         # 添加滚动条
         scrollbar = ttk.Scrollbar(list_frame, orient=VERTICAL, command=self.task_tree.yview)
@@ -499,6 +511,7 @@ class MultiTaskFileReaderGUI:
             total_successful = sum(task.successful_reads for task in self.tasks.values())
             total_failed = sum(task.failed_reads for task in self.tasks.values())
             total_skipped = sum(task.skipped_reads for task in self.tasks.values())
+            total_path_updated = sum(task.path_updated_reads for task in self.tasks.values())
             
             stats_text = f"""
 任务统计:
@@ -512,6 +525,7 @@ class MultiTaskFileReaderGUI:
 - 成功解读: {total_successful}
 - 解读失败: {total_failed}
 - 跳过文件: {total_skipped}
+- 路径更新: {total_path_updated}
 - 成功率: {total_successful/(total_files-total_skipped)*100:.1f}% (排除跳过的文件)
             """
             
@@ -583,7 +597,7 @@ class MultiTaskFileReaderGUI:
                 task.status,
                 f"{task.progress:.1f}%",
                 task.current_file,
-                f"{task.successful_reads}/{task.failed_reads}/{task.skipped_reads}",
+                f"{task.successful_reads}/{task.failed_reads}/{task.skipped_reads}/{task.path_updated_reads}",
                 start_time_str
             ))
             
@@ -622,6 +636,7 @@ class MultiTaskFileReaderGUI:
 成功解读: {task.successful_reads}
 解读失败: {task.failed_reads}
 跳过文件: {task.skipped_reads}
+路径更新: {task.path_updated_reads}
 开始时间: {task.start_time.strftime("%Y-%m-%d %H:%M:%S") if task.start_time else "未开始"}
 结束时间: {task.end_time.strftime("%Y-%m-%d %H:%M:%S") if task.end_time else "未结束"}
 摘要长度: {task.summary_length}字符

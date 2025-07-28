@@ -27,9 +27,6 @@ class WeixinManagerTab:
         self.tab_control = tb.Notebook(self.frame)
         self.tab_control.pack(fill=BOTH, expand=True)
         self.create_favorites_tab()
-        self.create_empty_tab("聊天记录总结")
-        self.create_empty_tab("群聊话题汇总")
-        self.create_empty_tab("公众号文章分析")
 
     def create_favorites_tab(self):
         fav_frame = tb.Frame(self.tab_control, padding="10")
@@ -71,11 +68,7 @@ class WeixinManagerTab:
 
 
     
-    def create_empty_tab(self, name):
-        frame = tb.Frame(self.tab_control, padding="20")
-        self.tab_control.add(frame, text=name)
-        tb.Label(frame, text=f"{name}功能暂未实现", font=('Arial', 12)).pack(pady=50)
-        tb.Label(frame, text="敬请期待后续版本", font=('Arial', 10), foreground='gray').pack()
+
 
     def log_message(self, message):
         if self.log_callback:

@@ -482,12 +482,14 @@ class FileReader:
             
         Returns:
             包含去重检测结果的字典：
-            - is_duplicate: 是否重复
+            - is_duplicate: 是否重复（文件名相同且路径相同）
+            - is_same_file_different_path: 是否同名但路径不同
             - duplicate_info: 重复记录的详细信息（如果重复）
             - error: 错误信息（如果有）
         """
         result = {
             'is_duplicate': False,
+            'is_same_file_different_path': False,
             'duplicate_info': None,
             'error': None
         }
@@ -500,26 +502,68 @@ class FileReader:
                 data = json.load(f)
                 
             file_name = Path(file_path).name
-            abs_path = str(Path(file_path).absolute())
-            file_size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
+            
+            # 检查文件是否存在，如果不存在则跳过文件大小比较
+            file_exists = Path(file_path).exists()
+            if file_exists:
+                # 使用绝对路径进行比较
+                abs_path = str(Path(file_path).absolute())
+                file_size = Path(file_path).stat().st_size
+            else:
+                # 文件不存在，使用相对路径
+                abs_path = str(Path(file_path).absolute())
+                file_size = 0
+                logging.warning(f"文件不存在，跳过文件大小比较: {file_path}")
             
             # 查找匹配的记录
             for entry in data:
-                # 精确匹配：文件名 + 最终目标路径 + 文件大小
-                if (entry.get("文件名") == file_name and 
-                    entry.get("最终目标路径") == abs_path and
-                    entry.get("文件元数据", {}).get("file_size") == file_size):
+                entry_file_name = entry.get("文件名")
+                entry_path = entry.get("最终目标路径")
+                entry_file_size = entry.get("文件元数据", {}).get("file_size")
+                
+                # 检查文件名是否相同
+                if entry_file_name == file_name:
+                    # 将记录中的路径也转换为绝对路径进行比较
+                    try:
+                        entry_abs_path = str(Path(entry_path).absolute()) if entry_path else ""
+                    except:
+                        entry_abs_path = entry_path
                     
-                    result['is_duplicate'] = True
-                    result['duplicate_info'] = {
-                        '处理时间': entry.get("处理时间", ""),
-                        '文件摘要': entry.get("文件摘要", ""),
-                        '处理状态': entry.get("处理状态", ""),
-                        '操作类型': entry.get("操作类型", ""),
-                        '处理耗时': entry.get("处理耗时", 0),
-                        '标签': entry.get("标签", {})
-                    }
-                    return result
+                    # 检查路径是否相同
+                    if entry_abs_path == abs_path:
+                        # 文件名和路径都相同，完全跳过
+                        result['is_duplicate'] = True
+                        result['duplicate_info'] = {
+                            '处理时间': entry.get("处理时间", ""),
+                            '文件摘要': entry.get("文件摘要", ""),
+                            '处理状态': entry.get("处理状态", ""),
+                            '操作类型': entry.get("操作类型", ""),
+                            '处理耗时': entry.get("处理耗时", 0),
+                            '标签': entry.get("标签", {}),
+                            '最终目标路径': entry_path,
+                            '文件大小': entry_file_size
+                        }
+                        logging.info(f"文件完全重复，跳过处理: {file_name} (路径: {abs_path})")
+                        return result
+                    else:
+                        # 文件名相同但路径不同，标记为需要更新路径
+                        result['is_same_file_different_path'] = True
+                        result['duplicate_info'] = {
+                            '处理时间': entry.get("处理时间", ""),
+                            '文件摘要': entry.get("文件摘要", ""),
+                            '处理状态': entry.get("处理状态", ""),
+                            '操作类型': entry.get("操作类型", ""),
+                            '处理耗时': entry.get("处理耗时", 0),
+                            '标签': entry.get("标签", {}),
+                            '最终目标路径': entry_path,
+                            '文件大小': entry_file_size,
+                            'old_path': entry_path,
+                            'new_path': abs_path
+                        }
+                        logging.info(f"发现同名文件但路径不同，将复用摘要并更新路径: {file_name}")
+                        logging.info(f"  原路径: {entry_path}")
+                        logging.info(f"  新路径: {abs_path}")
+                        return result
                     
         except json.JSONDecodeError as e:
             result['error'] = f"JSON文件格式错误: {e}"
@@ -548,8 +592,9 @@ class FileReader:
         if duplicate_check['error']:
             logging.warning(f"去重检测失败，继续处理文件: {file_path}, 错误: {duplicate_check['error']}")
         elif duplicate_check['is_duplicate']:
+            # 文件名和路径都相同，完全跳过
             duplicate_info = duplicate_check['duplicate_info']
-            logging.info(f"文件已处理，跳过: {file_path}")
+            logging.info(f"文件完全重复，跳过处理: {file_path}")
             logging.info(f"原处理信息: {duplicate_info['处理时间']}, 状态: {duplicate_info['处理状态']}, 摘要: {duplicate_info['文件摘要'][:50]}...")
             
             return {
@@ -564,6 +609,42 @@ class FileReader:
                 'timing_info': {'skipped': True, 'duplicate_info': duplicate_info},
                 'processing_status': '已跳过',  # 明确标识处理状态
                 'original_summary': duplicate_info['文件摘要']  # 保存原摘要
+            }
+        elif duplicate_check['is_same_file_different_path']:
+            # 文件名相同但路径不同，复用原摘要并更新路径和标签
+            duplicate_info = duplicate_check['duplicate_info']
+            logging.info(f"发现同名文件但路径不同，复用摘要并更新路径: {file_path}")
+            
+            # 提取新的路径标签
+            new_tags = self.extract_path_tags(file_path)
+            
+            # 提取文件元数据
+            file_metadata = self.extract_file_metadata(file_path)
+            
+            return {
+                'file_path': file_path,
+                'file_name': Path(file_path).name,
+                'success': True,
+                'extracted_text': '',
+                'summary': duplicate_info['文件摘要'],  # 复用原摘要
+                'error': '',
+                'model_used': self.model_name,
+                'timestamp': datetime.now().isoformat(),
+                'timing_info': {
+                    'skipped': False,
+                    'path_updated': True,
+                    'duplicate_info': duplicate_info,
+                    'total_processing_time': 0.1  # 快速处理
+                },
+                'processing_status': '路径已更新',  # 明确标识处理状态
+                'original_summary': duplicate_info['文件摘要'],  # 保存原摘要
+                'tags': new_tags,  # 新的路径标签
+                'file_metadata': file_metadata,  # 新的文件元数据
+                'path_update_info': {
+                    'old_path': duplicate_info['old_path'],
+                    'new_path': duplicate_info['new_path'],
+                    'original_processing_time': duplicate_info['处理时间']
+                }
             }
         
         # 超时控制
@@ -938,12 +1019,18 @@ class FileReader:
         try:
             # 检查是否为重复文件
             is_duplicate = result.get('timing_info', {}).get('skipped', False)
+            is_path_updated = result.get('timing_info', {}).get('path_updated', False)
             
             # 如果是重复文件，直接跳过写入，只记录日志
             if is_duplicate:
                 duplicate_info = result.get('timing_info', {}).get('duplicate_info', {})
                 logging.info(f"跳过重复文件，不写入结果文件: {result['file_name']}")
                 logging.info(f"原处理信息: {duplicate_info.get('处理时间', '')}, 状态: {duplicate_info.get('处理状态', '')}")
+                return
+            
+            # 如果是路径更新，需要更新现有记录
+            if is_path_updated:
+                self._update_existing_record(ai_result_file, result)
                 return
             
             # 确定处理状态
@@ -986,6 +1073,88 @@ class FileReader:
             
         except Exception as e:
             logging.error(f"写入结果文件失败: {e}")
+    
+    def _update_existing_record(self, ai_result_file: str, result: dict) -> None:
+        """更新现有记录（用于路径更新情况）"""
+        try:
+            # 读取现有文件
+            existing_data = []
+            if os.path.exists(ai_result_file):
+                try:
+                    with open(ai_result_file, 'r', encoding='utf-8') as f:
+                        existing_data = json.load(f)
+                except (json.JSONDecodeError, FileNotFoundError):
+                    logging.error(f"读取结果文件失败: {ai_result_file}")
+                    return
+            
+            # 查找要更新的记录
+            file_name = result['file_name']
+            path_update_info = result.get('path_update_info', {})
+            old_path = path_update_info.get('old_path', '')
+            
+            updated_count = 0
+            for i, entry in enumerate(existing_data):
+                if (entry.get("文件名") == file_name and 
+                    entry.get("最终目标路径") == old_path):
+                    
+                    # 更新记录
+                    existing_data[i]["最终目标路径"] = result['file_path']
+                    existing_data[i]["标签"] = result.get('tags', {})
+                    existing_data[i]["文件元数据"] = {
+                        "file_name": result['file_metadata']['file_name'],
+                        "file_extension": result['file_metadata']['file_extension'],
+                        "file_size": result['file_metadata']['file_size'],
+                        "created_time": result['file_metadata']['created_time'],
+                        "modified_time": result['file_metadata']['modified_time']
+                    }
+                    existing_data[i]["处理时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    existing_data[i]["处理状态"] = "路径已更新"
+                    
+                    updated_count += 1
+                    logging.info(f"已更新记录: {file_name}")
+                    logging.info(f"  原路径: {old_path}")
+                    logging.info(f"  新路径: {result['file_path']}")
+                    break
+            
+            if updated_count == 0:
+                logging.warning(f"未找到要更新的记录: {file_name} (原路径: {old_path})")
+                # 如果没找到记录，作为新记录添加
+                self._legacy_append_result(ai_result_file, {
+                    "处理时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "文件名": result['file_name'],
+                    "文件摘要": result['summary'],
+                    "最匹配的目标目录": "",
+                    "处理耗时": result['timing_info'].get('total_processing_time', 0),
+                    "最终目标路径": result['file_path'],
+                    "操作类型": "文件解读",
+                    "处理状态": "路径已更新",
+                    "标签": result.get('tags', {}),
+                    "文件元数据": result['file_metadata']
+                })
+                return
+            
+            # 写入更新后的文件
+            with open(ai_result_file, 'w', encoding='utf-8') as f:
+                json.dump(existing_data, f, ensure_ascii=False, indent=2)
+            
+            logging.info(f"路径更新记录已写入: {ai_result_file}")
+            
+        except Exception as e:
+            logging.error(f"更新现有记录失败: {e}")
+            # 如果更新失败，尝试作为新记录添加
+            logging.info("尝试作为新记录添加...")
+            self._legacy_append_result(ai_result_file, {
+                "处理时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "文件名": result['file_name'],
+                "文件摘要": result['summary'],
+                "最匹配的目标目录": "",
+                "处理耗时": result['timing_info'].get('total_processing_time', 0),
+                "最终目标路径": result['file_path'],
+                "操作类型": "文件解读",
+                "处理状态": "路径已更新",
+                "标签": result.get('tags', {}),
+                "文件元数据": result['file_metadata']
+            })
     
     def _legacy_append_result(self, ai_result_file: str, entry: dict) -> None:
         """传统方法写入结果（备用）"""

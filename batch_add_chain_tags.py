@@ -18,6 +18,9 @@
     --remove-level-tags       删除所有分级标签（1级标签、2级标签等）
     --format-tags             格式化链式标签，清理特殊字符和多余空格
     --clean-all               执行完整清理：删除分级标签 + 格式化链式标签
+    --remove-failed           删除"最匹配的目标目录"为"分类失败"的记录
+    --remove-empty-summary    删除"文件摘要"为"文件内容为空或过短"的记录
+    --smart-tags              智能标签功能：使用AI推荐三级标签并追加到链式标签
 
 使用示例:
     # 正常处理（跳过已有链式标签的记录）
@@ -38,6 +41,15 @@
     # 完整清理：删除分级标签 + 格式化链式标签
     python batch_add_chain_tags.py --clean-all
     
+    # 删除"分类失败"的记录
+    python batch_add_chain_tags.py --remove-failed
+    
+    # 删除"文件内容为空或过短"的记录
+    python batch_add_chain_tags.py --remove-empty-summary
+    
+    # 智能标签功能：使用AI推荐三级标签
+    python batch_add_chain_tags.py --smart-tags
+    
     # 显示前5条记录的标签信息
     python batch_add_chain_tags.py --sample 5
     
@@ -56,6 +68,9 @@
     6. 链式标签使用"/"分隔符
     7. 删除分级标签功能：移除所有"X级标签"字段
     8. 格式化标签功能：清理特殊字符、多余空格，保留年份数字
+    9. 删除失败记录功能：移除"最匹配的目标目录"为"分类失败"的记录
+    10. 删除空摘要记录功能：移除"文件摘要"为"文件内容为空或过短"的记录
+    11. 智能标签功能：使用AI推荐三级标签，智能追加和清理
 
 作者: AI Assistant
 创建时间: 2025-01-15
@@ -66,9 +81,11 @@ import json
 import os
 import sys
 import argparse
+import re
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Set, Tuple
+from ai_client_manager import chat_with_ai
 
 class ChainTagsBatchProcessor:
     """批量添加链式标签处理器"""
@@ -388,6 +405,9 @@ class ChainTagsBatchProcessor:
         print(f"\n扫描 {len(data)} 条记录的链式标签情况...")
         stats = self.pre_scan_chain_tags(data)
         
+        # 提取现有标签统计
+        existing_tags = self.extract_existing_tags(data)
+        
         # 显示详细统计
         print("\n" + "=" * 60)
         print("扫描统计:")
@@ -408,10 +428,35 @@ class ChainTagsBatchProcessor:
             print(f"  需要添加链式标签: {need_pct:.1f}%")
             print(f"  无链式标签: {no_level_pct:.1f}%")
         
+        # 显示各级标签数量统计
+        print(f"\n各级标签数量统计:")
+        print(f"  1级标签数量: {len(existing_tags[1])}")
+        print(f"  2级标签数量: {len(existing_tags[2])}")
+        print(f"  3级标签数量: {len(existing_tags[3])}")
+        print(f"  4级标签数量: {len(existing_tags[4])}")
+        print(f"  5级标签数量: {len(existing_tags[5])}")
+        print(f"  3级及以上标签总数: {len(existing_tags[3] | existing_tags[4] | existing_tags[5])}")
+        
+        # 显示前10个1级标签示例
+        if existing_tags[1]:
+            print(f"\n1级标签示例 (前10个):")
+            for i, tag in enumerate(sorted(list(existing_tags[1]))[:10], 1):
+                print(f"  {i}. {tag}")
+            if len(existing_tags[1]) > 10:
+                print(f"  ... 还有 {len(existing_tags[1]) - 10} 个1级标签")
+        
+        # 显示前10个2级标签示例
+        if existing_tags[2]:
+            print(f"\n2级标签示例 (前10个):")
+            for i, tag in enumerate(sorted(list(existing_tags[2]))[:10], 1):
+                print(f"  {i}. {tag}")
+            if len(existing_tags[2]) > 10:
+                print(f"  ... 还有 {len(existing_tags[2]) - 10} 个2级标签")
+        
         print("=" * 60)
         
         if stats['need_chain_tags'] > 0:
-            print(f"\n建议: 可以运行 'python batch_add_chain_tags_enhanced.py --dry-run' 来试运行处理")
+            print(f"\n建议: 可以运行 'python batch_add_chain_tags.py --dry-run' 来试运行处理")
         else:
             print(f"\n✓ 所有记录都已经有链式标签，无需处理")
     
@@ -702,6 +747,38 @@ class ChainTagsBatchProcessor:
         if not data:
             return False
         
+        # 先统计需要格式化的标签数量
+        need_format_count = 0
+        format_examples = []
+        
+        for item in data:
+            if "标签" in item and isinstance(item["标签"], dict):
+                if "链式标签" in item["标签"]:
+                    original_tag = item["标签"]["链式标签"]
+                    if original_tag:
+                        # 检查是否需要格式化
+                        formatted_tag = self._format_single_tag(original_tag)
+                        if original_tag != formatted_tag:
+                            need_format_count += 1
+                            if len(format_examples) < 5:
+                                format_examples.append({
+                                    'original': original_tag,
+                                    'formatted': formatted_tag
+                                })
+        
+        print(f"检测到需要格式化的标签: {need_format_count} 个")
+        
+        if need_format_count == 0:
+            print("✓ 没有需要格式化的标签")
+            return True
+        
+        # 显示格式化示例
+        if format_examples:
+            print(f"\n格式化示例:")
+            for i, example in enumerate(format_examples, 1):
+                print(f"  {i}. 原标签: {example['original']}")
+                print(f"     格式化后: {example['formatted']}")
+        
         # 格式化标签
         print(f"\n开始处理 {len(data)} 条记录...")
         if dry_run:
@@ -734,7 +811,7 @@ class ChainTagsBatchProcessor:
         if not dry_run and stats['formatted_tags'] > 0:
             success = self.save_data(data)
             if success:
-                print("\n✓ 格式化标签完成！")
+                print(f"\n✓ 格式化标签完成！")
             else:
                 print("\n✗ 保存失败！")
             return success
@@ -792,6 +869,584 @@ class ChainTagsBatchProcessor:
         else:
             print("\n无需修改文件")
             return True
+    
+    def remove_failed_records(self, data: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, int]:
+        """删除"最匹配的目标目录"为"分类失败"的记录"""
+        stats = {
+            'total': len(data),
+            'processed': 0,
+            'removed_failed_records': 0,
+            'no_failed_records': 0,
+            'errors': 0,
+            'removed_details': []  # 记录删除的详细信息
+        }
+        
+        # 创建新列表来存储保留的记录
+        filtered_data = []
+        
+        for i, item in enumerate(data):
+            try:
+                # 检查是否为"分类失败"记录
+                target_dir = item.get("最匹配的目标目录", "")
+                if target_dir == "分类失败":
+                    stats['removed_failed_records'] += 1
+                    
+                    # 记录删除的详细信息（只记录前10个）
+                    if len(stats['removed_details']) < 10:
+                        file_name = item.get('文件名', '未知文件')
+                        stats['removed_details'].append({
+                            'file_name': file_name,
+                            'target_dir': target_dir
+                        })
+                    
+                    # 不添加到新列表中（即删除）
+                else:
+                    # 保留非"分类失败"的记录
+                    filtered_data.append(item)
+                    stats['no_failed_records'] += 1
+                
+                stats['processed'] += 1
+                
+                if (i + 1) % 100 == 0:
+                    print(f"  已处理 {i + 1}/{len(data)} 条记录...")
+                
+            except Exception as e:
+                print(f"✗ 处理第 {i + 1} 条记录时出错: {e}")
+                stats['errors'] += 1
+                # 出错时保留该记录
+                filtered_data.append(item)
+        
+        # 更新原数据列表
+        if not dry_run:
+            data.clear()
+            data.extend(filtered_data)
+        
+        return stats
+    
+    def remove_empty_summary_records(self, data: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, int]:
+        """删除"文件摘要"为"文件内容为空或过短"的记录"""
+        stats = {
+            'total': len(data),
+            'processed': 0,
+            'removed_empty_summary_records': 0,
+            'no_empty_summary_records': 0,
+            'errors': 0,
+            'removed_details': []  # 记录删除的详细信息
+        }
+        
+        # 创建新列表来存储保留的记录
+        filtered_data = []
+        
+        for i, item in enumerate(data):
+            try:
+                # 检查是否为"文件内容为空或过短"记录
+                file_summary = item.get("文件摘要", "")
+                if file_summary == "文件内容为空或过短":
+                    stats['removed_empty_summary_records'] += 1
+                    
+                    # 记录删除的详细信息（只记录前10个）
+                    if len(stats['removed_details']) < 10:
+                        file_name = item.get('文件名', '未知文件')
+                        stats['removed_details'].append({
+                            'file_name': file_name,
+                            'file_summary': file_summary
+                        })
+                    
+                    # 不添加到新列表中（即删除）
+                else:
+                    # 保留非"文件内容为空或过短"的记录
+                    filtered_data.append(item)
+                    stats['no_empty_summary_records'] += 1
+                
+                stats['processed'] += 1
+                
+                if (i + 1) % 100 == 0:
+                    print(f"  已处理 {i + 1}/{len(data)} 条记录...")
+                
+            except Exception as e:
+                print(f"✗ 处理第 {i + 1} 条记录时出错: {e}")
+                stats['errors'] += 1
+                # 出错时保留该记录
+                filtered_data.append(item)
+        
+        # 更新原数据列表
+        if not dry_run:
+            data.clear()
+            data.extend(filtered_data)
+        
+        return stats
+    
+    def _process_remove_failed(self, dry_run: bool = False) -> bool:
+        """处理删除'分类失败'记录（已禁用）"""
+        # 此功能已从一键优化中移除，直接返回成功
+        print("删除'分类失败'记录功能已禁用")
+        return True
+    
+    def _process_remove_empty_summary(self, dry_run: bool = False) -> bool:
+        """处理删除'文件内容为空或过短'记录"""
+        print("=" * 60)
+        print("删除'文件内容为空或过短'记录工具")
+        print("=" * 60)
+        
+        # 备份文件
+        if not dry_run:
+            if not self.backup_file():
+                return False
+        
+        # 加载数据
+        data = self.load_data()
+        if not data:
+            return False
+        
+        # 删除'文件内容为空或过短'记录
+        print(f"\n开始处理 {len(data)} 条记录...")
+        if dry_run:
+            print("⚠ 试运行模式，不会修改原文件")
+        
+        stats = self.remove_empty_summary_records(data, dry_run)
+        
+        # 显示统计信息
+        print("\n" + "=" * 60)
+        print("删除'文件内容为空或过短'记录统计:")
+        print(f"  总记录数: {stats['total']}")
+        print(f"  已处理: {stats['processed']}")
+        print(f"  删除的'文件内容为空或过短'记录: {stats['removed_empty_summary_records']}")
+        print(f"  保留的记录: {stats['no_empty_summary_records']}")
+        print(f"  处理错误: {stats['errors']}")
+        
+        # 显示删除详情
+        if stats['removed_empty_summary_records'] > 0:
+            if stats['removed_details']:
+                print(f"\n删除详情 (显示前{min(10, len(stats['removed_details']))}个):")
+                for i, detail in enumerate(stats['removed_details'], 1):
+                    print(f"  {i}. {detail['file_name']}")
+                    print(f"     文件摘要: {detail['file_summary']}")
+                if stats['removed_empty_summary_records'] > 10:
+                    print(f"  ... 还有 {stats['removed_empty_summary_records'] - 10} 条记录已删除")
+            else:
+                print(f"\n已删除 {stats['removed_empty_summary_records']} 条'文件内容为空或过短'记录")
+        
+        print("=" * 60)
+        
+        # 保存数据
+        if not dry_run and stats['removed_empty_summary_records'] > 0:
+            success = self.save_data(data)
+            if success:
+                print(f"\n✓ 删除'文件内容为空或过短'记录完成！已删除 {stats['removed_empty_summary_records']} 条记录")
+            else:
+                print("\n✗ 保存失败！")
+            return success
+        elif dry_run:
+            print("\n试运行完成，未修改原文件")
+            return True
+        else:
+            print("\n无需修改文件")
+            return True
+    
+    def extract_existing_tags(self, data: List[Dict[str, Any]]) -> Dict[int, Set[str]]:
+        """提取现有的各级别标签"""
+        level_tags: Dict[int, Set[str]] = {1: set(), 2: set(), 3: set(), 4: set(), 5: set()}
+        
+        for item in data:
+            if "标签" in item and isinstance(item["标签"], dict):
+                if "链式标签" in item["标签"]:
+                    chain_tag = item["标签"]["链式标签"]
+                    if chain_tag and isinstance(chain_tag, str):
+                        parts = [part.strip() for part in chain_tag.split('/') if part.strip()]
+                        for level, tag in enumerate(parts, 1):
+                            if level <= 5:  # 只统计前5级
+                                level_tags[level].add(tag)
+        
+        return level_tags
+    
+    def get_ai_recommendation(self, file_name: str, summary: str, target_path: str, existing_tags: Dict[int, Set[str]]) -> str:
+        """使用AI推荐三级标签"""
+        try:
+            # 首先尝试从目标路径提取标签
+            if target_path:
+                path_parts = [part.strip() for part in target_path.split('/') if part.strip()]
+                if len(path_parts) >= 3:
+                    # 检查路径中的标签是否在现有标签中
+                    level1_candidate = path_parts[0]
+                    level2_candidate = path_parts[1] if len(path_parts) > 1 else ""
+                    level3_candidate = path_parts[2] if len(path_parts) > 2 else ""
+                    
+                    # 验证标签是否在现有标签中
+                    if (level1_candidate in existing_tags[1] and 
+                        level2_candidate in existing_tags[2] and 
+                        level3_candidate in (existing_tags[3] | existing_tags[4] | existing_tags[5])):
+                        return f"{level1_candidate}/{level2_candidate}/{level3_candidate}"
+            
+            # 如果目标路径不适用，尝试使用AI服务
+            try:
+                # 构建现有标签列表
+                level1_tags = sorted(list(existing_tags[1]))
+                level2_tags = sorted(list(existing_tags[2]))
+                level3_plus_tags = sorted(list(existing_tags[3] | existing_tags[4] | existing_tags[5]))
+                
+                # 构建提示词（参考smart_file_classifier.py的模式）
+                prompt = f"""不需要思考，直接输出。
+
+你是一个专业的文件分类专家。请根据文件信息推荐一个包含三个级别的标签链。
+
+文件信息：
+- 文件名：{file_name}
+- 文件摘要：{summary[:200] if summary else '无摘要'}
+- 最终目标路径：{target_path}
+
+现有标签库（必须严格从以下列表中选择，不要添加任何序号、标点或额外字符）：
+
+一级标签（从中选择）：
+{chr(10).join(level1_tags[:30])}{'...' if len(level1_tags) > 30 else ''}
+
+二级标签（从中选择）：
+{chr(10).join(level2_tags[:30])}{'...' if len(level2_tags) > 30 else ''}
+
+三级标签（从中选择）：
+{chr(10).join(level3_plus_tags[:30])}{'...' if len(level3_plus_tags) > 30 else ''}
+
+要求：
+1. 推荐格式：一级标签/二级标签/三级标签
+2. 一级标签必须从现有一级标签中选择
+3. 二级标签必须从现有二级标签中选择
+4. 三级标签必须从现有三级及以上标签中选择
+5. 标签要与文件内容高度相关
+6. 优先选择有业务含义的分类标签，严格避免选择：
+   - 年份标签（如2018年、2019年、2016年等）
+   - 时间相关标签（如年度、中期、季度、策略会等）
+   - 重复的标签
+   - 与一级标签相同的标签
+   - 无业务价值的通用标签（如策略报告集合、行业研究分类、专题报告等）
+7. 标签要求：
+   - 简洁精炼，每个标签不超过5个字
+   - 只包含核心业务名词，严格不包含"分析"、"报告"、"研究"、"专题"、"策略"等后缀
+   - 每个标签都必须与文件名或摘要内容直接相关，不能推荐与文件内容无关的标签
+   - 严格检查相关性：标签中的关键词必须在文件名或摘要中明确出现
+   - 禁止推荐：如果标签中的关键词在文件名和摘要中都没有出现，绝对不能推荐该标签
+   - 推荐前优先检查：优先选择文件名或摘要中明确出现的标签
+   - 只能推荐现有标签中存在的标签，不能创造新标签
+   - 如果现有标签中没有与文件内容相关的标签，则只推荐一级标签
+   - 推荐前必须从现有标签列表中查找，确保推荐的标签确实存在
+   - 对于包含"策略"的文件，只能推荐现有标签中的"策略"、"策略专题"、"宏观策略"等
+   - 禁止将多个词组合成新标签，如"期权指数"、"原油期货"等，除非这些组合标签在现有标签中存在
+   - 优先匹配：优先推荐文件名或摘要中明确包含的现有标签
+   - 如果找不到完全匹配的标签，可以选择语义相关的标签
+   - 体现文件的核心业务内容，如：
+     * 券商名称（如中信、东吴、海通、国盛等）- 必须在文件名或摘要中明确出现
+     * 行业分类（如轻工制造、化工、金融等）- 必须在文件名或摘要中明确出现
+     * 产品类型（如原油期货、纸浆期货、天然橡胶等）- 必须在文件名或摘要中明确出现
+     * 核心概念（如期权指数、投资策略等）- 必须在文件名或摘要中明确出现
+   - 示例：将"期权对标的指数走势的预测性分析"简化为"期权指数"
+   - 检查示例：如果推荐"中信"，必须确认文件名或摘要中有"中信"字样
+   - 如果找不到足够的相关标签，宁可少推荐，也不要推荐无关标签
+   - 最终检查：推荐前确认标签与文件内容相关
+8. 确保三个标签都不相同，且都有明确的业务含义
+7. 只返回标签链，不要其他解释
+
+请只返回一个最匹配的标签链，不要包含任何其他内容：
+
+/no_think"""
+
+                # 调用AI进行推荐（参考smart_file_classifier.py的模式）
+                messages = [
+                    {
+                        'role': 'system',
+                        'content': '你是一个专业的文件分类专家。专注于业务分类，推荐简洁精炼的标签（每个标签不超过5个字），只包含核心业务名词，不包含"分析"、"报告"、"研究"等后缀。优先推荐与文件名或摘要内容直接相关的标签，如果找不到完全匹配的标签，可以选择语义相关的标签。优先选择券商名称、行业分类、产品类型等有业务价值的标签。避免选择年份、时间相关标签和无业务价值的通用标签。直接输出标签链，不要包含任何思考过程、标签、序号或解释。'
+                    },
+                    {
+                        'role': 'user',
+                        'content': prompt
+                    }
+                ]
+                
+                response = chat_with_ai(messages)
+                response = self.clean_ai_response(response)
+                
+                # 验证格式
+                if '/' in response and response.count('/') == 2:
+                    parts = [part.strip() for part in response.split('/')]
+                    if len(parts) == 3 and all(parts):
+                        return response
+                
+                return ""
+                
+            except Exception as ai_error:
+                print(f"AI服务调用失败: {ai_error}")
+                # 如果AI服务失败，尝试基于文件名和摘要的简单推荐
+                return self._simple_recommendation(file_name, summary, existing_tags)
+            
+        except Exception as e:
+            print(f"推荐失败: {e}")
+            return ""
+    
+    def clean_ai_response(self, response: str) -> str:
+        """清理AI响应中的思考过程（参考smart_file_classifier.py）"""
+        try:
+            if not response:
+                return response
+            
+            # 清理可能的思考过程标签和内容
+            response = response.replace('<think>', '').replace('</think>', '').strip()
+            
+            # 去掉其他常见的思考过程标记
+            response = re.sub(r'好的，我现在需要.*?：', '', response, flags=re.DOTALL)
+            response = re.sub(r'让我分析一下.*?：', '', response, flags=re.DOTALL)
+            response = re.sub(r'我来为您.*?：', '', response, flags=re.DOTALL)
+            
+            # 清理多余的空白字符
+            response = re.sub(r'\n\s*\n', '\n', response)
+            response = response.strip()
+            
+            return response
+        except Exception as e:
+            print(f"清理AI响应失败: {e}")
+            return response
+    
+    def _simple_recommendation(self, file_name: str, summary: str, existing_tags: Dict[int, Set[str]]) -> str:
+        """简单的基于规则的推荐"""
+        try:
+            # 基于文件名和摘要的关键词匹配
+            content = f"{file_name} {summary}".lower()
+            
+            # 一级标签推荐
+            level1_candidates = []
+            for tag in existing_tags[1]:
+                if any(keyword in content for keyword in tag.lower().split()):
+                    level1_candidates.append(tag)
+            
+            if not level1_candidates:
+                # 如果没有匹配，使用最常见的标签
+                level1_candidates = list(existing_tags[1])
+            
+            # 二级标签推荐
+            level2_candidates = []
+            for tag in existing_tags[2]:
+                if any(keyword in content for keyword in tag.lower().split()):
+                    level2_candidates.append(tag)
+            
+            if not level2_candidates:
+                level2_candidates = list(existing_tags[2])
+            
+            # 三级标签推荐
+            level3_candidates = []
+            for tag in (existing_tags[3] | existing_tags[4] | existing_tags[5]):
+                if any(keyword in content for keyword in tag.lower().split()):
+                    level3_candidates.append(tag)
+            
+            if not level3_candidates:
+                level3_candidates = list(existing_tags[3] | existing_tags[4] | existing_tags[5])
+            
+            # 选择第一个候选标签
+            if level1_candidates and level2_candidates and level3_candidates:
+                return f"{level1_candidates[0]}/{level2_candidates[0]}/{level3_candidates[0]}"
+            
+            return ""
+            
+        except Exception as e:
+            print(f"简单推荐失败: {e}")
+            return ""
+    
+    def is_tag_similar(self, tag1: str, tag2: str) -> bool:
+        """判断两个标签是否相似"""
+        if tag1 == tag2:
+            return True
+        
+        # 简单的相似度判断
+        tag1_clean = re.sub(r'[^\u4e00-\u9fff\w]', '', tag1.lower())
+        tag2_clean = re.sub(r'[^\u4e00-\u9fff\w]', '', tag2.lower())
+        
+        if tag1_clean == tag2_clean:
+            return True
+        
+        # 检查包含关系
+        if tag1_clean in tag2_clean or tag2_clean in tag1_clean:
+            return True
+        
+        return False
+    
+    def is_tag_relevant_to_content(self, tag: str, file_name: str, summary: str) -> bool:
+        """判断标签是否与文件内容相关"""
+        if not tag or not file_name:
+            return True  # 如果信息不足，默认保留
+        
+        # 提取关键词
+        content = f"{file_name} {summary}".lower()
+        tag_lower = tag.lower()
+        
+        # 简单的相关性判断
+        # 1. 直接包含
+        if tag_lower in content:
+            return True
+        
+        # 2. 关键词匹配
+        tag_words = re.findall(r'[\u4e00-\u9fff]+|\w+', tag_lower)
+        content_words = re.findall(r'[\u4e00-\u9fff]+|\w+', content)
+        
+        # 计算匹配的关键词数量
+        matches = sum(1 for word in tag_words if word in content_words)
+        if matches >= len(tag_words) * 0.5:  # 至少50%的关键词匹配
+            return True
+        
+        return False
+    
+    def smart_add_tags(self, data: List[Dict[str, Any]], dry_run: bool = False) -> Dict[str, int]:
+        """智能添加标签 - 只针对链式标签为空的记录"""
+        stats = {
+            'total': len(data),
+            'processed': 0,
+            'empty_chain_tags': 0,
+            'ai_recommendations': 0,
+            'tags_added': 0,
+            'errors': 0,
+            'recommendation_details': []  # 记录推荐详情
+        }
+        
+        # 提取现有标签
+        existing_tags = self.extract_existing_tags(data)
+        print(f"提取到现有标签：1级{len(existing_tags[1])}个，2级{len(existing_tags[2])}个，3级及以上{len(existing_tags[3] | existing_tags[4] | existing_tags[5])}个")
+        
+        for i, item in enumerate(data):
+            try:
+                file_name = item.get('文件名', '')
+                summary = item.get('文件摘要', '') or item.get('摘要', '') or ''
+                target_path = item.get('最终目标路径', '')
+                
+                if not file_name:
+                    stats['processed'] += 1
+                    continue
+                
+                # 获取当前链式标签
+                current_chain_tag = ""
+                if "标签" in item and isinstance(item["标签"], dict):
+                    current_chain_tag = item["标签"].get("链式标签", "")
+                
+                # 只处理链式标签为空的记录
+                if current_chain_tag and current_chain_tag.strip():
+                    stats['processed'] += 1
+                    continue
+                
+                stats['empty_chain_tags'] += 1
+                
+                # 使用AI推荐标签
+                ai_recommendation = self.get_ai_recommendation(
+                    file_name,
+                    summary,
+                    target_path,
+                    existing_tags
+                )
+                
+                if ai_recommendation:
+                    stats['ai_recommendations'] += 1
+                    
+                    # 直接使用AI推荐的标签
+                    final_chain_tag = ai_recommendation
+                    
+                    # 更新标签
+                    if not dry_run:
+                        if "标签" not in item:
+                            item["标签"] = {}
+                        if not isinstance(item["标签"], dict):
+                            item["标签"] = {}
+                        
+                        item["标签"]["链式标签"] = final_chain_tag
+                    
+                    stats['tags_added'] += 1
+                    
+                    # 记录推荐详情（只记录前10个）
+                    if len(stats['recommendation_details']) < 10:
+                        stats['recommendation_details'].append({
+                            'file_name': file_name,
+                            'original': current_chain_tag or '空',
+                            'ai_recommendation': ai_recommendation,
+                            'final': final_chain_tag
+                        })
+                
+                stats['processed'] += 1
+                
+                if (i + 1) % 50 == 0:
+                    print(f"  已处理 {i + 1}/{len(data)} 条记录...")
+                
+            except Exception as e:
+                print(f"✗ 处理第 {i + 1} 条记录时出错: {e}")
+                stats['errors'] += 1
+        
+        return stats
+    
+    def _process_smart_tags(self, dry_run: bool = False) -> bool:
+        """处理智能标签功能"""
+        print("=" * 60)
+        print("智能标签功能")
+        print("=" * 60)
+        
+        # 备份文件
+        if not dry_run:
+            if not self.backup_file():
+                return False
+        
+        # 加载数据
+        data = self.load_data()
+        if not data:
+            return False
+        
+        # 先统计空标签数量
+        empty_count = 0
+        for item in data:
+            current_chain_tag = ""
+            if "标签" in item and isinstance(item["标签"], dict):
+                current_chain_tag = item["标签"].get("链式标签", "")
+            
+            if not current_chain_tag or not current_chain_tag.strip():
+                empty_count += 1
+        
+        print(f"检测到空标签记录: {empty_count} 条")
+        
+        if empty_count == 0:
+            print("✓ 没有空标签需要处理")
+            return True
+        
+        # 智能添加标签
+        print(f"\n开始处理 {len(data)} 条记录...")
+        if dry_run:
+            print("⚠ 试运行模式，不会修改原文件")
+        
+        stats = self.smart_add_tags(data, dry_run)
+        
+        # 显示统计信息
+        print("\n" + "=" * 60)
+        print("智能标签统计:")
+        print(f"  总记录数: {stats['total']}")
+        print(f"  已处理: {stats['processed']}")
+        print(f"  链式标签为空的记录: {stats['empty_chain_tags']}")
+        print(f"  AI推荐次数: {stats['ai_recommendations']}")
+        print(f"  标签添加次数: {stats['tags_added']}")
+        print(f"  处理错误: {stats['errors']}")
+        
+        # 显示推荐详情
+        if stats['recommendation_details']:
+            print(f"\n推荐详情 (显示前{len(stats['recommendation_details'])}个):")
+            for i, detail in enumerate(stats['recommendation_details'], 1):
+                print(f"  {i}. {detail['file_name']}")
+                print(f"     原标签: {detail['original']}")
+                print(f"     AI推荐: {detail['ai_recommendation']}")
+                print(f"     最终标签: {detail['final']}")
+                print()
+        
+        print("=" * 60)
+        
+        # 保存数据
+        if not dry_run and stats['tags_added'] > 0:
+            success = self.save_data(data)
+            if success:
+                print(f"\n✓ 智能标签处理完成！")
+            else:
+                print("\n✗ 保存失败！")
+            return success
+        elif dry_run:
+            print("\n试运行完成，未修改原文件")
+            return True
+        else:
+            print("\n无需修改文件")
+            return True
 
 def main():
     """主函数"""
@@ -812,6 +1467,12 @@ def main():
                        help="格式化链式标签，清理特殊字符和多余空格")
     parser.add_argument("--clean-all", action="store_true", 
                        help="执行完整清理：删除分级标签 + 格式化链式标签")
+    parser.add_argument("--remove-failed", action="store_true", 
+                       help="删除'最匹配的目标目录'为'分类失败'的记录")
+    parser.add_argument("--remove-empty-summary", action="store_true", 
+                       help="删除'文件摘要'为'文件内容为空或过短'的记录")
+    parser.add_argument("--smart-tags", action="store_true", 
+                       help="智能标签功能：使用AI推荐三级标签并追加到链式标签")
     
     args = parser.parse_args()
     
@@ -841,6 +1502,27 @@ def main():
             print("\n✓ 完整清理完成！")
         else:
             print("\n✗ 完整清理失败！")
+            sys.exit(1)
+    elif args.remove_failed:
+        success = processor._process_remove_failed(args.dry_run)
+        if success:
+            print("\n✓ 删除'分类失败'记录完成！")
+        else:
+            print("\n✗ 删除'分类失败'记录失败！")
+            sys.exit(1)
+    elif args.remove_empty_summary:
+        success = processor._process_remove_empty_summary(args.dry_run)
+        if success:
+            print("\n✓ 删除'文件内容为空或过短'记录完成！")
+        else:
+            print("\n✗ 删除'文件内容为空或过短'记录失败！")
+            sys.exit(1)
+    elif args.smart_tags:
+        success = processor._process_smart_tags(args.dry_run)
+        if success:
+            print("\n✓ 智能标签处理完成！")
+        else:
+            print("\n✗ 智能标签处理失败！")
             sys.exit(1)
     else:
         success = processor.process(args.dry_run, args.force_update)

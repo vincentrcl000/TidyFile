@@ -458,8 +458,8 @@ class AIClientManager:
     def create_default_config(self):
         """创建默认配置"""
         self.models = [
-            ModelConfig('qwen-long', 'Qwen-Long在线模型', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-long', 'sk-9b728f2f153f4a81b507caeced3380d1', 1, True),
-            ModelConfig('ollama-local', '本地Ollama模型', 'http://localhost:11434', 'qwen3:0.6b', '', 2, True)
+            ModelConfig('qwen-long', 'Qwen-Long在线模型', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-long', 'qwen_long', 'sk-9b728f2f153f4a81b507caeced3380d1', 1, True),
+            ModelConfig('ollama-local', '本地Ollama模型', 'http://localhost:11434', 'qwen3:0.6b', 'ollama', '', 2, True)
         ]
         self.save_config()
         logging.info("创建了默认配置")
@@ -1242,10 +1242,10 @@ def main():
         if args.test:
             print("=== 测试AI模型连接 ===")
             results = test_ai_connections()
-            for model_id, result in results.items():
-                status = "✓ 可用" if result['available'] else "✗ 不可用"
-                print(f"{model_id}: {status}")
-                if not result['available']:
+            for model_name, result in results.items():
+                status = "✓ 可用" if result.get('success', False) else "✗ 不可用"
+                print(f"{model_name}: {status}")
+                if not result.get('success', False):
                     print(f"  错误: {result.get('error', '未知错误')}")
         
         elif args.refresh:
@@ -1257,10 +1257,10 @@ def main():
             print("=== 模型可用性信息 ===")
             info = get_model_availability_info()
             for model_info in info:
-                status = "✓ 可用" if model_info['available'] else "✗ 不可用"
-                print(f"{model_info['name']} ({model_info['type']}): {status}")
-                if model_info['available']:
-                    print(f"  优先级: {model_info['priority']}")
+                status = "✓ 可用" if model_info.get('available', False) else "✗ 不可用"
+                print(f"{model_info['name']} ({model_info.get('model_type', 'unknown')}): {status}")
+                if model_info.get('available', False):
+                    print(f"  优先级: {model_info.get('priority', 'N/A')}")
                     print(f"  响应时间: {model_info.get('response_time', 'N/A')}ms")
                 else:
                     print(f"  错误: {model_info.get('error', '未知错误')}")

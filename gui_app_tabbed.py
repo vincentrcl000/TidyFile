@@ -25,6 +25,441 @@ import time
 # from file_duplicate_cleaner import remove_duplicate_files  # 已迁移到独立模块
 from file_reader import FileReader
 from transfer_log_manager import TransferLogManager
+from batch_add_chain_tags import ChainTagsBatchProcessor
+
+class TagOptimizerGUI:
+    """标签优化器GUI类"""
+    
+    def __init__(self, parent_frame, root_window):
+        """初始化标签优化器"""
+        self.parent_frame = parent_frame
+        self.root_window = root_window
+        self.processor = ChainTagsBatchProcessor()
+        
+        # 创建界面
+        self.create_widgets()
+        
+        # 加载初始数据
+        self.load_initial_data()
+    
+    def create_widgets(self):
+        """创建界面组件"""
+        # 创建主框架
+        main_frame = tb.Frame(self.parent_frame)
+        main_frame.pack(fill=BOTH, expand=True)
+        
+        # 标题
+        title_label = tb.Label(main_frame, text="标签优化工具", font=('Arial', 14, 'bold'))
+        title_label.pack(pady=(0, 15))
+        
+        # 说明文字
+        info_label = tb.Label(
+            main_frame, 
+            text="智能优化ai_organize_result.json中的标签体系，包括分析、AI推荐、格式化等功能",
+            font=('Arial', 10),
+            foreground="gray"
+        )
+        info_label.pack(pady=(0, 20))
+        
+        # 创建功能按钮区域
+        self.create_function_buttons(main_frame)
+        
+        # 创建结果显示区域
+        self.create_result_area(main_frame)
+    
+    def create_function_buttons(self, parent):
+        """创建功能按钮区域"""
+        # 功能按钮框架
+        button_frame = tb.LabelFrame(parent, text="功能选择", padding="10")
+        button_frame.pack(fill=X, pady=(0, 15))
+        
+        # 按钮配置
+        buttons_config = [
+            {
+                "name": "当前标签分析",
+                "command": self.analyze_current_tags,
+                "style": "info.TButton",
+                "description": "扫描并分析当前链式标签情况，显示统计信息"
+            },
+            {
+                "name": "智能标签",
+                "command": self.smart_tags,
+                "style": "success.TButton",
+                "description": "针对空标签、误删除标签使用AI推荐三级标签"
+            },
+            {
+                "name": "标签格式化",
+                "command": self.format_tags,
+                "style": "warning.TButton",
+                "description": "格式化链式标签，清理特殊字符和多余空格（推荐在进行迁移、文章解读后使用）"
+            },
+            {
+                "name": "一键优化",
+                "command": self.one_click_optimize,
+                "style": "danger.TButton",
+                "description": "同时执行多个优化操作：强制更新、智能标签、格式化"
+            }
+        ]
+        
+        # 创建按钮网格
+        for i, config in enumerate(buttons_config):
+            row = i // 2
+            col = i % 2
+            
+            # 按钮容器
+            button_container = tb.Frame(button_frame)
+            button_container.grid(row=row, column=col, sticky=(W, E, N, S), padx=10, pady=5)
+            
+            # 按钮
+            button = tb.Button(
+                button_container,
+                text=config["name"],
+                command=config["command"],
+                style=config["style"],
+                width=20
+            )
+            button.pack(pady=(0, 5))
+            
+            # 描述
+            desc_label = tb.Label(
+                button_container,
+                text=config["description"],
+                font=('Arial', 9),
+                foreground="gray",
+                wraplength=200,
+                justify=CENTER
+            )
+            desc_label.pack()
+        
+        # 配置网格权重
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
+    
+    def create_result_area(self, parent):
+        """创建结果显示区域"""
+        # 结果框架
+        result_frame = tb.LabelFrame(parent, text="操作结果", padding="10")
+        result_frame.pack(fill=BOTH, expand=True)
+        
+        # 创建文本区域
+        self.result_text = ScrolledText(result_frame, height=15, font=('Consolas', 9))
+        self.result_text.pack(fill=BOTH, expand=True)
+        
+        # 底部按钮框架
+        bottom_frame = tb.Frame(result_frame)
+        bottom_frame.pack(fill=X, pady=(10, 0))
+        
+        # 清空按钮
+        tb.Button(bottom_frame, text="清空结果", command=self.clear_results, style="secondary.TButton").pack(side=LEFT)
+        
+        # 保存结果按钮
+        tb.Button(bottom_frame, text="保存结果", command=self.save_results, style="info.TButton").pack(side=LEFT, padx=(10, 0))
+        
+        # 刷新数据按钮
+        tb.Button(bottom_frame, text="刷新数据", command=self.refresh_data, style="warning.TButton").pack(side=RIGHT)
+    
+    def load_initial_data(self):
+        """加载初始数据"""
+        try:
+            data = self.processor.load_data()
+            if data:
+                self.log_message(f"✓ 成功加载 {len(data)} 条记录")
+            else:
+                self.log_message("✗ 无法加载数据")
+        except Exception as e:
+            self.log_message(f"✗ 加载数据失败: {e}")
+    
+    def log_message(self, message):
+        """记录消息到结果区域"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.result_text.insert(END, f"[{timestamp}] {message}\n")
+        self.result_text.see(END)
+        self.root_window.update()
+    
+    def clear_results(self):
+        """清空结果区域"""
+        self.result_text.delete(1.0, END)
+    
+    def save_results(self):
+        """保存结果到文件"""
+        try:
+            content = self.result_text.get(1.0, END)
+            if not content.strip():
+                messagebox.showwarning("警告", "没有内容可保存")
+                return
+            
+            filename = f"标签优化结果_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            messagebox.showinfo("成功", f"结果已保存到: {filename}")
+        except Exception as e:
+            messagebox.showerror("错误", f"保存失败: {e}")
+    
+    def refresh_data(self):
+        """刷新数据"""
+        self.log_message("正在刷新数据...")
+        self.load_initial_data()
+    
+    def analyze_current_tags(self):
+        """当前标签分析"""
+        self.log_message("=" * 50)
+        self.log_message("开始分析当前标签情况...")
+        
+        try:
+            # 加载数据
+            data = self.processor.load_data()
+            if not data:
+                self.log_message("✗ 无法加载数据")
+                return
+            
+            # 执行扫描
+            stats = self.processor.pre_scan_chain_tags(data)
+            
+            # 提取现有标签统计
+            existing_tags = self.processor.extract_existing_tags(data)
+            
+            # 显示基本统计
+            self.log_message(f"总记录数: {len(data)}")
+            self.log_message(f"已有链式标签: {stats['existing_chain_tags']}")
+            self.log_message(f"需要添加链式标签: {stats['need_chain_tags']}")
+            self.log_message(f"无链式标签: {stats['no_level_tags']}")
+            
+            # 计算百分比
+            total = len(data)
+            if total > 0:
+                existing_pct = (stats['existing_chain_tags'] / total) * 100
+                need_pct = (stats['need_chain_tags'] / total) * 100
+                no_level_pct = (stats['no_level_tags'] / total) * 100
+                
+                self.log_message(f"\n百分比统计:")
+                self.log_message(f"  已有链式标签: {existing_pct:.1f}%")
+                self.log_message(f"  需要添加链式标签: {need_pct:.1f}%")
+                self.log_message(f"  无链式标签: {no_level_pct:.1f}%")
+            
+            # 显示各级标签数量统计
+            self.log_message(f"\n各级标签数量统计:")
+            self.log_message(f"  1级标签数量: {len(existing_tags[1])}")
+            self.log_message(f"  2级标签数量: {len(existing_tags[2])}")
+            self.log_message(f"  3级标签数量: {len(existing_tags[3])}")
+            self.log_message(f"  4级标签数量: {len(existing_tags[4])}")
+            self.log_message(f"  5级标签数量: {len(existing_tags[5])}")
+            self.log_message(f"  3级及以上标签总数: {len(existing_tags[3] | existing_tags[4] | existing_tags[5])}")
+            
+            # 显示前10个1级标签示例
+            if existing_tags[1]:
+                self.log_message(f"\n1级标签示例 (前10个):")
+                for i, tag in enumerate(sorted(list(existing_tags[1]))[:10], 1):
+                    self.log_message(f"  {i}. {tag}")
+                if len(existing_tags[1]) > 10:
+                    self.log_message(f"  ... 还有 {len(existing_tags[1]) - 10} 个1级标签")
+            
+            self.log_message("✓ 标签分析完成")
+            
+        except Exception as e:
+            self.log_message(f"✗ 标签分析失败: {e}")
+    
+    def smart_tags(self):
+        """智能标签功能"""
+        self.log_message("=" * 50)
+        self.log_message("开始智能标签处理...")
+        
+        try:
+            # 确认操作
+            result = messagebox.askyesno(
+                "确认操作", 
+                "智能标签功能将使用AI为空的链式标签推荐三级标签。\n\n确定要继续吗？"
+            )
+            if not result:
+                self.log_message("操作已取消")
+                return
+            
+            # 先统计空标签数量
+            data = self.processor.load_data()
+            if not data:
+                self.log_message("✗ 无法加载数据")
+                return
+            
+            empty_count = 0
+            for item in data:
+                current_chain_tag = ""
+                if "标签" in item and isinstance(item["标签"], dict):
+                    current_chain_tag = item["标签"].get("链式标签", "")
+                
+                if not current_chain_tag or not current_chain_tag.strip():
+                    empty_count += 1
+            
+            self.log_message(f"检测到空标签记录: {empty_count} 条")
+            
+            if empty_count == 0:
+                self.log_message("✓ 没有空标签需要处理")
+                return
+            
+            # 执行智能标签处理
+            success = self.processor._process_smart_tags(dry_run=False)
+            
+            if success:
+                # 重新统计处理后的情况
+                data_after = self.processor.load_data()
+                if data_after:
+                    empty_count_after = 0
+                    for item in data_after:
+                        current_chain_tag = ""
+                        if "标签" in item and isinstance(item["标签"], dict):
+                            current_chain_tag = item["标签"].get("链式标签", "")
+                        
+                        if not current_chain_tag or not current_chain_tag.strip():
+                            empty_count_after += 1
+                    
+                    added_count = empty_count - empty_count_after
+                    self.log_message(f"✓ 智能标签处理完成")
+                    self.log_message(f"  处理前空标签: {empty_count} 条")
+                    self.log_message(f"  处理后空标签: {empty_count_after} 条")
+                    self.log_message(f"  成功添加标签: {added_count} 条")
+                else:
+                    self.log_message("✓ 智能标签处理完成")
+            else:
+                self.log_message("✗ 智能标签处理失败")
+                
+        except Exception as e:
+            self.log_message(f"✗ 智能标签处理失败: {e}")
+    
+    def format_tags(self):
+        """标签格式化功能"""
+        self.log_message("=" * 50)
+        self.log_message("开始标签格式化处理...")
+        
+        try:
+            # 确认操作
+            result = messagebox.askyesno(
+                "确认操作", 
+                "标签格式化功能将清理链式标签中的特殊字符和多余空格。\n\n确定要继续吗？"
+            )
+            if not result:
+                self.log_message("操作已取消")
+                return
+            
+            # 先统计需要格式化的标签数量
+            data = self.processor.load_data()
+            if not data:
+                self.log_message("✗ 无法加载数据")
+                return
+            
+            need_format_count = 0
+            format_examples = []
+            
+            for item in data:
+                if "标签" in item and isinstance(item["标签"], dict):
+                    if "链式标签" in item["标签"]:
+                        original_tag = item["标签"]["链式标签"]
+                        if original_tag:
+                            # 检查是否需要格式化
+                            formatted_tag = self.processor._format_single_tag(original_tag)
+                            if original_tag != formatted_tag:
+                                need_format_count += 1
+                                if len(format_examples) < 5:
+                                    format_examples.append({
+                                        'original': original_tag,
+                                        'formatted': formatted_tag
+                                    })
+            
+            self.log_message(f"检测到需要格式化的标签: {need_format_count} 个")
+            
+            if need_format_count == 0:
+                self.log_message("✓ 没有需要格式化的标签")
+                return
+            
+            # 显示格式化示例
+            if format_examples:
+                self.log_message(f"\n格式化示例:")
+                for i, example in enumerate(format_examples, 1):
+                    self.log_message(f"  {i}. 原标签: {example['original']}")
+                    self.log_message(f"     格式化后: {example['formatted']}")
+            
+            # 执行标签格式化处理
+            success = self.processor._process_format_tags(dry_run=False)
+            
+            if success:
+                self.log_message(f"✓ 标签格式化处理完成")
+                self.log_message(f"  格式化标签数量: {need_format_count} 个")
+            else:
+                self.log_message("✗ 标签格式化处理失败")
+                
+        except Exception as e:
+            self.log_message(f"✗ 标签格式化处理失败: {e}")
+    
+    def one_click_optimize(self):
+        """一键优化功能"""
+        self.log_message("=" * 50)
+        self.log_message("开始一键优化处理...")
+        
+        try:
+            # 确认操作
+            result = messagebox.askyesno(
+                "确认操作", 
+                "一键优化将执行以下操作：\n" +
+                "1. 强制更新所有记录的链式标签\n" +
+                "2. 智能标签功能\n" +
+                "3. 标签格式化\n\n" +
+                "这是一个批量操作，请确保已备份数据。\n\n确定要继续吗？"
+            )
+            if not result:
+                self.log_message("操作已取消")
+                return
+            
+            # 记录初始状态
+            initial_data = self.processor.load_data()
+            if not initial_data:
+                self.log_message("✗ 无法加载初始数据")
+                return
+            
+            initial_count = len(initial_data)
+            self.log_message(f"初始记录数: {initial_count}")
+            
+            # 步骤1: 强制更新链式标签
+            self.log_message("\n步骤1: 强制更新链式标签...")
+            success1 = self.processor.process(dry_run=False, force_update=True)
+            
+            if success1:
+                self.log_message("✓ 强制更新完成")
+            else:
+                self.log_message("✗ 强制更新失败")
+                return
+            
+            # 步骤2: 智能标签处理
+            self.log_message("\n步骤2: 智能标签处理...")
+            success2 = self.processor._process_smart_tags(dry_run=False)
+            
+            if success2:
+                self.log_message("✓ 智能标签处理完成")
+            else:
+                self.log_message("✗ 智能标签处理失败")
+                return
+            
+            # 步骤3: 标签格式化
+            self.log_message("\n步骤3: 标签格式化...")
+            success3 = self.processor._process_format_tags(dry_run=False)
+            
+            if success3:
+                self.log_message("✓ 标签格式化完成")
+            else:
+                self.log_message("✗ 标签格式化失败")
+                return
+            
+            # 最终统计
+            final_data = self.processor.load_data()
+            if final_data:
+                final_count = len(final_data)
+                self.log_message(f"\n一键优化处理完成！")
+                self.log_message(f"最终统计:")
+                self.log_message(f"  初始记录数: {initial_count}")
+                self.log_message(f"  最终记录数: {final_count}")
+                self.log_message(f"  处理记录数: {final_count}")
+            else:
+                self.log_message("✓ 一键优化处理完成！")
+            
+        except Exception as e:
+            self.log_message(f"✗ 一键优化处理失败: {e}")
 
 class TagManagerGUI:
     """标签管理器GUI类"""
@@ -1053,6 +1488,12 @@ class FileOrganizerTabGUI:
                 "description": "管理文件标签，批量删除和整理标签体系"
             },
             {
+                "name": "标签优化",
+                "command": self.show_tag_optimizer,
+                "style": "success.TButton",
+                "description": "智能优化标签体系，包括标签分析、AI推荐、格式化等功能"
+            },
+            {
                 "name": "日志",
                 "command": self.show_transfer_logs,
                 "style": "secondary.TButton",
@@ -1095,6 +1536,8 @@ class FileOrganizerTabGUI:
                 self.ai_model_config_button = button
             elif tool["name"] == "标签管理":
                 self.tag_manager_button = button
+            elif tool["name"] == "标签优化":
+                self.tag_optimizer_button = button
             elif tool["name"] == "日志":
                 self.log_button = button
         
@@ -1755,462 +2198,12 @@ class FileOrganizerTabGUI:
     def show_ai_model_config(self):
         """显示AI模型配置"""
         try:
-            # 创建AI模型配置窗口
-            config_window = tb.Toplevel(self.root)
-            config_window.title("AI模型配置")
-            
-            # 设置响应式窗口
-            self.setup_responsive_window(config_window, 800, 600, 600, 400)
-            config_window.resizable(True, True)
-            config_window.transient(self.root)
-            config_window.grab_set()
-            
-            # 创建主框架
-            main_frame = tb.Frame(config_window, padding="5")
-            main_frame.pack(fill=BOTH, expand=True)
-            
-            # 标题
-            title_label = tb.Label(main_frame, text="AI模型服务配置", font=('Arial', 12, 'bold'))
-            title_label.pack(pady=(0, 10))
-            
-            # 模型列表框架
-            list_frame = tb.Frame(main_frame)
-            list_frame.pack(fill=BOTH, expand=True, pady=(0, 5))
-            
-            # 模型列表标题
-            list_title = tb.Label(list_frame, text="已配置的模型服务:", font=('Arial', 10, 'bold'))
-            list_title.pack(anchor=W, pady=(0, 5))
-            
-            # 模型列表（使用Treeview）
-            columns = ('优先级', '模型名称', '模型类型', '服务地址', '模型名', '状态')
-            model_tree = tb.Treeview(list_frame, columns=columns, show='headings', height=6)
-            
-            # 设置列标题和宽度
-            column_widths = [60, 100, 80, 120, 100, 80]
-            for i, col in enumerate(columns):
-                model_tree.heading(col, text=col)
-                model_tree.column(col, width=column_widths[i], minwidth=50)
-            
-            # 添加滚动条
-            scrollbar = tb.Scrollbar(list_frame, orient=VERTICAL, command=model_tree.yview)
-            model_tree.configure(yscrollcommand=scrollbar.set)
-            
-            model_tree.pack(side=LEFT, fill=BOTH, expand=True)
-            scrollbar.pack(side=RIGHT, fill=Y)
-            
-            # 按钮框架 - 使用网格布局确保按钮紧凑排列
-            button_frame = tb.Frame(main_frame)
-            button_frame.pack(fill=X, pady=5)
-            button_frame.columnconfigure(0, weight=1)
-            button_frame.columnconfigure(1, weight=1)
-            button_frame.columnconfigure(2, weight=1)
-            button_frame.columnconfigure(3, weight=1)
-            
-            def refresh_model_list():
-                """刷新模型列表"""
-                try:
-                    # 清空现有列表
-                    for item in model_tree.get_children():
-                        model_tree.delete(item)
-                    
-                    # 从AI管理器获取模型可用性信息
-                    from ai_client_manager import get_model_availability_info
-                    model_info = get_model_availability_info()
-                    
-                    # 添加到列表
-                    for info in model_info:
-                        # 状态显示：启用状态 + 连接状态 + 可用性
-                        enabled_status = "✅ 启用" if info['enabled'] else "❌ 禁用"
-                        connection_status = "✅ 已连接" if info['client_initialized'] else "❌ 未连接"
-                        availability_status = "✅ 可用" if info['available'] else "❌ 不可用"
-                        
-                        model_tree.insert('', 'end', values=(
-                            info['priority'],
-                            info['name'],
-                            info.get('model_type', 'unknown'),
-                            info['base_url'],
-                            info['model_name'],
-                            f"{enabled_status} | {connection_status} | {availability_status}"
-                        ))
-                    
-                    self.log_message(f"模型列表刷新完成，共 {len(model_info)} 个模型")
-                    
-                except Exception as e:
-                    self.log_message(f"刷新模型列表失败: {e}")
-                    messagebox.showerror("错误", f"刷新模型列表失败: {e}")
-            
-            def add_model():
-                """添加模型"""
-                show_model_dialog()
-            
-            def edit_model():
-                """编辑模型"""
-                selected = model_tree.selection()
-                if not selected:
-                    messagebox.showwarning("提示", "请先选择一个模型进行编辑")
-                    return
-                
-                # 获取选中的模型信息
-                item = model_tree.item(selected[0])
-                values = item['values']
-                
-                # 显示编辑对话框
-                show_model_dialog(
-                    priority=values[0],
-                    name=values[1],
-                    base_url=values[3],  # 调整索引
-                    model_name=values[4]  # 调整索引
-                )
-            
-            def delete_model():
-                """删除模型"""
-                selected = model_tree.selection()
-                if not selected:
-                    messagebox.showwarning("提示", "请先选择一个模型进行删除")
-                    return
-                
-                # 获取选中的模型信息
-                item = model_tree.item(selected[0])
-                values = item['values']
-                model_name = values[1]  # 模型名称
-                
-                if messagebox.askyesno("确认删除", f"确定要删除模型 '{model_name}' 吗？"):
-                    try:
-                        from ai_client_manager import get_ai_manager
-                        manager = get_ai_manager()
-                        
-                        # 根据模型名称查找并删除
-                        for model in manager.models:
-                            if model.name == model_name:
-                                manager.delete_model(model.id)
-                                self.log_message(f"模型 '{model_name}' 删除成功")
-                                messagebox.showinfo("成功", f"模型 '{model_name}' 删除成功")
-                                refresh_model_list()  # 刷新列表
-                                return
-                        
-                        messagebox.showerror("错误", f"未找到模型 '{model_name}'")
-                        
-                    except Exception as e:
-                        self.log_message(f"删除模型失败: {e}")
-                        messagebox.showerror("错误", f"删除模型失败: {e}")
-            
-            def enable_selected_model():
-                """启用选中的模型"""
-                selected = model_tree.selection()
-                if not selected:
-                    messagebox.showwarning("提示", "请先选择一个模型进行启用")
-                    return
-                
-                # 获取选中的模型信息
-                item = model_tree.item(selected[0])
-                values = item['values']
-                model_name = values[1]  # 模型名称在第二列
-                
-                try:
-                    from ai_client_manager import get_ai_manager
-                    manager = get_ai_manager()
-                    
-                    # 根据模型名称查找并启用
-                    for model in manager.models:
-                        if model.name == model_name:
-                            if manager.enable_model(model.id):
-                                self.log_message(f"模型 '{model_name}' 启用成功")
-                                messagebox.showinfo("成功", f"模型 '{model_name}' 启用成功")
-                            else:
-                                self.log_message(f"模型 '{model_name}' 启用失败")
-                                messagebox.showerror("错误", f"模型 '{model_name}' 启用失败，请检查连接")
-                            refresh_model_list()  # 刷新列表
-                            return
-                    
-                    messagebox.showerror("错误", f"未找到模型 '{model_name}'")
-                    
-                except Exception as e:
-                    self.log_message(f"启用模型失败: {e}")
-                    messagebox.showerror("错误", f"启用模型失败: {e}")
-            
-            def disable_selected_model():
-                """禁用选中的模型"""
-                selected = model_tree.selection()
-                if not selected:
-                    messagebox.showwarning("提示", "请先选择一个模型进行禁用")
-                    return
-                
-                # 获取选中的模型信息
-                item = model_tree.item(selected[0])
-                values = item['values']
-                model_name = values[1]  # 模型名称在第二列
-                
-                if messagebox.askyesno("确认禁用", f"确定要禁用模型 '{model_name}' 吗？"):
-                    try:
-                        from ai_client_manager import get_ai_manager
-                        manager = get_ai_manager()
-                        
-                        # 根据模型名称查找并禁用
-                        for model in manager.models:
-                            if model.name == model_name:
-                                model.enabled = False
-                                if model.id in manager.clients:
-                                    del manager.clients[model.id]
-                                manager.save_config()
-                                self.log_message(f"模型 '{model_name}' 禁用成功")
-                                messagebox.showinfo("成功", f"模型 '{model_name}' 禁用成功")
-                                refresh_model_list()  # 刷新列表
-                                return
-                        
-                        messagebox.showerror("错误", f"未找到模型 '{model_name}'")
-                        
-                    except Exception as e:
-                        self.log_message(f"禁用模型失败: {e}")
-                        messagebox.showerror("错误", f"禁用模型失败: {e}")
-            
-            def show_model_details():
-                """显示模型详细信息"""
-                selected = model_tree.selection()
-                if not selected:
-                    messagebox.showwarning("提示", "请先选择一个模型查看详情")
-                    return
-                
-                try:
-                    from ai_client_manager import get_model_availability_info
-                    model_info_list = get_model_availability_info()
-                    
-                    # 获取选中的模型信息
-                    item = model_tree.item(selected[0])
-                    values = item['values']
-                    model_name = values[1]  # 模型名称在第二列
-                    
-                    # 找到对应的模型信息
-                    model_info = None
-                    for info in model_info_list:
-                        if info['name'] == model_name:
-                            model_info = info
-                            break
-                    
-                    if not model_info:
-                        messagebox.showerror("错误", "未找到模型信息")
-                        return
-                    
-                    # 显示详细信息
-                    detail_text = f"模型详细信息: {model_name}\n"
-                    detail_text += "=" * 50 + "\n\n"
-                    detail_text += f"模型ID: {model_info['id']}\n"
-                    detail_text += f"显示名称: {model_info['name']}\n"
-                    detail_text += f"服务地址: {model_info['base_url']}\n"
-                    detail_text += f"模型名称: {model_info['model_name']}\n"
-                    if model_info.get('mapped_model_name') and model_info['mapped_model_name'] != model_info['model_name']:
-                        detail_text += f"映射后模型名称: {model_info['mapped_model_name']}\n"
-                    detail_text += f"优先级: {model_info['priority']}\n"
-                    detail_text += f"客户端初始化: {'是' if model_info['client_initialized'] else '否'}\n"
-                    detail_text += f"模型可用: {'是' if model_info['available'] else '否'}\n"
-                    
-                    if not model_info['available']:
-                        detail_text += f"\n错误信息: {model_info['error']}\n"
-                        
-                        if model_info['available_models']:
-                            detail_text += f"\n可用模型: {', '.join(model_info['available_models'])}\n"
-                        
-                        if model_info['suggestions']:
-                            detail_text += f"\n解决建议:\n"
-                            for i, suggestion in enumerate(model_info['suggestions'], 1):
-                                detail_text += f"{i}. {suggestion}\n"
-                    
-                    # 创建详细信息窗口
-                    detail_window = tb.Toplevel(config_window)
-                    detail_window.title(f"模型详情 - {model_name}")
-                    detail_window.geometry("600x500")
-                    detail_window.transient(config_window)
-                    detail_window.grab_set()
-                    
-                    # 创建文本显示区域
-                    text_frame = tb.Frame(detail_window, padding="10")
-                    text_frame.pack(fill=BOTH, expand=True)
-                    
-                    text_widget = tk.Text(text_frame, wrap=tk.WORD, padx=10, pady=10)
-                    text_widget.pack(fill=BOTH, expand=True)
-                    text_widget.insert(tk.END, detail_text)
-                    text_widget.config(state=tk.DISABLED)
-                    
-                except Exception as e:
-                    self.log_message(f"获取模型详情失败: {e}")
-                    messagebox.showerror("错误", f"获取模型详情失败: {e}")
-            
-            def test_connections():
-                """测试所有模型连接"""
-                try:
-                    from ai_client_manager import test_ai_connections
-                    self.log_message("开始测试模型连接...")
-                    
-                    # 在新线程中执行测试
-                    def test_worker():
-                        try:
-                            results = test_ai_connections()
-                            
-                            # 显示测试结果
-                            result_text = "连接测试结果:\n\n"
-                            for name, result in results.items():
-                                if result.get('success'):
-                                    result_text += f"✅ {name}: 连接成功"
-                                    if result.get('response_time'):
-                                        result_text += f" (响应时间: {result['response_time']}s)"
-                                else:
-                                    result_text += f"❌ {name}: 连接失败"
-                                    if result.get('error'):
-                                        result_text += f" - {result['error']}"
-                                result_text += "\n"
-                            
-                            self.log_message(result_text)
-                            messagebox.showinfo("测试完成", result_text)
-                            
-                        except Exception as e:
-                            self.log_message(f"测试连接失败: {e}")
-                            messagebox.showerror("错误", f"测试连接失败: {e}")
-                    
-                    threading.Thread(target=test_worker, daemon=True).start()
-                    
-                except Exception as e:
-                    self.log_message(f"启动连接测试失败: {e}")
-                    messagebox.showerror("错误", f"启动连接测试失败: {e}")
-            
-            def show_model_dialog(priority=None, name="", base_url="", model_name="", api_key=""):
-                """显示模型配置对话框"""
-                # 创建对话框
-                dialog = tb.Toplevel(config_window)
-                dialog.title("模型配置")
-                dialog.geometry("500x450")
-                dialog.resizable(False, False)
-                dialog.transient(config_window)
-                dialog.grab_set()
-                
-                # 居中显示
-                dialog.update_idletasks()
-                x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
-                y = (dialog.winfo_screenheight() // 2) - (450 // 2)
-                dialog.geometry(f"500x450+{x}+{y}")
-                
-                # 创建表单
-                form_frame = tb.Frame(dialog, padding="20")
-                form_frame.pack(fill=BOTH, expand=True)
-                
-                row = 0
-                
-                # 优先级（下拉菜单）
-                tb.Label(form_frame, text="优先级:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                priority_var = tb.StringVar(value=str(priority) if priority else "1")
-                priority_combo = tb.Combobox(form_frame, textvariable=priority_var, values=["1", "2", "3", "4", "5"], width=37, state="readonly")
-                priority_combo.grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # 模型名称
-                tb.Label(form_frame, text="模型名称:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                name_var = tb.StringVar(value=name)
-                tb.Entry(form_frame, textvariable=name_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # 服务地址
-                tb.Label(form_frame, text="服务地址:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                base_url_var = tb.StringVar(value=base_url)
-                tb.Entry(form_frame, textvariable=base_url_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # 模型类型
-                tb.Label(form_frame, text="模型类型:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                model_type_var = tb.StringVar(value="ollama")
-                model_type_combo = tb.Combobox(form_frame, textvariable=model_type_var, values=["qwen_long", "ollama", "lm_studio", "openai_compatible"], width=37, state="readonly")
-                model_type_combo.grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # 模型名
-                tb.Label(form_frame, text="模型名:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                model_name_var = tb.StringVar(value=model_name)
-                tb.Entry(form_frame, textvariable=model_name_var, width=40).grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # API密钥
-                tb.Label(form_frame, text="API密钥:", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5)
-                api_key_var = tb.StringVar(value=api_key)
-                tb.Entry(form_frame, textvariable=api_key_var, width=40, show="*").grid(row=row, column=1, sticky=(W, E), pady=5, padx=(10, 0))
-                row += 1
-                
-                # 启用状态
-                enabled_var = tb.BooleanVar(value=True)
-                tb.Checkbutton(form_frame, text="启用此模型", variable=enabled_var).grid(row=row, column=0, columnspan=2, sticky=W, pady=10)
-                row += 1
-                
-                # 按钮框架
-                button_frame = tb.Frame(form_frame)
-                button_frame.grid(row=row, column=0, columnspan=2, pady=20)
-                
-                def save_model():
-                    try:
-                        # 验证输入
-                        if not name_var.get().strip():
-                            messagebox.showwarning("输入错误", "请输入模型名称")
-                            return
-                        if not base_url_var.get().strip():
-                            messagebox.showwarning("输入错误", "请输入服务地址")
-                            return
-                        if not model_name_var.get().strip():
-                            messagebox.showwarning("输入错误", "请输入模型名")
-                            return
-                        
-                        # 获取AI管理器
-                        from ai_client_manager import get_ai_manager, ModelConfig
-                        manager = get_ai_manager()
-                        
-                        # 创建模型配置
-                        model_id = f"model_{int(time.time())}"  # 生成唯一ID
-                        new_model = ModelConfig(
-                            id=model_id,
-                            name=name_var.get().strip(),
-                            base_url=base_url_var.get().strip(),
-                            model_name=model_name_var.get().strip(),
-                            model_type=model_type_var.get(),
-                            api_key=api_key_var.get().strip(),
-                            priority=int(priority_var.get()),
-                            enabled=enabled_var.get()
-                        )
-                        
-                        # 添加模型
-                        manager.add_model(new_model)
-                        
-                        self.log_message(f"模型 '{new_model.name}' 保存成功")
-                        messagebox.showinfo("成功", f"模型 '{new_model.name}' 保存成功")
-                        dialog.destroy()
-                        refresh_model_list()  # 刷新列表
-                        
-                    except Exception as e:
-                        self.log_message(f"保存模型失败: {e}")
-                        messagebox.showerror("错误", f"保存失败: {e}")
-                
-                def cancel():
-                    dialog.destroy()
-                
-                # 保存和取消按钮
-                tb.Button(button_frame, text="保存", command=save_model, bootstyle=SUCCESS, width=15).pack(side=LEFT, padx=(0, 10))
-                tb.Button(button_frame, text="取消", command=cancel, bootstyle=SECONDARY, width=15).pack(side=LEFT)
-                
-                # 设置列权重
-                form_frame.columnconfigure(1, weight=1)
-            
-            # 添加按钮
-            # 第一行按钮
-            tb.Button(button_frame, text="添加模型", command=add_model, bootstyle=SUCCESS).grid(row=0, column=0, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="编辑模型", command=edit_model, bootstyle=INFO).grid(row=0, column=1, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="删除模型", command=delete_model, bootstyle=DANGER).grid(row=0, column=2, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="测试连接", command=test_connections, bootstyle=WARNING).grid(row=0, column=3, padx=2, pady=2, sticky=(W, E))
-            
-            # 第二行按钮
-            tb.Button(button_frame, text="刷新列表", command=refresh_model_list, bootstyle=SECONDARY).grid(row=1, column=0, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="查看详情", command=show_model_details, bootstyle=PRIMARY).grid(row=1, column=1, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="启用模型", command=enable_selected_model, bootstyle=SUCCESS).grid(row=1, column=2, padx=2, pady=2, sticky=(W, E))
-            tb.Button(button_frame, text="禁用模型", command=disable_selected_model, bootstyle=WARNING).grid(row=1, column=3, padx=2, pady=2, sticky=(W, E))
-            
-            # 初始化模型列表
-            refresh_model_list()
-            
+            from ai_model_config_gui import AIModelConfigGUI
+            config_gui = AIModelConfigGUI(self.root)
+            config_gui.show_config_dialog()
         except Exception as e:
-            self.log_message(f"打开AI模型配置失败: {e}")
-            messagebox.showerror("错误", f"打开AI模型配置失败: {e}")
+            self.log_message(f"显示AI模型配置失败: {e}")
+            messagebox.showerror("错误", f"显示AI模型配置失败: {e}")
     
     def show_tag_manager(self):
         """显示标签管理器"""
@@ -2250,6 +2243,32 @@ class FileOrganizerTabGUI:
         except Exception as e:
             self.log_message(f"打开标签管理器失败: {e}")
             messagebox.showerror("错误", f"打开标签管理器失败: {e}")
+    
+    def show_tag_optimizer(self):
+        """显示标签优化器"""
+        try:
+            # 创建标签优化窗口
+            optimizer_window = tb.Toplevel(self.root)
+            optimizer_window.title("标签优化工具")
+            
+            # 设置响应式窗口
+            self.setup_responsive_window(optimizer_window, 1000, 800, 800, 600)
+            optimizer_window.resizable(True, True)
+            optimizer_window.transient(self.root)
+            optimizer_window.grab_set()
+            
+            # 创建主框架
+            main_frame = tb.Frame(optimizer_window, padding="10")
+            main_frame.pack(fill=BOTH, expand=True)
+            
+            # 创建标签优化器GUI
+            tag_optimizer = TagOptimizerGUI(main_frame, self.root)
+            
+            self.log_message("标签优化工具已打开")
+            
+        except Exception as e:
+            self.log_message(f"打开标签优化工具失败: {e}")
+            messagebox.showerror("错误", f"打开标签优化工具失败: {e}")
     
     def show_directory_organize_dialog(self):
         """显示文件目录智能整理对话框"""

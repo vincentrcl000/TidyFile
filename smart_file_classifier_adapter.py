@@ -136,7 +136,7 @@ class SmartFileClassifierAdapter:
                 'extracted_content': result['extracted_content'],
                 'content_summary': result['content_summary'],
                 'recommended_folder': result['recommended_folder'],
-                'level_tags': result['level_tags'],
+                'chain_tags': result['chain_tags'],
                 'match_reason': result['match_reason'],
                 'success': result['success'],
                 'timing_info': result['timing_info']
@@ -151,7 +151,7 @@ class SmartFileClassifierAdapter:
                 'extracted_content': '',
                 'content_summary': '',
                 'recommended_folder': None,
-                'level_tags': [],
+                'chain_tags': [],
                 'match_reason': f"分析失败: {str(e)}",
                 'success': False,
                 'error': str(e),

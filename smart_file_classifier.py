@@ -76,7 +76,6 @@ class SmartFileClassifier:
         
         # 文件缓存
         self.file_cache = {}  # 缓存文件信息和元数据
-        self.chain_tags = {}  # 缓存链式标签
         
         # 设置日志
         self.setup_logging()
@@ -573,7 +572,7 @@ class SmartFileClassifier:
             self.file_cache[file_path] = file_info
             
             current_path = ""
-            level_tags = []
+            chain_tags = []
             match_reasons = []
             current_base_dir = target_directory
             
@@ -601,7 +600,7 @@ class SmartFileClassifier:
                 else:
                     current_path = matched_dir
                 
-                level_tags.append(matched_dir)
+                chain_tags.append(matched_dir)
                 match_reasons.append(f"第{level}级: {match_reason}")
                 
                 # 检查下一级是否有子目录
@@ -617,15 +616,12 @@ class SmartFileClassifier:
                 current_base_dir = next_base_dir
                 level += 1
             
-            # 缓存标签
-            self.level_tags[file_path] = level_tags
-            
             # 组合匹配理由
             combined_reason = "; ".join(match_reasons)
             
-            logging.info(f"递归匹配完成: {current_path}, 标签: {level_tags}")
+            logging.info(f"递归匹配完成: {current_path}, 链式标签: {chain_tags}")
             
-            return current_path, level_tags, combined_reason
+            return current_path, chain_tags, combined_reason
             
         except Exception as e:
             logging.error(f"递归匹配失败: {e}")
@@ -674,16 +670,16 @@ class SmartFileClassifier:
                 
                 # 第四步：递归逐层匹配推荐目录
                 recommend_start = time.time()
-                recommended_folder, level_tags, match_reason = self.recommend_target_folder_recursive(
+                recommended_folder, chain_tags, match_reason = self.recommend_target_folder_recursive(
                     file_path, content, summary, target_directory
                 )
                 recommend_time = round(time.time() - recommend_start, 3)
                 timing_info['folder_recommendation_time'] = recommend_time
                 
-                return file_metadata, content, summary, recommended_folder, level_tags, match_reason
+                return file_metadata, content, summary, recommended_folder, chain_tags, match_reason
             
             # 执行带超时的分类
-            file_metadata, content, summary, recommended_folder, level_tags, match_reason = self.run_with_timeout(classify_with_timeout)
+            file_metadata, content, summary, recommended_folder, chain_tags, match_reason = self.run_with_timeout(classify_with_timeout)
             
             total_time = round(time.time() - start_time, 3)
             timing_info['total_processing_time'] = total_time
@@ -707,7 +703,7 @@ class SmartFileClassifier:
                 'extracted_content': content,
                 'content_summary': summary,
                 'recommended_folder': recommended_folder,
-                'level_tags': level_tags,
+                'chain_tags': chain_tags,
                 'match_reason': match_reason,  # 使用可能被修改的match_reason
                 'success': bool(recommended_folder),
                 'timing_info': timing_info
@@ -726,7 +722,7 @@ class SmartFileClassifier:
                 'extracted_content': '',
                 'content_summary': '',
                 'recommended_folder': None,
-                'level_tags': [],
+                'chain_tags': [],
                 'match_reason': f"分类超时：处理时间超过{self.timeout_seconds}秒",
                 'success': False,
                 'error': str(e),
@@ -743,7 +739,7 @@ class SmartFileClassifier:
                 'extracted_content': '',
                 'content_summary': '',
                 'recommended_folder': None,
-                'level_tags': [],
+                'chain_tags': [],
                 'match_reason': f"分类失败: {str(e)}",
                 'success': False,
                 'error': str(e),
@@ -754,22 +750,20 @@ class SmartFileClassifier:
         """清除文件缓存"""
         if file_path in self.file_cache:
             del self.file_cache[file_path]
-        if file_path in self.level_tags:
-            del self.level_tags[file_path]
     
     def _build_tags_with_chain(self, result: dict) -> Dict[str, str]:
         """构建包含链式标签的标签字典（使用统一的标签构建工具）"""
         try:
             from path_utils import build_tags_with_chain
-            level_tags = result.get('level_tags', [])
-            return build_tags_with_chain(level_tags)
+            chain_tags = result.get('chain_tags', [])
+            return build_tags_with_chain(chain_tags)
         except ImportError:
             # 如果path_utils不可用，使用备用方法
             tags = {}
             
             # 添加链式标签
-            if result.get('level_tags'):
-                chain_path = '/'.join(result['level_tags'])
+            if result.get('chain_tags'):
+                chain_path = '/'.join(result['chain_tags'])
                 tags["链式标签"] = chain_path
             
             return tags
