@@ -102,24 +102,29 @@ class WeixinManagerTab:
     def start_backup(self):
         result = self.validate_input()
         if result is None:
+            self.log_message("收藏文章备份失败：输入参数验证失败", "WARNING")
             return
         talker, start_date, end_date = result
         self.backup_btn.config(state='disabled')
         self.log_message(f"开始备份微信收藏文章")
         self.log_message(f"收藏账号: {talker}")
         self.log_message(f"时间范围: {start_date} ~ {end_date}")
+        self.log_message("正在连接微信接口...")
         thread = threading.Thread(target=self._backup_worker, args=(talker, start_date, end_date), daemon=True)
         thread.start()
 
     def _backup_worker(self, talker, start_date, end_date):
         try:
+            self.log_message("正在拉取微信收藏文章数据...")
             count, save_path = self.logic.backup_wechat_favorites(talker, start_date, end_date)
             self.frame.after(0, lambda: self._backup_completed(count, save_path))
         except Exception as e:
-            self.frame.after(0, lambda: self._backup_failed(str(e)))
+            error_msg = str(e)
+            self.log_message(f"收藏文章备份异常: {error_msg}", "ERROR")
+            self.frame.after(0, lambda: self._backup_failed(error_msg))
 
     def _backup_completed(self, count, save_path):
-        self.log_message(f"备份完成！共保存 {count} 篇文章")
+        self.log_message(f"收藏文章备份完成！共保存 {count} 篇文章")
         self.log_message(f"保存路径: {save_path}")
         if count > 0:
             messagebox.showinfo("备份成功", f"成功备份 {count} 篇文章到:\n{save_path}")
@@ -128,18 +133,22 @@ class WeixinManagerTab:
         self.backup_btn.config(state='normal')
 
     def _backup_failed(self, error_msg):
-        self.log_message(f"备份失败: {error_msg}")
+        self.log_message(f"收藏文章备份失败: {error_msg}", "ERROR")
         messagebox.showerror("备份失败", f"备份过程中发生错误:\n{error_msg}")
         self.backup_btn.config(state='normal')
 
     def analyze_backup(self):
         summary_len = self.summary_length.get()
-        self.log_message(f"开始批量解读微信收藏文章，摘要长度：{summary_len}")
+        self.log_message(f"开始批量解读微信收藏文章")
+        self.log_message(f"摘要长度设置: {summary_len} 字符")
+        self.log_message("正在检查备份文件...")
         thread = threading.Thread(target=self._analyze_worker, args=(summary_len,), daemon=True)
         thread.start()
 
     def _analyze_worker(self, summary_len):
         try:
+            self.log_message("正在启动微信文章AI解读脚本...")
+            
             # 使用当前Python解释器的完整路径
             python_executable = sys.executable
             # 调用独立脚本，传递摘要长度参数
@@ -147,19 +156,30 @@ class WeixinManagerTab:
                 python_executable, "wechat_article_ai_summary.py",
                 "--summary_length", str(summary_len)
             ]
+            
+            self.log_message(f"执行命令: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True)
             output = result.stdout + "\n" + result.stderr
-            self.frame.after(0, lambda: self.log_message(output.strip()))
+            
+            # 将输出按行分割并逐行记录日志
+            output_lines = output.strip().split('\n')
+            for line in output_lines:
+                if line.strip():
+                    self.frame.after(0, lambda line=line: self.log_message(line.strip()))
             
             # 根据不同的错误类型显示相应的错误提示
             if result.returncode != 0:
                 error_message = self._analyze_error_type(output)
+                self.log_message(f"备份文章解读失败: {error_message}", "ERROR")
                 messagebox.showerror("解读失败", error_message)
             else:
+                self.log_message("微信文章批量解读已完成，摘要已写入ai_organize_result.json")
                 messagebox.showinfo("解读完成", "微信文章批量解读已完成，摘要已写入ai_organize_result.json")
         except Exception as e:
-            self.frame.after(0, lambda: self.log_message(f"解读失败: {e}"))
-            messagebox.showerror("解读失败", f"解读过程中发生错误:\n{e}")
+            error_msg = str(e)
+            self.log_message(f"备份文章解读异常: {error_msg}", "ERROR")
+            self.frame.after(0, lambda: self.log_message(f"解读失败: {error_msg}"))
+            messagebox.showerror("解读失败", f"解读过程中发生错误:\n{error_msg}")
     
     def _analyze_error_type(self, output):
         """根据输出内容分析错误类型并返回相应的错误提示"""

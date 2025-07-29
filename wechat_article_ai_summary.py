@@ -334,17 +334,25 @@ def main():
     summary_length = args.summary_length
     
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 启动微信文章AI摘要生成脚本，摘要长度：{summary_length}")
+    print(f"[配置] 文章文件: {ARTICLE_JSON}")
+    print(f"[配置] 输出文件: {AI_RESULT_JSON}")
+    print(f"[配置] 文章目录: {ARTICLES_DIR}")
     
     if not ARTICLE_JSON.exists():
-        print(f"未找到 {ARTICLE_JSON}，请先备份收藏文章！")
+        print(f"[错误] 未找到 {ARTICLE_JSON}，请先备份收藏文章！")
         return
     
+    print(f"[加载] 正在加载微信文章数据...")
     articles = load_json(ARTICLE_JSON)
     if not articles:
-        print("没有可处理的微信文章记录！")
+        print("[错误] 没有可处理的微信文章记录！")
         return
     
+    print(f"[加载] 成功加载 {len(articles)} 篇微信文章")
+    
+    print(f"[加载] 正在加载AI结果文件...")
     ai_results = load_json(AI_RESULT_JSON)
+    print(f"[加载] 成功加载 {len(ai_results)} 条AI分析记录")
     
     # 创建已存在文章的集合（基于标题和链接）
     exist_articles = set()
@@ -353,6 +361,8 @@ def main():
         url = item.get('源文件路径', '').strip()
         if title and url:
             exist_articles.add((title, url))
+    
+    print(f"[去重] 检测到 {len(exist_articles)} 篇已处理文章")
     
     # 统计信息初始化
     total_articles = len(articles)
@@ -366,7 +376,12 @@ def main():
     print(f"总文章数: {total_articles}")
     print(f"已存在文章数: {len(exist_articles)}")
     print(f"待处理文章数: {total_articles - len(exist_articles)}")
+    print(f"摘要长度: {summary_length} 字符")
     print("=" * 50)
+    
+    print(f"[初始化] 正在初始化网络会话...")
+    sess = build_session()
+    print(f"[初始化] 网络会话初始化完成")
     
     sess = build_session()
     

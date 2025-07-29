@@ -840,6 +840,7 @@ class FileOrganizerTabGUI:
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(0, weight=1)
         main_frame.rowconfigure(1, weight=1)
+        main_frame.rowconfigure(2, weight=1)  # 给日志区域更多空间
         
         # 标题
         title_label = tb.Label(
@@ -873,20 +874,48 @@ class FileOrganizerTabGUI:
         self.create_tools_tab()
         
         # 日志显示区域
-        log_frame = tb.LabelFrame(main_frame, text="操作日志", padding="3")
+        log_frame = tb.LabelFrame(main_frame, text="操作日志", padding="5")
         log_frame.grid(row=2, column=0, sticky=(W, E, N, S), pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
+        # 日志控制按钮框架
+        log_control_frame = tb.Frame(log_frame)
+        log_control_frame.grid(row=0, column=0, sticky=(W, E), pady=(0, 5))
+        log_control_frame.columnconfigure(1, weight=1)
+        
+        # 清空日志按钮
+        tb.Button(
+            log_control_frame,
+            text="清空日志",
+            command=self.clear_log,
+            style='secondary.TButton',
+            width=10
+        ).grid(row=0, column=0, padx=(0, 10))
+        
+        # 日志级别选择
+        tb.Label(log_control_frame, text="日志级别:", font=('Arial', 9)).grid(row=0, column=1, sticky=W, padx=(0, 5))
+        self.log_level_var = tb.StringVar(value="INFO")
+        log_level_combo = tb.Combobox(
+            log_control_frame,
+            textvariable=self.log_level_var,
+            values=["DEBUG", "INFO", "WARNING", "ERROR"],
+            state="readonly",
+            width=10
+        )
+        log_level_combo.grid(row=0, column=2, padx=(0, 10))
+        
+        # 日志文本框
         self.log_text = ScrolledText(
             log_frame,
-            height=4,
-            wrap=WORD
+            height=12,  # 增加高度
+            wrap=WORD,
+            font=('Consolas', 9)
         )
-        self.log_text.grid(row=0, column=0, sticky=(W, E, N, S))
+        self.log_text.grid(row=1, column=0, sticky=(W, E, N, S))
         
-        # 配置主框架的行权重
-        main_frame.rowconfigure(2, weight=0)
+        # 配置主框架的行权重 - 给日志区域更多空间
+        main_frame.rowconfigure(2, weight=1)
         
         # 初始化日志
         self.log_message("程序启动完成，请选择文件目录开始整理")
@@ -919,6 +948,8 @@ class FileOrganizerTabGUI:
             directory = filedialog.askdirectory(title="选择要批量解读的文件夹")
             if directory:
                 self.reader_folder_var.set(directory)
+                self.log_message(f"选择文件解读目录: {directory}")
+                
                 # 扫描文件夹并显示文件数量
                 try:
                     from pathlib import Path
@@ -929,6 +960,7 @@ class FileOrganizerTabGUI:
                         if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
                             document_files.append(file_path)
                     file_count = len(document_files)
+                    self.log_message(f"扫描到 {file_count} 个可解读文件")
                     self.reader_status_label.config(text=f"已选择文件夹，发现 {file_count} 个可解读文档")
                     self.log_message(f"已选择解读文件夹: {directory}，发现 {file_count} 个可解读文档")
                 except Exception as e:
@@ -983,13 +1015,16 @@ class FileOrganizerTabGUI:
             folder_path = self.reader_folder_var.get().strip()
             if not folder_path:
                 messagebox.showwarning("提示", "请先选择要解读的文件夹")
+                self.log_message("文件解读失败：未选择文件夹", "WARNING")
                 return
             
             if not os.path.exists(folder_path):
                 messagebox.showerror("错误", "选择的文件夹不存在")
+                self.log_message(f"文件解读失败：文件夹不存在 - {folder_path}", "ERROR")
                 return
             
-            self.log_message("开始批量文档解读...")
+            self.log_message(f"开始批量文件解读，目录: {folder_path}")
+            self.log_message(f"摘要长度设置: {self.reader_summary_length.get()} 字符")
             self.reader_status_label.config(text="正在解读文档...")
             self.reader_start_button.config(state='disabled')
             
@@ -1052,6 +1087,8 @@ class FileOrganizerTabGUI:
             try:
                 import subprocess
                 import socket
+                
+                self.log_message("启动文章阅读助手服务器...")
                 
                 # 检查是否已经有服务器在运行
                 def check_port(port):
@@ -1439,6 +1476,18 @@ class FileOrganizerTabGUI:
                 "description": "智能优化标签体系，包括标签分析、AI推荐、格式化等功能"
             },
             {
+                "name": "多任务文件解读",
+                "command": self.show_multi_task_file_reader,
+                "style": "info.TButton",
+                "description": "支持同时启动多个文件解读任务，每个任务独立处理不同的文件夹"
+            },
+            {
+                "name": "高并发文件解读",
+                "command": self.show_multi_process_file_reader,
+                "style": "info.TButton",
+                "description": "支持多任务多进程并行处理，充分利用大模型的并行处理能力"
+            },
+            {
                 "name": "日志",
                 "command": self.show_transfer_logs,
                 "style": "secondary.TButton",
@@ -1483,6 +1532,10 @@ class FileOrganizerTabGUI:
                 self.tag_manager_button = button
             elif tool["name"] == "标签优化":
                 self.tag_optimizer_button = button
+            elif tool["name"] == "多任务文件解读":
+                self.multi_task_file_reader_button = button
+            elif tool["name"] == "高并发文件解读":
+                self.multi_process_file_reader_button = button
             elif tool["name"] == "日志":
                 self.log_button = button
         
@@ -1522,12 +1575,38 @@ class FileOrganizerTabGUI:
             self.target_directory.set(directory)
             self.log_message(f"已选择目标目录: {directory}")
             
-    def log_message(self, message):
+    def log_message(self, message, level="INFO"):
         """记录日志消息"""
+        # 检查日志级别
+        current_level = self.log_level_var.get()
+        level_order = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
+        
+        if level_order.get(level, 1) < level_order.get(current_level, 1):
+            return
+        
         timestamp = datetime.now().strftime("%H:%M:%S")
-        log_entry = f"[{timestamp}] {message}\n"
-        self.log_text.insert(END, log_entry)
-        self.log_text.see(END)
+        log_entry = f"[{timestamp}] [{level}] {message}\n"
+        
+        # 在主线程中更新UI
+        self.root.after(0, lambda: self._append_log_message(log_entry))
+    
+    def _append_log_message(self, log_entry):
+        """在主线程中追加日志消息"""
+        try:
+            self.log_text.insert(END, log_entry)
+            self.log_text.see(END)
+            
+            # 限制日志行数，避免内存占用过大
+            lines = self.log_text.get(1.0, END).split('\n')
+            if len(lines) > 1000:  # 保留最近1000行
+                self.log_text.delete(1.0, f"{len(lines) - 500}.0")
+        except:
+            pass
+    
+    def clear_log(self):
+        """清空日志"""
+        self.log_text.delete(1.0, END)
+        self.log_message("日志已清空")
         
 
             
@@ -1536,6 +1615,8 @@ class FileOrganizerTabGUI:
     def _batch_read_worker(self, folder_path):
         """批量解读工作线程"""
         try:
+            self.log_message("初始化文件解读器...")
+            
             # 初始化AI文件整理器
             if not self.ai_organizer:
                 self.initialize_organizers()
@@ -1545,6 +1626,9 @@ class FileOrganizerTabGUI:
                 progress = (current / total) * 100 if total > 0 else 0
                 self.root.after(0, lambda: self.reader_progress_var.set(progress))
                 self.root.after(0, lambda: self.reader_status_label.config(text=f"正在解读 ({current}/{total}): {filename}"))
+                # 每处理10个文件记录一次日志
+                if current % 10 == 0 or current == total:
+                    self.log_message(f"处理进度: {current}/{total} ({progress:.1f}%) - 当前文件: {filename}")
             
             # 直接使用FileReader进行批量文档解读
             from file_reader import FileReader
@@ -1556,6 +1640,8 @@ class FileOrganizerTabGUI:
             # 扫描文件夹中的文件
             from pathlib import Path
             folder_path_obj = Path(folder_path)
+            
+            self.log_message("开始扫描文件夹中的可解读文件...")
             
             # 支持的文件扩展名
             supported_extensions = [
@@ -1569,6 +1655,8 @@ class FileOrganizerTabGUI:
             for file_path in folder_path_obj.rglob('*'):
                 if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
                     files.append(str(file_path))
+            
+            self.log_message(f"扫描完成，发现 {len(files)} 个可解读文件")
             
             if not files:
                 batch_results = {
@@ -1593,6 +1681,7 @@ class FileOrganizerTabGUI:
                     
                     try:
                         # 解读单个文件
+                        self.log_message(f"开始解读文件: {filename}", "DEBUG")
                         result = file_reader.generate_summary(file_path, self.reader_summary_length.get())
                         
                         # 提取路径标签
@@ -1600,24 +1689,29 @@ class FileOrganizerTabGUI:
                             result['tags'] = file_reader.extract_path_tags(file_path, folder_path)
                             successful_reads += 1
                             logging.info(f"文件解读成功: {filename}")
+                            self.log_message(f"文件解读成功: {filename}")
                             
                             # 写入结果到ai_organize_result.json
                             file_reader.append_result_to_file("ai_organize_result.json", result, folder_path)
                         else:
                             failed_reads += 1
-                            logging.warning(f"文件解读失败: {filename} - {result.get('error', '未知错误')}")
+                            error_msg = result.get('error', '未知错误')
+                            logging.warning(f"文件解读失败: {filename} - {error_msg}")
+                            self.log_message(f"文件解读失败: {filename} - {error_msg}", "WARNING")
                         
                         results.append(result)
                         
                     except Exception as e:
                         failed_reads += 1
+                        error_msg = str(e)
+                        self.log_message(f"文件解读异常: {filename} - {error_msg}", "ERROR")
                         error_result = {
                             'file_path': file_path,
                             'file_name': filename,
                             'success': False,
                             'extracted_text': '',
                             'summary': '',
-                            'error': str(e),
+                            'error': error_msg,
                             'model_used': 'unknown',
                             'timestamp': datetime.now().isoformat()
                         }
@@ -1625,6 +1719,9 @@ class FileOrganizerTabGUI:
                 
                 # 批量解读结果已通过file_reader.append_result_to_file写入ai_organize_result.json
                 # 不再需要单独的batch_read_results.json文件
+                
+                completion_msg = f"批量解读完成，共处理 {total_files} 个文件，成功 {successful_reads} 个，失败 {failed_reads} 个"
+                self.log_message(completion_msg)
                 
                 batch_results = {
                     'success': True,
@@ -1683,6 +1780,7 @@ class FileOrganizerTabGUI:
         
         if not source or not target:
             messagebox.showerror("错误", "请先选择源目录和目标目录")
+            self.log_message("AI智能整理失败：未选择源目录或目标目录", "WARNING")
             return
             
         # 确认对话框
@@ -1690,9 +1788,11 @@ class FileOrganizerTabGUI:
             "确认整理",
             f"即将开始AI智能整理:\n\n源目录: {source}\n目标目录: {target}\n\n确定要继续吗？"
         ):
+            self.log_message("AI智能整理操作已取消", "INFO")
             return
             
-        self.log_message("开始AI智能整理...")
+        self.log_message(f"开始AI智能整理，源目录: {source}")
+        self.log_message(f"目标目录: {target}")
         self.ai_status_label.config(text="正在整理文件...")
         self.ai_organize_button.config(state='disabled')
         
@@ -1705,6 +1805,8 @@ class FileOrganizerTabGUI:
             source = self.source_directory.get()
             target = self.target_directory.get()
             
+            self.log_message("初始化AI智能整理器...")
+            
             # 应用AI参数设置
             self._apply_ai_parameters()
             
@@ -1716,7 +1818,10 @@ class FileOrganizerTabGUI:
                 # 更新GUI进度条和状态
                 self.root.after(0, lambda: self.ai_progress_var.set(progress_percent))
                 self.root.after(0, lambda: self.ai_status_label.config(text=status_text))
-                self.root.after(0, lambda: self.log_message(f"[{current}/{total}] 处理: {filename}"))
+                
+                # 每处理10个文件记录一次日志
+                if current % 10 == 0 or current == total:
+                    self.root.after(0, lambda: self.log_message(f"AI整理进度: {current}/{total} ({progress_percent}%) - 当前文件: {filename}"))
             
             # 执行文件整理
             self.organize_results = self.ai_organizer.organize_files(
@@ -2214,6 +2319,38 @@ class FileOrganizerTabGUI:
         except Exception as e:
             self.log_message(f"打开标签优化工具失败: {e}")
             messagebox.showerror("错误", f"打开标签优化工具失败: {e}")
+    
+    def show_multi_task_file_reader(self):
+        """显示多任务文件解读管理器"""
+        try:
+            import subprocess
+            import sys
+            
+            # 启动多任务文件解读管理器
+            script_path = os.path.join(os.path.dirname(__file__), "multi_task_file_reader.py")
+            subprocess.Popen([sys.executable, script_path])
+            
+            self.log_message("多任务文件解读管理器已启动")
+            
+        except Exception as e:
+            self.log_message(f"启动多任务文件解读管理器失败: {e}")
+            messagebox.showerror("错误", f"启动多任务文件解读管理器失败: {e}")
+    
+    def show_multi_process_file_reader(self):
+        """显示高并发文件解读管理器"""
+        try:
+            import subprocess
+            import sys
+            
+            # 启动高并发文件解读管理器
+            script_path = os.path.join(os.path.dirname(__file__), "multi_process_file_reader.py")
+            subprocess.Popen([sys.executable, script_path])
+            
+            self.log_message("高并发文件解读管理器已启动")
+            
+        except Exception as e:
+            self.log_message(f"启动高并发文件解读管理器失败: {e}")
+            messagebox.showerror("错误", f"启动高并发文件解读管理器失败: {e}")
     
     def show_directory_organize_dialog(self):
         """显示文件目录智能整理对话框"""
