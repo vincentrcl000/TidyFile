@@ -101,16 +101,20 @@ class ConcurrentResultManager:
                     with open(self.result_file, 'r', encoding='utf-8') as f:
                         if self._acquire_file_lock(f):
                             try:
-                                data = json.load(f)
+                                content = f.read().strip()
+                                if not content:  # 空文件
+                                    logging.warning("AI结果文件为空，跳过读取")
+                                    return []
+                                
+                                data = json.loads(content)
                                 if not isinstance(data, list):
-                                    logging.warning("文件格式错误，重置为空列表")
+                                    logging.error("AI结果文件格式错误：根元素不是数组")
+                                    logging.error("请手动检查文件格式或备份后重新处理")
                                     return []
                                 return data
                             except json.JSONDecodeError as e:
-                                logging.error(f"JSON解析错误: {e}")
-                                # 尝试从备份恢复
-                                if self._restore_from_backup():
-                                    return self.read_existing_data()
+                                logging.error(f"AI结果文件JSON格式错误: {e}")
+                                logging.error("请手动检查文件格式或备份后重新处理")
                                 return []
                             finally:
                                 self._release_file_lock(f)
@@ -123,14 +127,45 @@ class ConcurrentResultManager:
                 logging.error(f"读取文件失败: {e}")
                 return []
     
+    def atomic_write_data(self, data: List[Dict[str, Any]], operation_type: str = "未知操作") -> bool:
+        """原子写入数据（使用临时文件确保写入安全）"""
+        with self.file_lock:
+            try:
+                # 创建临时文件
+                temp_file = f"{self.result_file}.tmp"
+                
+                # 先写入临时文件
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                
+                # 原子性地替换原文件
+                if os.name == 'nt':  # Windows
+                    # Windows下使用替换操作
+                    if os.path.exists(self.result_file):
+                        os.remove(self.result_file)
+                    os.rename(temp_file, self.result_file)
+                else:  # Unix/Linux
+                    # Unix下使用原子替换
+                    os.replace(temp_file, self.result_file)
+                
+                logging.info(f"{operation_type} - 原子写入成功: {self.result_file}")
+                return True
+                
+            except Exception as e:
+                logging.error(f"原子写入失败: {e}")
+                # 清理临时文件
+                if os.path.exists(temp_file):
+                    try:
+                        os.remove(temp_file)
+                    except:
+                        pass
+                return False
+
     def write_data(self, data: List[Dict[str, Any]], operation_type: str = "未知操作") -> bool:
         """写入数据（线程安全）"""
         with self.file_lock:
             try:
-                # 先备份当前文件
-                self._backup_file()
-                
-                # 写入新数据
+                # 写入新数据（如果文件不存在会自动创建）
                 with open(self.result_file, 'w', encoding='utf-8') as f:
                     if self._acquire_file_lock(f):
                         try:
@@ -139,8 +174,6 @@ class ConcurrentResultManager:
                             return True
                         except Exception as e:
                             logging.error(f"写入数据失败: {e}")
-                            # 尝试从备份恢复
-                            self._restore_from_backup()
                             return False
                         finally:
                             self._release_file_lock(f)
@@ -165,8 +198,13 @@ class ConcurrentResultManager:
             # 添加新结果
             existing_data.append(result)
             
-            # 写入数据
-            return self.write_data(existing_data, operation_type)
+            # 验证数据不为空
+            if not existing_data:
+                logging.error("数据为空，拒绝写入")
+                return False
+            
+            # 使用原子写入
+            return self.atomic_write_data(existing_data, operation_type)
             
         except Exception as e:
             logging.error(f"追加结果失败: {e}")
@@ -213,8 +251,13 @@ class ConcurrentResultManager:
             # 添加新结果
             existing_data.extend(new_results)
             
-            # 写入数据
-            return self.write_data(existing_data, f"{operation_type} (添加{len(new_results)}个结果)")
+            # 验证数据不为空
+            if not existing_data:
+                logging.error("数据为空，拒绝写入")
+                return False
+            
+            # 使用原子写入
+            return self.atomic_write_data(existing_data, f"{operation_type} (添加{len(new_results)}个结果)")
             
         except Exception as e:
             logging.error(f"批量追加结果失败: {e}")
@@ -260,6 +303,8 @@ class ConcurrentResultManager:
             logging.error(f"获取统计信息失败: {e}")
             return {}
     
+
+
     def cleanup_backup(self):
         """清理备份文件"""
         try:
@@ -299,33 +344,6 @@ def get_result_statistics() -> Dict[str, Any]:
     manager = get_result_manager()
     return manager.get_statistics()
 
-if __name__ == "__main__":
-    # 测试代码
-    manager = ConcurrentResultManager()
-    
-    # 测试追加结果
-    test_result = {
-        "处理时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "文件名": "test.txt",
-        "文件摘要": "这是一个测试文件",
-        "最匹配的目标目录": "/test",
-        "处理耗时": 1.5,
-        "最终目标路径": "/test/test.txt",
-        "操作类型": "测试操作",
-        "处理状态": "测试成功",
-        "标签": {"测试标签": "测试值"},
-        "文件元数据": {
-            "file_name": "test.txt",
-            "file_extension": ".txt",
-            "file_size": 1024,
-            "created_time": "2025-01-15T10:00:00",
-            "modified_time": "2025-01-15T10:00:00"
-        }
-    }
-    
-    success = manager.append_result(test_result, "测试操作")
-    print(f"测试结果: {'成功' if success else '失败'}")
-    
-    # 获取统计信息
-    stats = manager.get_statistics()
-    print(f"统计信息: {stats}") 
+
+
+ 

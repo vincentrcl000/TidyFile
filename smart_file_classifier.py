@@ -834,9 +834,16 @@ class SmartFileClassifier:
             if os.path.exists(ai_result_file):
                 try:
                     with open(ai_result_file, 'r', encoding='utf-8') as f:
-                        existing_data = json.load(f)
-                except (json.JSONDecodeError, FileNotFoundError):
-                    existing_data = []
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            existing_data = json.loads(content)
+                        else:
+                            existing_data = []  # 空文件时初始化为空列表
+                except json.JSONDecodeError:
+                    # 如果JSON解析失败，记录错误但不重新初始化文件
+                    logging.error(f"AI结果文件格式错误，无法读取: {ai_result_file}")
+                    logging.error("请手动检查文件格式或备份后重新处理")
+                    return
             
             # 添加新条目
             existing_data.append(entry)

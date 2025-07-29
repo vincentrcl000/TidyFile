@@ -49,15 +49,24 @@ def check_server_running(port=80):
 
 
 
-def open_browser_with_urls(local_ip):
+def open_browser_with_urls(local_ip, port=80):
     """打开浏览器并显示访问地址"""
     try:
+        # 根据端口构建正确的URL
+        if port == 80:
+            url = "http://localhost/viewer.html"
+        else:
+            url = f"http://localhost:{port}/viewer.html"
+        
         # 打开浏览器
-        webbrowser.open("http://localhost/viewer.html")
+        webbrowser.open(url)
         
     except Exception as e:
         print(f"无法自动打开浏览器: {e}")
-        print(f"请手动访问: http://localhost/viewer.html")
+        if port == 80:
+            print(f"请手动访问: http://localhost/viewer.html")
+        else:
+            print(f"请手动访问: http://localhost:{port}/viewer.html")
 
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """
@@ -96,6 +105,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         """处理GET请求"""
         if self.path.startswith('/api/download-file'):
             self.handle_download_file()
+        elif self.path == '/api/heartbeat':
+            self.handle_heartbeat()
         else:
             super().do_GET()
     
@@ -111,8 +122,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             
             # 读取现有数据
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.send_json_response({'success': False, 'message': f'JSON文件格式错误: {str(e)}'})
+                return
+            except Exception as e:
+                self.send_json_response({'success': False, 'message': f'读取JSON文件失败: {str(e)}'})
+                return
             
             # 清理重复文件
             cleaned_data = self.remove_duplicate_files(data)
@@ -144,8 +162,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             
             # 读取现有数据
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.send_json_response({'success': False, 'message': f'JSON文件格式错误: {str(e)}'})
+                return
+            except Exception as e:
+                self.send_json_response({'success': False, 'message': f'读取JSON文件失败: {str(e)}'})
+                return
             
             # 检查并修复文件路径
             fixed_data = self.check_and_fix_file_paths(data)
@@ -182,8 +207,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             
             # 读取现有数据
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.send_json_response({'success': False, 'message': f'JSON文件格式错误: {str(e)}'})
+                return
+            except Exception as e:
+                self.send_json_response({'success': False, 'message': f'读取JSON文件失败: {str(e)}'})
+                return
             
             # 只进行路径检查
             check_result = self.check_file_paths_only(data)
@@ -210,8 +242,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 return
             
             # 读取现有数据
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                self.send_json_response({'success': False, 'message': f'JSON文件格式错误: {str(e)}'})
+                return
+            except Exception as e:
+                self.send_json_response({'success': False, 'message': f'读取JSON文件失败: {str(e)}'})
+                return
             
             # 搜索并更新文件路径
             updated_data = self.search_and_update_file_paths(data)
@@ -519,28 +558,233 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             data = json.loads(post_data.decode('utf-8'))
             
             file_path = data.get('filePath', '')
+            print(f"收到打开文件请求: {file_path}")
+            
             if not file_path:
+                print("文件路径为空")
                 self.send_json_response({'success': False, 'error': '文件路径为空'})
                 return
             
             # 检查文件是否存在
             if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
                 self.send_json_response({'success': False, 'error': '文件不存在'})
                 return
+            
+            # 获取文件信息
+            file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
+            print(f"文件信息: 名称={file_name}, 扩展名={file_ext}")
             
             # 使用系统默认程序打开文件
             try:
                 if os.name == 'nt':  # Windows
-                    os.startfile(file_path)
+                    print("检测到Windows系统")
+                    # 对于Office文件，尝试使用特定的程序打开
+                    if self.is_office_file(file_ext):
+                        print(f"检测到Office文件: {file_ext}")
+                        success = self.open_office_file_windows(file_path, file_ext)
+                        print(f"Office文件打开结果: {success}")
+                    else:
+                        print(f"使用系统默认程序打开: {file_path}")
+                        # 使用系统默认程序
+                        os.startfile(file_path)
+                        success = True
                 else:  # Linux/Mac
+                    print("检测到非Windows系统")
                     subprocess.run(['xdg-open', file_path])
+                    success = True
                 
-                self.send_json_response({'success': True})
+                if success:
+                    print(f"文件打开成功: {file_name}")
+                    self.send_json_response({
+                        'success': True, 
+                        'message': f'文件 "{file_name}" 正在使用系统默认程序打开'
+                    })
+                else:
+                    print(f"文件打开失败: {file_name}")
+                    self.send_json_response({
+                        'success': False, 
+                        'error': f'无法找到合适的程序打开 {file_name}'
+                    })
+                    
             except Exception as e:
+                print(f"打开文件异常: {e}")
                 self.send_json_response({'success': False, 'error': f'打开文件失败: {str(e)}'})
                 
         except Exception as e:
+            print(f"处理请求异常: {e}")
             self.send_json_response({'success': False, 'error': f'处理请求失败: {str(e)}'})
+    
+    def is_office_file(self, file_ext):
+        """判断是否为Office文件"""
+        office_extensions = {'.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'}
+        return file_ext in office_extensions
+    
+    def open_office_file_windows(self, file_path, file_ext):
+        """在Windows上打开Office文件"""
+        print(f"尝试打开Office文件: {file_path}")
+        
+        # 确保文件路径是绝对路径
+        if not os.path.isabs(file_path):
+            file_path = os.path.abspath(file_path)
+        
+        # 检查文件是否存在
+        if not os.path.exists(file_path):
+            print(f"文件不存在: {file_path}")
+            return False
+        
+        # 首先尝试使用系统默认程序打开（推荐方式）
+        try:
+            print("尝试使用系统默认程序打开...")
+            os.startfile(file_path)
+            print("系统默认程序打开成功")
+            return True
+        except Exception as e:
+            print(f"使用系统默认程序打开失败: {e}")
+        
+        # 如果系统默认程序失败，尝试使用特定的Office程序
+        try:
+            program_map = {
+                '.doc': 'WINWORD.EXE',
+                '.docx': 'WINWORD.EXE',
+                '.xls': 'EXCEL.EXE',
+                '.xlsx': 'EXCEL.EXE',
+                '.ppt': 'POWERPNT.EXE',
+                '.pptx': 'POWERPNT.EXE'
+            }
+            
+            program_name = program_map.get(file_ext)
+            if program_name:
+                print(f"尝试使用 {program_name} 打开...")
+                # 尝试启动Office程序，使用完整路径
+                subprocess.Popen([program_name, file_path], 
+                               stdout=subprocess.DEVNULL, 
+                               stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW)
+                print(f"{program_name} 启动成功")
+                return True
+                
+        except Exception as e2:
+            print(f"使用Office程序打开失败: {e2}")
+            
+        # 尝试使用完整路径的Office程序
+        try:
+            office_paths = {
+                '.doc': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\WINWORD.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\WINWORD.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\wps.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\wps.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\wps.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\wps.exe'
+                ],
+                '.docx': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\WINWORD.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\WINWORD.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\WINWORD.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\WINWORD.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\wps.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\wps.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\wps.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\wps.exe'
+                ],
+                '.xls': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\EXCEL.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\EXCEL.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\et.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\et.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\et.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\et.exe'
+                ],
+                '.xlsx': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\EXCEL.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\EXCEL.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\EXCEL.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\EXCEL.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\et.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\et.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\et.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\et.exe'
+                ],
+                '.ppt': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\POWERPNT.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\POWERPNT.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\POWERPNT.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\wpp.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\wpp.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\wpp.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\wpp.exe'
+                ],
+                '.pptx': [
+                    # Microsoft Office
+                    r'C:\Program Files\Microsoft Office\root\Office16\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office16\POWERPNT.EXE',
+                    r'C:\Program Files\Microsoft Office\Office16\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\Office16\POWERPNT.EXE',
+                    r'C:\Program Files\Microsoft Office\root\Office15\POWERPNT.EXE',
+                    r'C:\Program Files (x86)\Microsoft Office\root\Office15\POWERPNT.EXE',
+                    # WPS Office
+                    r'C:\Program Files (x86)\WPS Office\11.1.0.11609\office6\wpp.exe',
+                    r'C:\Program Files\WPS Office\11.1.0.11609\office6\wpp.exe',
+                    r'C:\Program Files (x86)\WPS Office\12.1.0.14509\office6\wpp.exe',
+                    r'C:\Program Files\WPS Office\12.1.0.14509\office6\wpp.exe'
+                ]
+            }
+            
+            possible_paths = office_paths.get(file_ext, [])
+            for office_path in possible_paths:
+                if os.path.exists(office_path):
+                    print(f"尝试使用完整路径: {office_path}")
+                    subprocess.Popen([office_path, file_path], 
+                                   stdout=subprocess.DEVNULL, 
+                                   stderr=subprocess.DEVNULL,
+                                   creationflags=subprocess.CREATE_NO_WINDOW)
+                    print(f"使用完整路径启动成功: {office_path}")
+                    return True
+                    
+        except Exception as e3:
+            print(f"使用完整路径Office程序打开失败: {e3}")
+            
+        # 最后尝试使用start命令
+        try:
+            print("尝试使用start命令...")
+            subprocess.run(['start', '', file_path], 
+                         shell=True, 
+                         stdout=subprocess.DEVNULL, 
+                         stderr=subprocess.DEVNULL)
+            print("start命令执行成功")
+            return True
+        except Exception as e4:
+            print(f"使用start命令打开失败: {e4}")
+            
+        print("所有打开方式都失败了")
+        return False
     
     def remove_duplicate_files(self, data):
         """移除重复文件记录，保留最新的"""
@@ -605,8 +849,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # 尝试从JSON文件中查找文件路径
                 json_file = Path('ai_organize_result.json')
                 if json_file.exists():
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                    except json.JSONDecodeError as e:
+                        print(f"JSON文件格式错误，跳过文件查找: {e}")
+                        data = []
+                    except Exception as e:
+                        print(f"读取JSON文件失败，跳过文件查找: {e}")
+                        data = []
                     
                     # 查找匹配的文件
                     for item in data:
@@ -641,25 +892,15 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             # 获取文件信息
             file_size = os.path.getsize(file_path)
             file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
             
-            # 根据文件扩展名设置正确的MIME类型
-            mime_type = self.get_mime_type(file_name)
-            
-            # 简化文件名处理，避免编码问题
-            file_ext = os.path.splitext(file_name)[1]
-            safe_filename = f"file{file_ext}" if file_ext else "file"
-            
-            # 设置响应头 - 让浏览器直接打开文件
-            self.send_response(200)
-            self.send_header('Content-Type', mime_type)
-            self.send_header('Content-Disposition', f'inline; filename="{safe_filename}"')
-            self.send_header('Content-Length', str(file_size))
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            
-            # 直接发送文件内容
-            with open(file_path, 'rb') as f:
-                self.wfile.write(f.read())
+            # 根据文件类型决定处理策略
+            if self.should_preview_inline(file_ext):
+                # 支持内联预览的文件类型
+                self.handle_inline_preview(file_path, file_name, file_size)
+            else:
+                # 需要下载的文件类型
+                self.handle_file_download(file_path, file_name, file_size)
                 
         except Exception as e:
             print(f"下载文件时出错: {e}")
@@ -678,6 +919,154 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
                 self.wfile.write(b"Download failed")
+    
+    def should_preview_inline(self, file_ext):
+        """判断文件是否应该内联预览"""
+        # 支持内联预览的文件类型
+        inline_types = {
+            '.pdf', '.txt', '.html', '.htm', '.xml', '.json', '.csv',
+            '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+            '.mp4', '.webm', '.ogg', '.mp3', '.wav', '.flac'
+        }
+        return file_ext in inline_types
+    
+    def handle_inline_preview(self, file_path, file_name, file_size):
+        """处理内联预览文件"""
+        mime_type = self.get_mime_type(file_name)
+        file_ext = os.path.splitext(file_name)[1].lower()
+        
+        # 对于PDF文件，优化处理
+        if file_ext == '.pdf':
+            self.handle_pdf_preview(file_path, file_name, file_size)
+            return
+        
+        # 其他文件类型保持原有处理方式
+        safe_filename = f"file{file_ext}" if file_ext else "file"
+        
+        # 设置响应头 - 让浏览器直接预览文件
+        self.send_response(200)
+        self.send_header('Content-Type', mime_type)
+        self.send_header('Content-Disposition', f'inline; filename="{safe_filename}"')
+        self.send_header('Content-Length', str(file_size))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        # 添加缓存控制，提高PDF加载速度
+        self.send_header('Cache-Control', 'public, max-age=3600')  # 缓存1小时
+        self.end_headers()
+        
+        # 直接发送文件内容
+        with open(file_path, 'rb') as f:
+            self.wfile.write(f.read())
+    
+    def handle_pdf_preview(self, file_path, file_name, file_size):
+        """专门处理PDF文件预览，优化性能"""
+        try:
+            # 检查是否支持Range请求（用于大文件分块传输）
+            range_header = self.headers.get('Range')
+            
+            if range_header:
+                # 处理Range请求，支持断点续传
+                self.handle_pdf_range_request(file_path, file_name, file_size, range_header)
+            else:
+                # 完整文件请求
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/pdf')
+                self.send_header('Content-Disposition', f'inline; filename="{file_name}"')
+                self.send_header('Content-Length', str(file_size))
+                self.send_header('Accept-Ranges', 'bytes')  # 支持Range请求
+                self.send_header('Access-Control-Allow-Origin', '*')
+                # PDF文件缓存更长时间
+                self.send_header('Cache-Control', 'public, max-age=7200')  # 缓存2小时
+                self.end_headers()
+                
+                # 分块读取和发送，避免内存占用过大
+                chunk_size = 1024 * 1024  # 1MB chunks
+                with open(file_path, 'rb') as f:
+                    while True:
+                        chunk = f.read(chunk_size)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()  # 立即发送数据
+                        
+        except Exception as e:
+            print(f"PDF预览处理失败: {e}")
+            # 降级到普通文件处理
+            self.handle_file_download(file_path, file_name, file_size)
+    
+    def handle_pdf_range_request(self, file_path, file_name, file_size, range_header):
+        """处理PDF文件的Range请求，支持断点续传"""
+        try:
+            # 解析Range头
+            range_str = range_header.replace('bytes=', '')
+            start, end = range_str.split('-')
+            start = int(start) if start else 0
+            end = int(end) if end else file_size - 1
+            
+            # 计算实际范围
+            if end >= file_size:
+                end = file_size - 1
+            content_length = end - start + 1
+            
+            # 发送206 Partial Content响应
+            self.send_response(206)
+            self.send_header('Content-Type', 'application/pdf')
+            self.send_header('Content-Disposition', f'inline; filename="{file_name}"')
+            self.send_header('Content-Length', str(content_length))
+            self.send_header('Content-Range', f'bytes {start}-{end}/{file_size}')
+            self.send_header('Accept-Ranges', 'bytes')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'public, max-age=7200')
+            self.end_headers()
+            
+            # 发送指定范围的数据
+            with open(file_path, 'rb') as f:
+                f.seek(start)
+                remaining = content_length
+                chunk_size = 1024 * 1024  # 1MB chunks
+                
+                while remaining > 0:
+                    read_size = min(chunk_size, remaining)
+                    chunk = f.read(read_size)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                    remaining -= len(chunk)
+                    
+        except Exception as e:
+            print(f"PDF Range请求处理失败: {e}")
+            # 降级到完整文件响应
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/pdf')
+            self.send_header('Content-Disposition', f'inline; filename="{file_name}"')
+            self.send_header('Content-Length', str(file_size))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            with open(file_path, 'rb') as f:
+                self.wfile.write(f.read())
+    
+    def handle_file_download(self, file_path, file_name, file_size):
+        """处理文件下载"""
+        mime_type = self.get_mime_type(file_name)
+        file_ext = os.path.splitext(file_name)[1]
+        
+        # 使用原始文件名，而不是通用的"file"前缀
+        # 对文件名进行URL编码，确保特殊字符能正确处理
+        import urllib.parse
+        safe_filename = urllib.parse.quote(file_name)
+        
+        # 设置响应头 - 强制下载文件
+        self.send_response(200)
+        self.send_header('Content-Type', mime_type)
+        self.send_header('Content-Disposition', f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{safe_filename}')
+        self.send_header('Content-Length', str(file_size))
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        
+        # 直接发送文件内容
+        with open(file_path, 'rb') as f:
+            self.wfile.write(f.read())
     
     def get_mime_type(self, filename):
         """根据文件扩展名获取MIME类型"""
@@ -772,16 +1161,11 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
             
             if not json_file.exists():
                 print(f"警告: JSON文件 {json_file} 不存在，将显示空数据")
-                # 创建空的JSON文件
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    f.write('[]')
             
             print(f"服务器已启动 - 本机: {localhost_primary_url}")
             
             # 启动服务器后立即打开浏览器
-            open_browser_with_urls(local_ip)
-            
-
+            open_browser_with_urls(local_ip, port)
             
             # 启动服务器
             httpd.serve_forever()
@@ -821,7 +1205,7 @@ def main():
     # 检查服务器是否已经在运行
     if check_server_running(port):
         local_ip = get_local_ip()
-        open_browser_with_urls(local_ip)
+        open_browser_with_urls(local_ip, port)
         return True
     
     # 启动服务器

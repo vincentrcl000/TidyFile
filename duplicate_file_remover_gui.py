@@ -408,15 +408,4 @@ def show_duplicate_remover_dialog(parent=None):
     dialog.show_dialog()
 
 
-if __name__ == "__main__":
-    # 测试独立运行
-    root = tb.Window()
-    root.title("测试删除重复文件")
-    root.geometry("400x300")
-    
-    def test_dialog():
-        show_duplicate_remover_dialog(root)
-    
-    tb.Button(root, text="打开删除重复文件对话框", command=test_dialog).pack(pady=50)
-    
-    root.mainloop() 
+ 

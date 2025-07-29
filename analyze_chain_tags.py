@@ -54,24 +54,24 @@ class ChainTagsAnalyzer:
         """加载JSON数据"""
         try:
             if not os.path.exists(self.result_file):
-                print(f"✗ 文件不存在: {self.result_file}")
+                print(f"文件不存在: {self.result_file}")
                 return []
             
             with open(self.result_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             if not isinstance(data, list):
-                print("✗ JSON文件格式错误，应该是数组格式")
+                print("JSON文件格式错误，应该是数组格式")
                 return []
             
-            print(f"✓ 成功加载 {len(data)} 条记录")
+            print(f"成功加载 {len(data)} 条记录")
             return data
             
         except json.JSONDecodeError as e:
-            print(f"✗ JSON文件格式错误: {e}")
+            print(f"JSON文件格式错误: {e}")
             return []
         except Exception as e:
-            print(f"✗ 加载文件失败: {e}")
+            print(f"加载文件失败: {e}")
             return []
     
     def extract_chain_tags(self, data: List[Dict[str, Any]]) -> List[str]:
@@ -142,6 +142,49 @@ class ChainTagsAnalyzer:
                     print(f"  {level}级标签: {tag}")
             print()
     
+    def generate_chain_tags_list(self, data: List[Dict[str, Any]]) -> bool:
+        """生成去重的链式标签列表文件"""
+        print("\n开始生成链式标签列表文件...")
+        
+        # 用于存储已写入的链式标签，避免重复
+        written_tags = set()
+        output_file = "chain_tags_list.txt"
+        
+        try:
+            with open(output_file, 'w', encoding='utf-8') as f:
+                processed_count = 0
+                written_count = 0
+                
+                for item in data:
+                    processed_count += 1
+                    
+                    # 检查是否有链式标签
+                    chain_tag = ""
+                    if "标签" in item and isinstance(item["标签"], dict):
+                        chain_tag = item["标签"].get("链式标签", "")
+                    
+                    if chain_tag and isinstance(chain_tag, str) and chain_tag.strip():
+                        chain_tag = chain_tag.strip()
+                        
+                        # 检查是否已经写入过
+                        if chain_tag not in written_tags:
+                            f.write(chain_tag + '\n')
+                            written_tags.add(chain_tag)
+                            written_count += 1
+                            
+                            # 每写入100个标签显示一次进度
+                            if written_count % 100 == 0:
+                                print(f"  已处理 {processed_count} 条记录，写入 {written_count} 个去重标签...")
+            
+            print(f"成功生成链式标签列表文件: {output_file}")
+            print(f"  处理记录数: {processed_count}")
+            print(f"  写入去重标签数: {written_count}")
+            return True
+            
+        except Exception as e:
+            print(f"生成链式标签列表文件失败: {e}")
+            return False
+    
     def analyze(self, verbose: bool = False) -> bool:
         """执行分析"""
         print("=" * 60)
@@ -158,7 +201,7 @@ class ChainTagsAnalyzer:
         print(f"\n找到 {len(chain_tags)} 条链式标签记录")
         
         if not chain_tags:
-            print("✗ 没有找到链式标签记录")
+            print("没有找到链式标签记录")
             return False
         
         # 分析链式标签
@@ -181,6 +224,9 @@ class ChainTagsAnalyzer:
             for level in sorted(analysis['level_counts'].keys()):
                 count = analysis['level_counts'][level]
                 print(f"{level}级标签数量: {count}")
+        
+        # 生成链式标签列表文件
+        self.generate_chain_tags_list(data)
         
         # 显示详细信息
         if verbose and analysis['level_tags']:

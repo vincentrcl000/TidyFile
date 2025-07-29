@@ -438,27 +438,3 @@ class TransferLogManager:
         return deleted_count
 
 
-if __name__ == "__main__":
-    # 简单的测试代码
-    manager = TransferLogManager()
-    
-    # 开始会话
-    log_file = manager.start_transfer_session("test_session")
-    print(f"创建日志文件: {log_file}")
-    
-    # 记录一些操作
-    manager.log_transfer_operation(
-        source_path="/test/source/file1.txt",
-        target_path="/test/target/folder1/file1.txt",
-        operation_type="copy",
-        target_folder="folder1",
-        success=True
-    )
-    
-    # 结束会话
-    summary = manager.end_transfer_session()
-    print(f"会话摘要: {summary}")
-    
-    # 获取会话详情
-    details = manager.get_session_summary(log_file)
-    print(f"会话详情: {details}")

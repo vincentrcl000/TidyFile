@@ -13,15 +13,15 @@
     1. 图形界面管理多个文件解读任务
     2. 支持同时处理多个不同文件夹
     3. 实时显示任务进度和状态
-    4. 支持任务暂停、删除和统计
+    4. 支持任务启动、停止、重启、删除和统计
     5. 自动去重检测，避免重复处理
     6. 结果保存到 ai_organize_result.json
 
 界面功能:
     - 创建任务: 选择文件夹，设置摘要长度
-    - 任务管理: 启动、停止、删除任务
+    - 任务管理: 启动、停止、重启、删除任务
     - 进度监控: 实时显示处理进度和当前文件
-    - 统计信息: 查看成功/失败/跳过的文件数量
+    - 统计信息: 查看成功/失败/跳过/路径更新的文件数量
     - 任务详情: 双击任务查看详细信息
 
 支持的文件格式:
@@ -31,7 +31,7 @@
 
 作者: AI Assistant
 创建时间: 2025-01-15
-更新时间: 2025-07-27
+更新时间: 2025-07-28
 """
 
 import tkinter as tk
@@ -51,6 +51,9 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Any
+
+# 全局文件锁，防止多任务同时写入
+_result_file_lock = threading.Lock()
 
 class FileReadTask:
     """单个文件解读任务"""
@@ -89,8 +92,17 @@ class FileReadTask:
     
     def start(self):
         """启动任务"""
+        # 如果任务已经在运行，先停止
+        if self.status == "运行中":
+            self.stop()
+            time.sleep(0.5)  # 等待线程结束
+        
+        # 重置状态
         self.status = "运行中"
         self.start_time = datetime.now()
+        self.stop_flag = False
+        
+        # 启动新线程
         self.thread = threading.Thread(target=self._run_task, daemon=True)
         self.thread.start()
     
@@ -98,6 +110,17 @@ class FileReadTask:
         """停止任务"""
         self.stop_flag = True
         self.status = "已停止"
+    
+    def _safe_append_result(self, file_reader, result, folder_path):
+        """安全地追加结果到文件，使用全局锁防止并发冲突"""
+        with _result_file_lock:
+            try:
+                # 使用文件解读器的安全写入方法
+                file_reader.append_result_to_file("ai_organize_result.json", result, folder_path)
+                return True
+            except Exception as e:
+                logging.error(f"任务 {self.task_id}: 写入结果失败: {e}")
+                return False
     
     def _run_task(self):
         """运行任务的具体实现"""
@@ -167,8 +190,8 @@ class FileReadTask:
                         # 同名但路径不同的文件，复用摘要并更新路径
                         self.path_updated_reads += 1
                         logging.info(f"文件路径已更新: {filename}")
-                        # 写入结果到ai_organize_result.json
-                        file_reader.append_result_to_file("ai_organize_result.json", result, self.folder_path)
+                        # 使用安全写入方法
+                        self._safe_append_result(file_reader, result, self.folder_path)
                         continue
                     
                     # 检查处理结果
@@ -178,9 +201,11 @@ class FileReadTask:
                             result['tags'] = file_reader.extract_path_tags(file_path, self.folder_path)
                         self.successful_reads += 1
                         
-                        # 写入结果到ai_organize_result.json
-                        file_reader.append_result_to_file("ai_organize_result.json", result, self.folder_path)
-                        logging.info(f"文件解读成功: {filename}")
+                        # 使用安全写入方法
+                        if self._safe_append_result(file_reader, result, self.folder_path):
+                            logging.info(f"文件解读成功: {filename}")
+                        else:
+                            logging.warning(f"文件解读成功但写入失败: {filename}")
                     else:
                         self.failed_reads += 1
                         logging.warning(f"文件解读失败: {filename} - {result.get('error', '未知错误')}")
@@ -454,6 +479,42 @@ class MultiTaskFileReaderGUI:
             else:
                 messagebox.showinfo("提示", "选中的任务都不在运行状态")
         
+        def restart_selected_task():
+            selected_tasks = self.get_selected_tasks()
+            if not selected_tasks:
+                messagebox.showwarning("提示", "请先勾选要重启的任务")
+                return
+            
+            restart_count = 0
+            for task_id in selected_tasks:
+                if task_id in self.tasks:
+                    task = self.tasks[task_id]
+                    if task.status in ["已停止", "失败"]:
+                        # 重置任务状态
+                        task.status = "等待中"
+                        task.progress = 0.0
+                        task.current_file = ""
+                        task.processed_files = 0
+                        task.successful_reads = 0
+                        task.failed_reads = 0
+                        task.skipped_reads = 0
+                        task.path_updated_reads = 0
+                        task.start_time = None
+                        task.end_time = None
+                        task.error_message = ""
+                        task.stop_flag = False
+                        
+                        # 重新启动任务
+                        task.start()
+                        restart_count += 1
+            
+            if restart_count > 0:
+                messagebox.showinfo("成功", f"已重启 {restart_count} 个任务")
+                # 取消勾选
+                self.deselect_all_tasks()
+            else:
+                messagebox.showinfo("提示", "选中的任务都无法重启（只有已停止或失败的任务可以重启）")
+        
         def remove_selected_task():
             selected_tasks = self.get_selected_tasks()
             if not selected_tasks:
@@ -506,6 +567,7 @@ class MultiTaskFileReaderGUI:
             running_tasks = sum(1 for task in self.tasks.values() if task.status == "运行中")
             completed_tasks = sum(1 for task in self.tasks.values() if task.status == "已完成")
             failed_tasks = sum(1 for task in self.tasks.values() if task.status == "失败")
+            stopped_tasks = sum(1 for task in self.tasks.values() if task.status == "已停止")
             
             total_files = sum(task.total_files for task in self.tasks.values())
             total_successful = sum(task.successful_reads for task in self.tasks.values())
@@ -519,6 +581,7 @@ class MultiTaskFileReaderGUI:
 - 运行中: {running_tasks}
 - 已完成: {completed_tasks}
 - 失败: {failed_tasks}
+- 已停止: {stopped_tasks}
 
 文件统计:
 - 总文件数: {total_files}
@@ -551,6 +614,13 @@ class MultiTaskFileReaderGUI:
             text="停止选中任务",
             command=stop_selected_task,
             bootstyle=WARNING
+        ).pack(side=LEFT, padx=(0, 10))
+        
+        tb.Button(
+            button_frame,
+            text="重启选中任务",
+            command=restart_selected_task,
+            bootstyle=SUCCESS
         ).pack(side=LEFT, padx=(0, 10))
         
         tb.Button(

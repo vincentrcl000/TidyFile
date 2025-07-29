@@ -1505,6 +1505,9 @@
             const headerOpenTitle = isHeaderWebLink ? '点击在新标签页打开链接' : '点击打开文件';
             const bottomOpenTitle = isBottomWebLink ? '点击在新标签页打开链接' : '点击打开文件';
             
+            // 根据文件类型选择图标
+            const fileIcon = getFileIcon(fileName);
+            
             // 简化的状态显示
             const displayStatus = isHeaderWebLink ? 'AI🌐' : 'AI';
 
@@ -1521,7 +1524,7 @@
                     <div class="file-header">
                         <div class="file-meta">
                         <div class="file-name clickable-header" title="${headerOpenTitle}">
-                            <i class="fas ${isHeaderWebLink ? 'fa-globe' : 'fa-file-alt'}"></i> ${fileName}
+                            <i class="fas ${isHeaderWebLink ? 'fa-globe' : fileIcon}"></i> ${fileName}
                         </div>
                             ${timeHtml}
                             <div class="file-status ${statusClass}">${displayStatus}</div>
@@ -1540,7 +1543,6 @@
         function generateTagDisplay(tags, item) {
             const tagElements = [];
             const chainTag = tags['链式标签'] || '';
-            const modifiedTime = item['文件元数据']?.modified_time || '';
             
             if (chainTag) {
                 const tagSegments = chainTag.split('/').filter(segment => segment.trim());
@@ -1551,32 +1553,16 @@
                         tagElements.push(`<span class="file-tag"><i class="fas fa-tag"></i> 主要: ${primaryTag}</span>`);
                     }
                     
-                    let hasYearFromChain = false;
+                    // 只显示非年份的次要标签
                     for (let i = 1; i < tagSegments.length; i++) {
                         const segment = tagSegments[i];
                         const formattedTag = formatTag(segment);
                         
-                        if (formattedTag) {
-                            if (isYearTag(formattedTag)) {
-                                const cleanYear = cleanYearTag(formattedTag);
-                                if (cleanYear) {
-                                    tagElements.push(`<span class="file-tag year-tag"><i class="fas fa-calendar"></i> 年份: ${cleanYear}</span>`);
-                                    hasYearFromChain = true;
-                                }
-                            } else {
+                        if (formattedTag && !isYearTag(formattedTag)) {
                                 tagElements.push(`<span class="file-tag"><i class="fas fa-tags"></i> 次要: ${formattedTag}</span>`);
                             }
                         }
                     }
-                    
-                    if (!hasYearFromChain && modifiedTime) {
-                        const year = new Date(modifiedTime).getFullYear().toString();
-                        tagElements.push(`<span class="file-tag year-tag"><i class="fas fa-calendar"></i> 年份: ${year}</span>`);
-                    }
-                }
-            } else if (modifiedTime) {
-                const year = new Date(modifiedTime).getFullYear().toString();
-                tagElements.push(`<span class="file-tag year-tag"><i class="fas fa-calendar"></i> 年份: ${year}</span>`);
             }
             
             return tagElements.length > 0 ? `<div class="file-tags">${tagElements.join('')}</div>` : '';
@@ -1626,11 +1612,37 @@
             } else if (filePath.endsWith('.json') && filePath.includes('weixin_articles')) {
                 openWeixinArticle(filePath);
             } else {
-                // 检测是否为移动设备或远程访问
-                if (isMobileDevice() || isRemoteAccess()) {
-                    downloadFile(filePath);
+                // 区分访问方式
+                const isLocal = isLocalAccess();
+                const isLocalNetwork = isLocalNetworkAccess();
+                const isRemote = isRemoteAccess();
+                const isMobile = isMobileDevice();
+                
+                console.log('openFile 访问方式检测:', {
+                    filePath: filePath,
+                    isLocal: isLocal,
+                    isLocalNetwork: isLocalNetwork,
+                    isRemote: isRemote,
+                    isMobile: isMobile
+                });
+                
+                if (isLocal) {
+                    // 本地访问：直接调用服务器端程序
+                    const fileName = filePath.split(/[\\/]/).pop();
+                    const fileExt = fileName.split('.').pop().toLowerCase();
+                    const isOfficeFile = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'].includes('.' + fileExt);
+                    
+                    if (isOfficeFile) {
+                        console.log('本地访问Office文件：调用服务器端程序');
+                        openWithLocalProgram(filePath);
+                    } else {
+                        console.log('本地访问非Office文件：调用命令行打开');
+                        openWithCommandLine(filePath);
+                    }
                 } else {
-                    openWithCommandLine(filePath);
+                    // 局域网访问、远程访问或移动设备：在客户端处理
+                    console.log('非本地访问：在客户端处理文件');
+                    handleClientSideFile(filePath);
                 }
             }
         }
@@ -1643,15 +1655,184 @@
             return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         }
 
+        function isLocalAccess() {
+            const hostname = window.location.hostname;
+            // 本地访问：只有localhost和127.0.0.1
+            const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
+            
+            console.log('isLocalAccess 检查:', {
+                hostname: hostname,
+                isLocalhost: isLocalhost,
+                result: isLocalhost
+            });
+            
+            return isLocalhost;
+        }
+
+        function isLocalNetworkAccess() {
+            const hostname = window.location.hostname;
+            // 局域网访问：192.168.x.x, 10.x.x.x, 172.16-31.x.x
+            const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
+            
+            console.log('isLocalNetworkAccess 检查:', {
+                hostname: hostname,
+                isLocalNetwork: isLocalNetwork,
+                result: isLocalNetwork
+            });
+            
+            return isLocalNetwork;
+        }
+
         function isRemoteAccess() {
-            return window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+            // 远程访问：既不是本地访问也不是局域网访问
+            const isLocal = isLocalAccess();
+            const isLocalNetwork = isLocalNetworkAccess();
+            const result = !(isLocal || isLocalNetwork);
+            
+            console.log('isRemoteAccess 检查:', {
+                isLocal: isLocal,
+                isLocalNetwork: isLocalNetwork,
+                result: result
+            });
+            
+            return result;
+        }
+
+        function handleClientSideFile(filePath) {
+            const fileName = filePath.split(/[\\/]/).pop();
+            const fileExt = fileName.split('.').pop().toLowerCase();
+            
+            console.log('handleClientSideFile 被调用:', {
+                filePath: filePath,
+                fileName: fileName,
+                fileExt: fileExt
+            });
+            
+            // 判断文件类型
+            const isPreviewable = ['.pdf', '.txt', '.html', '.htm', '.xml', '.json', '.csv', 
+                                  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+                                  '.mp4', '.webm', '.ogg', '.mp3', '.wav', '.flac'].includes('.' + fileExt);
+            const isOfficeFile = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'].includes('.' + fileExt);
+            
+            if (isPreviewable) {
+                if (fileExt === 'pdf') {
+                    // PDF文件：优化预览
+                    openPdfFile(filePath);
+                } else {
+                    // 其他可预览文件：直接打开
+                    const encodedPath = encodeURIComponent(filePath);
+                    const fileUrl = `/api/download-file?path=${encodedPath}`;
+                    window.open(fileUrl, '_blank');
+                }
+            } else if (isOfficeFile) {
+                // Office文件：下载到客户端，然后调用客户端Office程序
+                downloadAndOpenOfficeFile(filePath, fileName);
+            } else {
+                // 其他文件：直接下载
+                downloadFile(filePath);
+            }
+        }
+
+        function downloadAndOpenOfficeFile(filePath, fileName) {
+            console.log('downloadAndOpenOfficeFile 被调用:', filePath);
+            
+            // 显示下载提示
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center;
+            `;
+            loadingDiv.innerHTML = `正在下载文件: ${fileName}<br><br>请稍候...`;
+            document.body.appendChild(loadingDiv);
+            
+            // 创建下载链接
+            const encodedPath = encodeURIComponent(filePath);
+            const fileUrl = `/api/download-file?path=${encodedPath}`;
+            
+            // 创建隐藏的下载链接
+            const downloadLink = document.createElement('a');
+            downloadLink.href = fileUrl;
+            downloadLink.download = fileName;
+            downloadLink.style.display = 'none';
+            document.body.appendChild(downloadLink);
+            
+            // 触发下载
+            downloadLink.click();
+            
+            // 移除下载链接
+            document.body.removeChild(downloadLink);
+            
+            // 延迟移除加载提示并显示成功消息
+            setTimeout(() => {
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                // 显示成功提示
+                const successDiv = document.createElement('div');
+                successDiv.style.cssText = `
+                    position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
+                    padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                `;
+                successDiv.innerHTML = `<i class="fas fa-check-circle"></i> 文件 "${fileName}" 正在下载！<br><br>下载完成后将自动使用本地Office程序打开。`;
+                document.body.appendChild(successDiv);
+                
+                // 3秒后自动移除提示
+                setTimeout(() => {
+                    if (document.body.contains(successDiv)) {
+                        document.body.removeChild(successDiv);
+                    }
+                }, 3000);
+            }, 1000);
         }
 
         function downloadFile(filePath) {
             const fileName = filePath.split(/[\\/]/).pop();
+            const fileExt = fileName.split('.').pop().toLowerCase();
             
-            // 显示打开文件提示
-            const openMsg = `正在打开文件: ${fileName}\n\n请稍候...`;
+            // 添加调试信息
+            console.log('downloadFile 被调用:', {
+                filePath: filePath,
+                fileName: fileName,
+                fileExt: fileExt,
+                isMobile: isMobileDevice(),
+                isRemote: isRemoteAccess(),
+                hostname: window.location.hostname
+            });
+            
+            // 判断文件类型
+            const isPreviewable = ['.pdf', '.txt', '.html', '.htm', '.xml', '.json', '.csv', 
+                                  '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp',
+                                  '.mp4', '.webm', '.ogg', '.mp3', '.wav', '.flac'].includes('.' + fileExt);
+            const isOfficeFile = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'].includes('.' + fileExt);
+            
+            // 根据文件类型显示不同的提示
+            let openMsg, successMsg;
+            if (isPreviewable) {
+                // PDF等可预览文件：优化处理
+                if (fileExt === 'pdf') {
+                    // PDF文件：使用专门的优化函数
+                    openPdfFile(filePath);
+                    return; // 直接返回，不显示任何提示
+                } else {
+                    // 其他可预览文件：静默打开
+                    const encodedPath = encodeURIComponent(filePath);
+                    const fileUrl = `/api/download-file?path=${encodedPath}`;
+                    window.open(fileUrl, '_blank');
+                    return; // 直接返回，不显示任何提示
+                }
+            } else if (isOfficeFile) {
+                // Office文件：直接下载（这个函数现在只处理非本地访问的情况）
+                console.log('downloadFile中检测到Office文件：直接下载');
+                openMsg = `正在下载文件: ${fileName}\n\n请稍候...`;
+                successMsg = `文件 "${fileName}" 正在下载！\n\nOffice文件（Word、Excel、PowerPoint）将自动下载到您的设备。\n\n下载完成后，您可以使用以下方式打开：\n• 电脑：双击文件或右键选择打开方式\n• 手机：在文件管理器中找到下载的文件`;
+            } else {
+                openMsg = `正在下载文件: ${fileName}\n\n请稍候...`;
+                successMsg = `文件 "${fileName}" 正在下载！\n\n文件将自动下载到您的设备。`;
+            }
+            
             const loadingDiv = document.createElement('div');
             loadingDiv.style.cssText = `
                 position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -1678,7 +1859,6 @@
                 }
                 
                 // 显示成功提示
-                const successMsg = `文件 "${fileName}" 正在打开！\n\n在移动设备上：\n• 文件将在新标签页中直接打开\n• 支持PDF、图片、视频等格式的在线预览\n• 如果无法预览，会自动下载到设备`;
                 alert(successMsg);
             }, 1000);
             
@@ -1742,6 +1922,137 @@
             window.open(rendererUrl, '_blank');
         }
 
+
+        
+        function openWithLocalProgram(filePath) {
+            console.log('openWithLocalProgram 被调用:', filePath);
+            
+            // 显示加载提示
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center;
+            `;
+            loadingDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 正在启动Office程序...';
+            document.body.appendChild(loadingDiv);
+            
+            // 调用后端API打开文件
+            const encodedPath = encodeURIComponent(filePath);
+            const requestData = { 
+                filePath: filePath,
+                encodedPath: encodedPath 
+            };
+            
+            console.log('发送API请求:', {
+                url: '/api/open-file',
+                data: requestData
+            });
+            
+            fetch('/api/open-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // 移除加载提示
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                if (data.success) {
+                    console.log('Office文件打开成功:', filePath);
+                    // 显示成功提示，但不阻塞用户操作
+                    const successDiv = document.createElement('div');
+                    successDiv.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
+                        padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                    `;
+                    successDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${data.message || '文件正在使用本地Office程序打开！'}`;
+                    document.body.appendChild(successDiv);
+                    
+                    // 3秒后自动移除提示
+                    setTimeout(() => {
+                        if (document.body.contains(successDiv)) {
+                            document.body.removeChild(successDiv);
+                        }
+                    }, 3000);
+                } else {
+                    console.error('Office文件打开失败:', data.error);
+                    alert('打开失败: ' + data.error + '\n\n请尝试下载文件后手动打开。');
+                }
+            })
+            .catch(error => {
+                // 移除加载提示
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                console.error('调用打开文件API失败:', error);
+                alert('调用失败: ' + error.message + '\n\n请尝试下载文件后手动打开。');
+            });
+        }
+        
+
+        
+        function openPdfFile(filePath) {
+            const fileName = filePath.split(/[\\/]/).pop();
+            
+            // 显示PDF加载提示
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center; max-width: 400px;
+            `;
+            loadingDiv.innerHTML = `
+                <i class="fas fa-file-pdf" style="font-size: 24px; margin-bottom: 10px;"></i><br>
+                正在加载PDF文件: ${fileName}<br>
+                <small style="opacity: 0.8;">支持断点续传，大文件请耐心等待...</small>
+            `;
+            document.body.appendChild(loadingDiv);
+            
+            // 对文件路径进行URL编码，处理特殊字符
+            const encodedPath = encodeURIComponent(filePath);
+            const fileUrl = `/api/download-file?path=${encodedPath}`;
+            
+            // 在新窗口打开PDF
+            const newWindow = window.open(fileUrl, '_blank');
+            
+            // 延迟移除加载提示
+            setTimeout(() => {
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                // 显示成功提示
+                const successDiv = document.createElement('div');
+                successDiv.style.cssText = `
+                    position: fixed; top: 20px; right: 20px; background: #007bff; color: white; 
+                    padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                `;
+                successDiv.innerHTML = `<i class="fas fa-file-pdf"></i> PDF文件 "${fileName}" 正在加载！`;
+                document.body.appendChild(successDiv);
+                
+                // 5秒后自动移除提示
+                setTimeout(() => {
+                    if (document.body.contains(successDiv)) {
+                        document.body.removeChild(successDiv);
+                    }
+                }, 5000);
+            }, 1000);
+        }
+        
         function openWithCommandLine(filePath) {
             // 对文件路径进行编码，确保特殊字符能正确传递
             const encodedPath = encodeURIComponent(filePath);
@@ -1769,6 +2080,77 @@
                 console.error('调用打开文件API失败:', error);
                 alert('调用打开文件API失败: ' + error.message);
             });
+        }
+
+        function getFileIcon(fileName) {
+            const fileExt = fileName.split('.').pop().toLowerCase();
+            
+            // 文件类型图标映射
+            const iconMap = {
+                // Office文档
+                'doc': 'fa-file-word',
+                'docx': 'fa-file-word',
+                'xls': 'fa-file-excel',
+                'xlsx': 'fa-file-excel',
+                'ppt': 'fa-file-powerpoint',
+                'pptx': 'fa-file-powerpoint',
+                
+                // PDF和文本
+                'pdf': 'fa-file-pdf',
+                'txt': 'fa-file-alt',
+                'rtf': 'fa-file-alt',
+                
+                // 图片
+                'jpg': 'fa-file-image',
+                'jpeg': 'fa-file-image',
+                'png': 'fa-file-image',
+                'gif': 'fa-file-image',
+                'bmp': 'fa-file-image',
+                'svg': 'fa-file-image',
+                'webp': 'fa-file-image',
+                
+                // 视频
+                'mp4': 'fa-file-video',
+                'avi': 'fa-file-video',
+                'mov': 'fa-file-video',
+                'wmv': 'fa-file-video',
+                'flv': 'fa-file-video',
+                'webm': 'fa-file-video',
+                
+                // 音频
+                'mp3': 'fa-file-audio',
+                'wav': 'fa-file-audio',
+                'flac': 'fa-file-audio',
+                'aac': 'fa-file-audio',
+                
+                // 压缩文件
+                'zip': 'fa-file-archive',
+                'rar': 'fa-file-archive',
+                '7z': 'fa-file-archive',
+                'tar': 'fa-file-archive',
+                'gz': 'fa-file-archive',
+                
+                // 代码文件
+                'html': 'fa-file-code',
+                'htm': 'fa-file-code',
+                'xml': 'fa-file-code',
+                'json': 'fa-file-code',
+                'js': 'fa-file-code',
+                'css': 'fa-file-code',
+                'py': 'fa-file-code',
+                'java': 'fa-file-code',
+                'cpp': 'fa-file-code',
+                'c': 'fa-file-code',
+                'php': 'fa-file-code',
+                'sql': 'fa-file-code',
+                
+                // 其他
+                'csv': 'fa-file-csv',
+                'exe': 'fa-cog',
+                'msi': 'fa-cog'
+            };
+            
+            return iconMap[fileExt] || 'fa-file-alt';
         }
 
         function formatDisplayTime(timeString) {

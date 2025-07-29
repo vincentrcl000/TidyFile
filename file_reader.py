@@ -1082,9 +1082,20 @@ class FileReader:
             if os.path.exists(ai_result_file):
                 try:
                     with open(ai_result_file, 'r', encoding='utf-8') as f:
-                        existing_data = json.load(f)
-                except (json.JSONDecodeError, FileNotFoundError):
-                    logging.error(f"读取结果文件失败: {ai_result_file}")
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            existing_data = json.loads(content)
+                            if not isinstance(existing_data, list):
+                                logging.error(f"AI结果文件格式错误：根元素不是数组: {ai_result_file}")
+                                return
+                        else:
+                            logging.error(f"AI结果文件为空: {ai_result_file}")
+                            return
+                except json.JSONDecodeError:
+                    logging.error(f"AI结果文件格式错误，无法读取: {ai_result_file}")
+                    return
+                except UnicodeDecodeError:
+                    logging.error(f"AI结果文件编码错误，无法读取: {ai_result_file}")
                     return
             
             # 查找要更新的记录
@@ -1159,14 +1170,40 @@ class FileReader:
     def _legacy_append_result(self, ai_result_file: str, entry: dict) -> None:
         """传统方法写入结果（备用）"""
         try:
+            # 验证输入数据
+            if not isinstance(entry, dict) or not entry.get('文件名'):
+                logging.error(f"无效的结果条目，跳过写入: {entry}")
+                return
+            
             # 读取现有文件
             existing_data = []
             if os.path.exists(ai_result_file):
                 try:
                     with open(ai_result_file, 'r', encoding='utf-8') as f:
-                        existing_data = json.load(f)
-                except (json.JSONDecodeError, FileNotFoundError):
-                    existing_data = []
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            existing_data = json.loads(content)
+                            # 验证数据格式
+                            if not isinstance(existing_data, list):
+                                logging.error(f"AI结果文件格式错误：根元素不是数组: {ai_result_file}")
+                                return
+                        else:
+                            # 空文件时，如果这是第一个条目，直接写入
+                            if entry.get('文件名'):
+                                existing_data = [entry]
+                                with open(ai_result_file, 'w', encoding='utf-8') as f:
+                                    json.dump(existing_data, f, ensure_ascii=False, indent=2)
+                                logging.info(f"文件解读结果已写入: {ai_result_file}")
+                                return
+                            else:
+                                logging.error("无效的条目，无法写入空文件")
+                                return
+                except json.JSONDecodeError:
+                    logging.error(f"AI结果文件格式错误，无法读取: {ai_result_file}")
+                    return
+                except UnicodeDecodeError:
+                    logging.error(f"AI结果文件编码错误，无法读取: {ai_result_file}")
+                    return
             
             # 添加新条目
             existing_data.append(entry)
