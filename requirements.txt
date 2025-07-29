@@ -9,6 +9,7 @@ ttkbootstrap>=1.10.1
 # 文档处理依赖
 PyPDF2>=3.0.0
 python-docx>=1.0.0
+reportlab>=3.6.0
 
 # Windows文档转换依赖（可选）
 pywin32>=306; sys_platform == "win32"

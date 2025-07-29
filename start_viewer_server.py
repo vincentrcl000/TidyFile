@@ -1,28 +1,128 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-本地HTTP服务器启动脚本
-用于解决浏览器CORS策略限制，使ai_result_viewer.html能够正常加载JSON文件
-支持局域网访问
-
-作者: AI助手
-创建时间: 2025-01-20
-更新时间: 2025-01-27 - 重构为统一的服务管理逻辑
+AI文件整理结果查看器 - 局域网服务器
+支持局域网访问，提供文件预览和下载功能
 """
 
-import http.server
-import socketserver
-import webbrowser
 import os
 import sys
 import json
-import urllib.parse
-import subprocess
-import threading
 import time
 import socket
+import webbrowser
+import http.server
+import socketserver
+import subprocess
+import threading
 from pathlib import Path
-from datetime import datetime
+from urllib.parse import parse_qs, urlparse, unquote
+import urllib.parse
+import mimetypes
+import hashlib
+import tempfile
+import shutil
+
+# 添加ReportLab支持
+try:
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+    print("警告: ReportLab库未安装，Word文档转PDF功能将不可用")
+
+# 添加文档处理支持
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    print("警告: python-docx库未安装，Word文档处理功能将不可用")
+
+# 缓存目录
+CACHE_DIR = Path("cache")
+if not CACHE_DIR.exists():
+    CACHE_DIR.mkdir(exist_ok=True)
+
+# 文档转换缓存
+DOC_CONVERSION_CACHE = {}
+
+def get_cache_key(file_path):
+    """生成缓存键"""
+    file_stat = os.stat(file_path)
+    return hashlib.md5(f"{file_path}_{file_stat.st_mtime}_{file_stat.st_size}".encode()).hexdigest()
+
+def convert_docx_to_pdf(docx_path, cache_key=None):
+    """将Word文档转换为PDF"""
+    if not REPORTLAB_AVAILABLE or not DOCX_AVAILABLE:
+        return None
+    
+    if cache_key is None:
+        cache_key = get_cache_key(docx_path)
+    
+    # 检查缓存
+    cache_file = CACHE_DIR / f"{cache_key}.pdf"
+    if cache_file.exists():
+        print(f"使用缓存的PDF文件: {cache_file}")
+        return str(cache_file)
+    
+    try:
+        # 读取Word文档
+        doc = Document(docx_path)
+        
+        # 创建PDF文档
+        pdf_path = cache_file
+        doc_pdf = SimpleDocTemplate(str(pdf_path), pagesize=A4)
+        
+        # 获取样式
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=TA_CENTER
+        )
+        normal_style = ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=12,
+            alignment=TA_LEFT
+        )
+        
+        # 构建PDF内容
+        story = []
+        
+        # 添加标题
+        if doc.core_properties.title:
+            story.append(Paragraph(doc.core_properties.title, title_style))
+        else:
+            story.append(Paragraph("Word文档", title_style))
+        
+        story.append(Spacer(1, 20))
+        
+        # 添加段落内容
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                story.append(Paragraph(paragraph.text, normal_style))
+                story.append(Spacer(1, 6))
+        
+        # 生成PDF
+        doc_pdf.build(story)
+        
+        print(f"Word文档已转换为PDF: {pdf_path}")
+        return str(pdf_path)
+        
+    except Exception as e:
+        print(f"Word文档转换失败: {e}")
+        return None
 
 def get_local_ip():
     """获取本机局域网IP地址"""
@@ -822,8 +922,6 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         """处理文件下载请求"""
         try:
             # 解析文件路径参数
-            from urllib.parse import parse_qs, urlparse, unquote
-            
             parsed_url = urlparse(self.path)
             query_params = parse_qs(parsed_url.query)
             file_path = query_params.get('path', [None])[0]
@@ -894,6 +992,17 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             file_name = os.path.basename(file_path)
             file_ext = os.path.splitext(file_name)[1].lower()
             
+            # 处理Word文档转PDF
+            if file_ext in ['.doc', '.docx'] and REPORTLAB_AVAILABLE and DOCX_AVAILABLE:
+                print(f"检测到Word文档，尝试转换为PDF: {file_path}")
+                pdf_path = convert_docx_to_pdf(file_path)
+                if pdf_path and os.path.exists(pdf_path):
+                    print(f"Word文档已转换为PDF，使用PDF文件: {pdf_path}")
+                    file_path = pdf_path
+                    file_name = os.path.basename(pdf_path)
+                    file_ext = '.pdf'
+                    file_size = os.path.getsize(pdf_path)
+            
             # 根据文件类型决定处理策略
             if self.should_preview_inline(file_ext):
                 # 支持内联预览的文件类型
@@ -943,19 +1052,29 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # 其他文件类型保持原有处理方式
         safe_filename = f"file{file_ext}" if file_ext else "file"
         
-        # 设置响应头 - 让浏览器直接预览文件
+        # 设置响应头 - 强制浏览器预览而不是下载
         self.send_response(200)
         self.send_header('Content-Type', mime_type)
-        self.send_header('Content-Disposition', f'inline; filename="{safe_filename}"')
+        # 关键：使用inline强制浏览器预览，不使用attachment
+        self.send_header('Content-Disposition', f'inline; filename="{safe_filename}"; filename*=UTF-8\'\'{urllib.parse.quote(safe_filename)}')
         self.send_header('Content-Length', str(file_size))
         self.send_header('Access-Control-Allow-Origin', '*')
-        # 添加缓存控制，提高PDF加载速度
-        self.send_header('Cache-Control', 'public, max-age=3600')  # 缓存1小时
+        # 添加缓存控制，提高加载速度
+        self.send_header('Cache-Control', 'public, max-age=3600, immutable')  # 缓存1小时，不可变
+        self.send_header('ETag', f'"{hashlib.md5(f"{file_path}_{file_size}".encode()).hexdigest()}"')
+        # 添加X-Content-Type-Options防止MIME类型嗅探
+        self.send_header('X-Content-Type-Options', 'nosniff')
         self.end_headers()
         
-        # 直接发送文件内容
+        # 分块读取和发送，提高大文件传输性能
+        chunk_size = 1024 * 1024  # 1MB chunks
         with open(file_path, 'rb') as f:
-            self.wfile.write(f.read())
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()  # 立即发送数据
     
     def handle_pdf_preview(self, file_path, file_name, file_size):
         """专门处理PDF文件预览，优化性能"""
@@ -967,15 +1086,19 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 # 处理Range请求，支持断点续传
                 self.handle_pdf_range_request(file_path, file_name, file_size, range_header)
             else:
-                # 完整文件请求
+                # 完整文件请求 - 强制浏览器预览而不是下载
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/pdf')
-                self.send_header('Content-Disposition', f'inline; filename="{file_name}"')
+                # 关键：使用inline强制浏览器预览，不使用attachment
+                self.send_header('Content-Disposition', f'inline; filename="{file_name}"; filename*=UTF-8\'\'{urllib.parse.quote(file_name)}')
                 self.send_header('Content-Length', str(file_size))
                 self.send_header('Accept-Ranges', 'bytes')  # 支持Range请求
                 self.send_header('Access-Control-Allow-Origin', '*')
-                # PDF文件缓存更长时间
-                self.send_header('Cache-Control', 'public, max-age=7200')  # 缓存2小时
+                # 添加更多缓存控制，提高加载速度
+                self.send_header('Cache-Control', 'public, max-age=7200, immutable')  # 缓存2小时，不可变
+                self.send_header('ETag', f'"{hashlib.md5(f"{file_path}_{file_size}".encode()).hexdigest()}"')
+                # 添加X-Content-Type-Options防止MIME类型嗅探
+                self.send_header('X-Content-Type-Options', 'nosniff')
                 self.end_headers()
                 
                 # 分块读取和发送，避免内存占用过大
@@ -1132,8 +1255,15 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
         # 创建HTTP服务器
         handler = CustomHTTPRequestHandler
         
+        # 配置服务器参数，提高性能
+        socketserver.TCPServer.allow_reuse_address = True
+        socketserver.TCPServer.allow_reuse_port = True
+        
         # 尝试启动服务器
         with socketserver.TCPServer((bind_address, port), handler) as httpd:
+            # 设置服务器超时和缓冲区大小
+            httpd.timeout = 30
+            httpd.request_queue_size = 100
             # 获取本机IP地址
             local_ip = get_local_ip()
             
@@ -1190,7 +1320,7 @@ def main():
     """
     
     # 检查命令行参数
-    port = 80  # 默认使用80端口，浏览器不显示端口号
+    port = 8080  # 默认使用8080端口，避免权限问题
     bind_address = "0.0.0.0"  # 默认绑定到所有网络接口
     
     # 解析命令行参数

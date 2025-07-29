@@ -85,19 +85,13 @@ class TagOptimizerGUI:
                 "name": "智能标签",
                 "command": self.smart_tags,
                 "style": "success.TButton",
-                "description": "针对空标签、误删除标签使用AI推荐三级标签"
+                "description": "针对空标签、没有标签字段的记录使用AI推荐三级标签（增强版）"
             },
             {
                 "name": "标签格式化",
                 "command": self.format_tags,
                 "style": "warning.TButton",
                 "description": "格式化链式标签，清理特殊字符和多余空格（推荐在进行迁移、文章解读后使用）"
-            },
-            {
-                "name": "一键优化",
-                "command": self.one_click_optimize,
-                "style": "danger.TButton",
-                "description": "同时执行多个优化操作：强制更新、智能标签、格式化"
             }
         ]
         
@@ -260,39 +254,54 @@ class TagOptimizerGUI:
             self.log_message(f"✗ 标签分析失败: {e}")
     
     def smart_tags(self):
-        """智能标签功能"""
+        """智能标签功能（增强版）"""
         self.log_message("=" * 50)
-        self.log_message("开始智能标签处理...")
+        self.log_message("开始智能标签处理（增强版）...")
         
         try:
             # 确认操作
             result = messagebox.askyesno(
                 "确认操作", 
-                "智能标签功能将使用AI为空的链式标签推荐三级标签。\n\n确定要继续吗？"
+                "智能标签功能（增强版）将使用AI为以下记录推荐三级标签：\n" +
+                "1. 链式标签为空的记录\n" +
+                "2. 没有标签字段的记录（如在线文章）\n\n" +
+                "确定要继续吗？"
             )
             if not result:
                 self.log_message("操作已取消")
                 return
             
-            # 先统计空标签数量
+            # 先统计需要处理的记录数量
             data = self.processor.load_data()
             if not data:
                 self.log_message("✗ 无法加载数据")
                 return
             
-            empty_count = 0
+            empty_chain_tags_count = 0
+            no_tags_field_count = 0
+            
             for item in data:
+                # 检查链式标签为空的情况
                 current_chain_tag = ""
                 if "标签" in item and isinstance(item["标签"], dict):
                     current_chain_tag = item["标签"].get("链式标签", "")
                 
                 if not current_chain_tag or not current_chain_tag.strip():
-                    empty_count += 1
+                    empty_chain_tags_count += 1
+                
+                # 检查没有标签字段的情况
+                if "标签" not in item:
+                    no_tags_field_count += 1
             
-            self.log_message(f"检测到空标签记录: {empty_count} 条")
+            total_need_process = empty_chain_tags_count + no_tags_field_count
             
-            if empty_count == 0:
-                self.log_message("✓ 没有空标签需要处理")
+            self.log_message(f"检测到需要处理的记录:")
+            self.log_message(f"  链式标签为空的记录: {empty_chain_tags_count} 条")
+            self.log_message(f"  没有标签字段的记录: {no_tags_field_count} 条")
+            self.log_message(f"  总计需要处理: {total_need_process} 条")
+            
+            if total_need_process == 0:
+                self.log_message("✓ 没有需要处理的记录")
                 return
             
             # 执行智能标签处理
@@ -302,20 +311,29 @@ class TagOptimizerGUI:
                 # 重新统计处理后的情况
                 data_after = self.processor.load_data()
                 if data_after:
-                    empty_count_after = 0
+                    empty_chain_tags_after = 0
+                    no_tags_field_after = 0
+                    
                     for item in data_after:
+                        # 检查链式标签为空的情况
                         current_chain_tag = ""
                         if "标签" in item and isinstance(item["标签"], dict):
                             current_chain_tag = item["标签"].get("链式标签", "")
                         
                         if not current_chain_tag or not current_chain_tag.strip():
-                            empty_count_after += 1
+                            empty_chain_tags_after += 1
+                        
+                        # 检查没有标签字段的情况
+                        if "标签" not in item:
+                            no_tags_field_after += 1
                     
-                    added_count = empty_count - empty_count_after
+                    total_after = empty_chain_tags_after + no_tags_field_after
+                    processed_count = total_need_process - total_after
+                    
                     self.log_message(f"✓ 智能标签处理完成")
-                    self.log_message(f"  处理前空标签: {empty_count} 条")
-                    self.log_message(f"  处理后空标签: {empty_count_after} 条")
-                    self.log_message(f"  成功添加标签: {added_count} 条")
+                    self.log_message(f"  处理前需要处理: {total_need_process} 条")
+                    self.log_message(f"  处理后剩余: {total_after} 条")
+                    self.log_message(f"  成功处理: {processed_count} 条")
                 else:
                     self.log_message("✓ 智能标签处理完成")
             else:
@@ -388,79 +406,6 @@ class TagOptimizerGUI:
         except Exception as e:
             self.log_message(f"✗ 标签格式化处理失败: {e}")
     
-    def one_click_optimize(self):
-        """一键优化功能"""
-        self.log_message("=" * 50)
-        self.log_message("开始一键优化处理...")
-        
-        try:
-            # 确认操作
-            result = messagebox.askyesno(
-                "确认操作", 
-                "一键优化将执行以下操作：\n" +
-                "1. 强制更新所有记录的链式标签\n" +
-                "2. 智能标签功能\n" +
-                "3. 标签格式化\n\n" +
-                "这是一个批量操作，请确保已备份数据。\n\n确定要继续吗？"
-            )
-            if not result:
-                self.log_message("操作已取消")
-                return
-            
-            # 记录初始状态
-            initial_data = self.processor.load_data()
-            if not initial_data:
-                self.log_message("✗ 无法加载初始数据")
-                return
-            
-            initial_count = len(initial_data)
-            self.log_message(f"初始记录数: {initial_count}")
-            
-            # 步骤1: 强制更新链式标签
-            self.log_message("\n步骤1: 强制更新链式标签...")
-            success1 = self.processor.process(dry_run=False, force_update=True)
-            
-            if success1:
-                self.log_message("✓ 强制更新完成")
-            else:
-                self.log_message("✗ 强制更新失败")
-                return
-            
-            # 步骤2: 智能标签处理
-            self.log_message("\n步骤2: 智能标签处理...")
-            success2 = self.processor._process_smart_tags(dry_run=False)
-            
-            if success2:
-                self.log_message("✓ 智能标签处理完成")
-            else:
-                self.log_message("✗ 智能标签处理失败")
-                return
-            
-            # 步骤3: 标签格式化
-            self.log_message("\n步骤3: 标签格式化...")
-            success3 = self.processor._process_format_tags(dry_run=False)
-            
-            if success3:
-                self.log_message("✓ 标签格式化完成")
-            else:
-                self.log_message("✗ 标签格式化失败")
-                return
-            
-            # 最终统计
-            final_data = self.processor.load_data()
-            if final_data:
-                final_count = len(final_data)
-                self.log_message(f"\n一键优化处理完成！")
-                self.log_message(f"最终统计:")
-                self.log_message(f"  初始记录数: {initial_count}")
-                self.log_message(f"  最终记录数: {final_count}")
-                self.log_message(f"  处理记录数: {final_count}")
-            else:
-                self.log_message("✓ 一键优化处理完成！")
-            
-        except Exception as e:
-            self.log_message(f"✗ 一键优化处理失败: {e}")
-
 class TagManagerGUI:
     """标签管理器GUI类"""
     
