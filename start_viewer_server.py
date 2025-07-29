@@ -16,34 +16,21 @@ import socketserver
 import subprocess
 import threading
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse, unquote
+from urllib.parse import parse_qs, urlparse, unquote, quote
 import urllib.parse
 import mimetypes
 import hashlib
 import tempfile
 import shutil
 
-# 添加ReportLab支持
+# 添加Windows COM支持
 try:
-    from reportlab.lib.pagesizes import letter, A4
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-    REPORTLAB_AVAILABLE = True
+    import win32com.client
+    import pythoncom
+    WIN32COM_AVAILABLE = True
 except ImportError:
-    REPORTLAB_AVAILABLE = False
-    print("警告: ReportLab库未安装，Word文档转PDF功能将不可用")
-
-# 添加文档处理支持
-try:
-    from docx import Document
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
-    print("警告: python-docx库未安装，Word文档处理功能将不可用")
+    WIN32COM_AVAILABLE = False
+    print("警告: pywin32库未安装，Microsoft Office COM转换功能将不可用")
 
 # 缓存目录
 CACHE_DIR = Path("cache")
@@ -58,13 +45,10 @@ def get_cache_key(file_path):
     file_stat = os.stat(file_path)
     return hashlib.md5(f"{file_path}_{file_stat.st_mtime}_{file_stat.st_size}".encode()).hexdigest()
 
-def convert_docx_to_pdf(docx_path, cache_key=None):
-    """将Word文档转换为PDF"""
-    if not REPORTLAB_AVAILABLE or not DOCX_AVAILABLE:
-        return None
-    
+def convert_office_to_pdf_advanced(file_path, cache_key=None):
+    """Office文件转PDF，仅使用win32com，失败则返回None"""
     if cache_key is None:
-        cache_key = get_cache_key(docx_path)
+        cache_key = get_cache_key(file_path)
     
     # 检查缓存
     cache_file = CACHE_DIR / f"{cache_key}.pdf"
@@ -72,57 +56,175 @@ def convert_docx_to_pdf(docx_path, cache_key=None):
         print(f"使用缓存的PDF文件: {cache_file}")
         return str(cache_file)
     
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    # 只尝试win32com转换
     try:
-        # 读取Word文档
-        doc = Document(docx_path)
+        print(f"尝试使用 Microsoft Office COM 转换文件: {file_path}")
+        result = convert_with_msoffice_com(file_path, cache_file, file_ext)
+        if result:
+            print(f"使用 Microsoft Office COM 成功转换文件")
+            return str(cache_file)
+    except Exception as e:
+        print(f"Microsoft Office COM 转换失败: {e}")
+    
+    print("Office转换失败，将使用原始文件")
+    return None
+
+def convert_with_msoffice_com(file_path, cache_file, file_ext):
+    """使用Microsoft Office COM接口转换（按照用户成功示例优化）"""
+    if not WIN32COM_AVAILABLE:
+        raise Exception("pywin32库不可用")
+    
+    # 确保文件路径是绝对路径
+    file_path = os.path.abspath(file_path)
+    output_path = os.path.abspath(str(cache_file))
+    
+    # 确保输出目录存在
+    output_dir = os.path.dirname(output_path)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+    
+    print(f"输入文件路径: {file_path}")
+    print(f"输出文件路径: {output_path}")
+    print(f"输出目录: {output_dir}")
+    print(f"输出目录是否存在: {os.path.exists(output_dir)}")
+    
+    # 根据文件类型选择应用程序
+    ext = file_ext.lower()
+    app = None
+    
+    try:
+        # 首先尝试强制关闭可能存在的Word实例
+        if ext in ['.doc', '.docx']:
+            try:
+                import subprocess
+                subprocess.run(['taskkill', '/F', '/IM', 'WINWORD.EXE'], 
+                             stdout=subprocess.DEVNULL, 
+                             stderr=subprocess.DEVNULL,
+                             creationflags=subprocess.CREATE_NO_WINDOW)
+                print("已强制关闭现有Word实例")
+            except:
+                pass
         
-        # 创建PDF文档
-        pdf_path = cache_file
-        doc_pdf = SimpleDocTemplate(str(pdf_path), pagesize=A4)
-        
-        # 获取样式
-        styles = getSampleStyleSheet()
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=16,
-            spaceAfter=30,
-            alignment=TA_CENTER
-        )
-        normal_style = ParagraphStyle(
-            'CustomNormal',
-            parent=styles['Normal'],
-            fontSize=12,
-            spaceAfter=12,
-            alignment=TA_LEFT
-        )
-        
-        # 构建PDF内容
-        story = []
-        
-        # 添加标题
-        if doc.core_properties.title:
-            story.append(Paragraph(doc.core_properties.title, title_style))
+        if ext in ['.doc', '.docx']:
+            print(f"使用Word转换: {file_path}")
+            app = win32com.client.Dispatch('Word.Application')
+            app.Visible = False
+            doc = app.Documents.Open(file_path)
+            doc.SaveAs(output_path, FileFormat=17)  # 17 = PDF
+            doc.Close()
+            
+        elif ext in ['.xls', '.xlsx']:
+            print(f"使用Excel转换: {file_path}")
+            app = win32com.client.Dispatch('Excel.Application')
+            app.Visible = False
+            wb = app.Workbooks.Open(file_path)
+            wb.ExportAsFixedFormat(0, output_path)  # 0 = PDF
+            wb.Close()
+            
+        elif ext in ['.ppt', '.pptx']:
+            print(f"使用PowerPoint转换: {file_path}")
+            app = win32com.client.Dispatch('PowerPoint.Application')
+            app.Visible = False
+            ppt = app.Presentations.Open(file_path, WithWindow=False)
+            ppt.SaveAs(output_path, FileFormat=32)  # 32 = PDF
+            ppt.Close()
+            
         else:
-            story.append(Paragraph("Word文档", title_style))
+            raise Exception(f"不支持的文件类型: {file_ext}")
         
-        story.append(Spacer(1, 20))
+        # 确保应用程序正确退出
+        if app:
+            app.Quit()
         
-        # 添加段落内容
-        for paragraph in doc.paragraphs:
-            if paragraph.text.strip():
-                story.append(Paragraph(paragraph.text, normal_style))
-                story.append(Spacer(1, 6))
-        
-        # 生成PDF
-        doc_pdf.build(story)
-        
-        print(f"Word文档已转换为PDF: {pdf_path}")
-        return str(pdf_path)
+        # 验证输出文件是否存在
+        if os.path.exists(output_path):
+            print(f"转换成功: {output_path}")
+            return True
+        else:
+            raise Exception("转换后未找到输出文件")
         
     except Exception as e:
-        print(f"Word文档转换失败: {e}")
-        return None
+        print(f"Microsoft Office COM转换失败: {e}")
+        # 尝试清理应用程序实例
+        try:
+            if app:
+                app.Quit()
+        except:
+            pass
+        
+        # 如果失败，尝试使用备用方法
+        try:
+            print("尝试使用备用转换方法...")
+            return convert_with_fallback_method(file_path, cache_file, file_ext)
+        except Exception as fallback_error:
+            print(f"备用转换方法也失败: {fallback_error}")
+            raise
+
+def convert_with_fallback_method(file_path, cache_file, file_ext):
+    """备用转换方法：使用不同的COM调用方式"""
+    try:
+        import win32com.client as win32
+        
+        # 确保文件路径是绝对路径
+        file_path = os.path.abspath(file_path)
+        output_path = os.path.abspath(str(cache_file))
+        
+        # 确保输出目录存在
+        output_dir = os.path.dirname(output_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        print(f"备用方法 - 输入文件路径: {file_path}")
+        print(f"备用方法 - 输出文件路径: {output_path}")
+        
+        # 根据文件类型选择应用程序
+        ext = file_ext.lower()
+        app = None
+        
+        if ext in ['.doc', '.docx']:
+            print(f"备用方法：使用Word转换: {file_path}")
+            app = win32.Dispatch('Word.Application')
+            doc = app.Documents.Open(file_path)
+            doc.SaveAs(output_path, FileFormat=17)  # 17 = PDF
+            doc.Close()
+            
+        elif ext in ['.xls', '.xlsx']:
+            print(f"备用方法：使用Excel转换: {file_path}")
+            app = win32.Dispatch('Excel.Application')
+            wb = app.Workbooks.Open(file_path)
+            wb.ExportAsFixedFormat(0, output_path)  # 0 = PDF
+            wb.Close()
+            
+        elif ext in ['.ppt', '.pptx']:
+            print(f"备用方法：使用PowerPoint转换: {file_path}")
+            app = win32.Dispatch('PowerPoint.Application')
+            ppt = app.Presentations.Open(file_path, WithWindow=False)
+            ppt.SaveAs(output_path, FileFormat=32)  # 32 = PDF
+            ppt.Close()
+            
+        else:
+            raise Exception(f"不支持的文件类型: {file_ext}")
+        
+        # 确保应用程序正确退出
+        if app:
+            app.Quit()
+        
+        # 验证输出文件是否存在
+        if os.path.exists(output_path):
+            print(f"备用方法转换成功: {output_path}")
+            return True
+        else:
+            raise Exception("备用方法转换后未找到输出文件")
+        
+    except Exception as e:
+        print(f"备用转换方法失败: {e}")
+        raise
+
+def convert_docx_to_pdf(docx_path, cache_key=None):
+    """将Word文档转换为PDF（保持向后兼容）"""
+    return convert_office_to_pdf_advanced(docx_path, cache_key)
 
 def get_local_ip():
     """获取本机局域网IP地址"""
@@ -174,16 +276,44 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     """
     
     def end_headers(self):
-        """重写end_headers方法，添加缓存控制头"""
+        """重写end_headers方法，添加缓存控制头和CORS头，避免重复头"""
         # 为HTML文件添加缓存控制头，强制浏览器重新加载
         if self.path.endswith('.html'):
-            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Expires', '0')
+            if 'Cache-Control' not in self._headers_buffer:
+                self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            if 'Pragma' not in self._headers_buffer:
+                self.send_header('Pragma', 'no-cache')
+            if 'Expires' not in self._headers_buffer:
+                self.send_header('Expires', '0')
+        
+        # 只有在没有设置CORS头的情况下才添加
+        if 'Access-Control-Allow-Origin' not in self._headers_buffer:
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, HEAD, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        
+        # 调用父类的end_headers，但不重复设置已存在的头
         super().end_headers()
+    
+    def get_client_info(self):
+        """获取客户端信息"""
+        client_ip = self.client_address[0]
+        is_local_access = client_ip in ['127.0.0.1', 'localhost', '::1']
+        is_local_network = client_ip.startswith(('192.168.', '10.', '172.'))
+        
+        print(f"客户端IP: {client_ip}, 本地访问: {is_local_access}, 局域网访问: {is_local_network}")
+        
+        return {
+            'ip': client_ip,
+            'is_local': is_local_access,
+            'is_local_network': is_local_network,
+            'is_remote': not (is_local_access or is_local_network)
+        }
     
     def do_POST(self):
         """处理POST请求"""
+        client_info = self.get_client_info()
+        
         if self.path == '/api/clean-duplicates':
             self.handle_clean_duplicates()
         elif self.path == '/api/check-paths':
@@ -197,18 +327,49 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         elif self.path == '/api/heartbeat':
             self.handle_heartbeat()
         elif self.path == '/api/open-file':
-            self.handle_open_file()
+            # 根据客户端类型使用不同的处理方法
+            if client_info['is_local']:
+                print("本地访问，使用本地文件打开方法")
+                self.handle_local_open_file()
+            else:
+                print("非本地访问，使用远程文件处理方法")
+                self.handle_remote_open_file()
         else:
             self.send_error(404, "API endpoint not found")
     
     def do_GET(self):
         """处理GET请求"""
+        client_info = self.get_client_info()
+        
         if self.path.startswith('/api/download-file'):
-            self.handle_download_file()
+            # 根据客户端类型使用不同的处理方法
+            if client_info['is_local']:
+                print("本地访问，使用本地文件下载方法")
+                self.handle_local_download_file()
+            else:
+                print("非本地访问，使用远程文件下载方法")
+                self.handle_remote_download_file()
         elif self.path == '/api/heartbeat':
             self.handle_heartbeat()
         else:
             super().do_GET()
+    
+    def do_HEAD(self):
+        """处理HEAD请求"""
+        client_info = self.get_client_info()
+        
+        if self.path.startswith('/api/download-file'):
+            # 根据客户端类型使用不同的处理方法
+            if client_info['is_local']:
+                print("本地访问，使用本地文件下载方法")
+                self.handle_local_download_file()
+            else:
+                print("非本地访问，使用远程文件下载方法")
+                self.handle_remote_download_file()
+        elif self.path == '/api/heartbeat':
+            self.handle_heartbeat()
+        else:
+            super().do_HEAD()
     
     def handle_clean_duplicates(self):
         """处理清理重复文件的请求
@@ -650,8 +811,95 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             pass
         return None
     
+    def handle_local_open_file(self):
+        """处理本地访问的文件打开请求 - 直接打开文件"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            file_path = data.get('filePath', '')
+            print(f"本地访问 - 收到打开文件请求: {file_path}")
+            
+            if not file_path:
+                print("文件路径为空")
+                self.send_json_response({'success': False, 'error': '文件路径为空'})
+                return
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                self.send_json_response({'success': False, 'error': '文件不存在'})
+                return
+            
+            # 获取文件信息
+            file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
+            print(f"本地访问 - 文件信息: 名称={file_name}, 扩展名={file_ext}")
+            
+            # 本地访问：直接使用系统默认程序打开文件
+            print("本地访问 - 直接打开文件")
+            success = self.open_file_on_server(file_path, file_ext, file_name)
+            
+            if success:
+                print(f"本地访问 - 文件打开成功: {file_name}")
+                self.send_json_response({
+                    'success': True, 
+                    'message': f'文件 "{file_name}" 已使用系统默认程序打开',
+                    'action': 'opened'
+                })
+            else:
+                print(f"本地访问 - 文件打开失败: {file_name}")
+                self.send_json_response({
+                    'success': False, 
+                    'error': f'无法打开文件 "{file_name}"'
+                })
+                
+        except Exception as e:
+            print(f"本地访问 - 处理文件打开请求时出错: {str(e)}")
+            self.send_json_response({'success': False, 'error': f'处理失败: {str(e)}'})
+    
+    def handle_remote_open_file(self):
+        """处理远程访问的文件打开请求 - 返回下载链接"""
+        try:
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            file_path = data.get('filePath', '')
+            print(f"远程访问 - 收到打开文件请求: {file_path}")
+            
+            if not file_path:
+                print("文件路径为空")
+                self.send_json_response({'success': False, 'error': '文件路径为空'})
+                return
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                self.send_json_response({'success': False, 'error': '文件不存在'})
+                return
+            
+            # 获取文件信息
+            file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
+            print(f"远程访问 - 文件信息: 名称={file_name}, 扩展名={file_ext}")
+            
+            # 远程访问：返回文件下载链接，让客户端下载后打开
+            print("远程访问 - 返回文件下载链接")
+            success = self.handle_remote_file_open(file_path, file_name, file_ext)
+            
+            if success:
+                print(f"远程访问 - 文件处理成功: {file_name}")
+            else:
+                print(f"远程访问 - 文件处理失败: {file_name}")
+                
+        except Exception as e:
+            print(f"远程访问 - 处理文件打开请求时出错: {str(e)}")
+            self.send_json_response({'success': False, 'error': f'处理失败: {str(e)}'})
+    
     def handle_open_file(self):
-        """处理打开文件的请求"""
+        """处理打开文件的请求（兼容旧版本）"""
         try:
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
@@ -676,45 +924,102 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             file_ext = os.path.splitext(file_name)[1].lower()
             print(f"文件信息: 名称={file_name}, 扩展名={file_ext}")
             
-            # 使用系统默认程序打开文件
-            try:
-                if os.name == 'nt':  # Windows
-                    print("检测到Windows系统")
-                    # 对于Office文件，尝试使用特定的程序打开
-                    if self.is_office_file(file_ext):
-                        print(f"检测到Office文件: {file_ext}")
-                        success = self.open_office_file_windows(file_path, file_ext)
-                        print(f"Office文件打开结果: {success}")
-                    else:
-                        print(f"使用系统默认程序打开: {file_path}")
-                        # 使用系统默认程序
-                        os.startfile(file_path)
-                        success = True
-                else:  # Linux/Mac
-                    print("检测到非Windows系统")
-                    subprocess.run(['xdg-open', file_path])
-                    success = True
-                
-                if success:
-                    print(f"文件打开成功: {file_name}")
-                    self.send_json_response({
-                        'success': True, 
-                        'message': f'文件 "{file_name}" 正在使用系统默认程序打开'
-                    })
-                else:
-                    print(f"文件打开失败: {file_name}")
-                    self.send_json_response({
-                        'success': False, 
-                        'error': f'无法找到合适的程序打开 {file_name}'
-                    })
-                    
-            except Exception as e:
-                print(f"打开文件异常: {e}")
-                self.send_json_response({'success': False, 'error': f'打开文件失败: {str(e)}'})
+            # 检测访问类型
+            client_ip = self.client_address[0]
+            is_local_access = client_ip in ['127.0.0.1', 'localhost', '::1']
+            is_local_network = client_ip.startswith(('192.168.', '10.', '172.'))
+            
+            print(f"客户端IP: {client_ip}, 本地访问: {is_local_access}, 局域网访问: {is_local_network}")
+            
+            # 根据访问类型决定处理方式
+            if is_local_access:
+                # 本地访问：在服务器端打开文件
+                print("本地访问，在服务器端打开文件")
+                success = self.open_file_on_server(file_path, file_ext, file_name)
+            else:
+                # 局域网访问：返回文件下载链接，让客户端下载后打开
+                print("局域网访问，返回文件下载链接")
+                success = self.handle_remote_file_open(file_path, file_name, file_ext)
+            
+            if success:
+                print(f"文件处理成功: {file_name}")
+            else:
+                print(f"文件处理失败: {file_name}")
                 
         except Exception as e:
             print(f"处理请求异常: {e}")
             self.send_json_response({'success': False, 'error': f'处理请求失败: {str(e)}'})
+    
+    def open_file_on_server(self, file_path, file_ext, file_name):
+        """在服务器端打开文件（本地访问）"""
+        try:
+            if os.name == 'nt':  # Windows
+                print("检测到Windows系统")
+                # 对于Office文件，尝试使用特定的程序打开
+                if self.is_office_file(file_ext):
+                    print(f"检测到Office文件: {file_ext}")
+                    success = self.open_office_file_windows(file_path, file_ext)
+                    print(f"Office文件打开结果: {success}")
+                else:
+                    print(f"使用系统默认程序打开: {file_path}")
+                    # 使用系统默认程序
+                    os.startfile(file_path)
+                    success = True
+            else:  # Linux/Mac
+                print("检测到非Windows系统")
+                subprocess.run(['xdg-open', file_path])
+                success = True
+            
+            if success:
+                print(f"文件打开成功: {file_name}")
+            else:
+                print(f"文件打开失败: {file_name}")
+            
+            return success
+                
+        except Exception as e:
+            print(f"打开文件异常: {e}")
+            return False
+    
+    def handle_remote_file_open(self, file_path, file_name, file_ext):
+        """处理远程文件打开（局域网访问）"""
+        try:
+            # 获取服务器IP地址
+            server_ip = get_local_ip()
+            if not server_ip:
+                server_ip = "localhost"
+            
+            # 构建文件下载URL
+            encoded_path = quote(file_path)
+            download_url = f"http://{server_ip}/api/download-file?path={encoded_path}"
+            
+            # 根据文件类型决定处理方式
+            if self.should_preview_inline(file_ext):
+                # 支持内联预览的文件，直接返回预览URL
+                preview_url = f"http://{server_ip}/api/download-file?path={encoded_path}"
+                self.send_json_response({
+                    'success': True,
+                    'message': f'文件 "{file_name}" 可以在浏览器中预览',
+                    'type': 'preview',
+                    'url': preview_url,
+                    'fileName': file_name
+                })
+            else:
+                # 不支持预览的文件，返回下载链接
+                self.send_json_response({
+                    'success': True,
+                    'message': f'文件 "{file_name}" 已准备好下载',
+                    'type': 'download',
+                    'url': download_url,
+                    'fileName': file_name
+                })
+            
+            return True
+            
+        except Exception as e:
+            print(f"处理远程文件打开异常: {e}")
+            self.send_json_response({'success': False, 'error': f'处理远程文件失败: {str(e)}'})
+            return False
     
     def is_office_file(self, file_ext):
         """判断是否为Office文件"""
@@ -918,8 +1223,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(data, ensure_ascii=False).encode('utf-8'))
     
-    def handle_download_file(self):
-        """处理文件下载请求"""
+    def handle_local_download_file(self):
+        """处理本地访问的文件下载请求 - 直接下载文件"""
         try:
             # 解析文件路径参数
             parsed_url = urlparse(self.path)
@@ -937,71 +1242,259 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             file_path = file_path.replace('/', '\\')
             
             # 调试信息
-            print(f"请求下载文件: {file_path}")
-            print(f"文件是否存在: {os.path.exists(file_path)}")
+            print(f"本地访问 - 原始请求路径: {self.path}")
+            print(f"本地访问 - 解析后的文件路径: {file_path}")
+            print(f"本地访问 - 文件是否存在: {os.path.exists(file_path)}")
+            
+            # 尝试规范化路径
+            try:
+                normalized_path = os.path.normpath(file_path)
+                print(f"本地访问 - 规范化后的路径: {normalized_path}")
+                print(f"本地访问 - 规范化路径是否存在: {os.path.exists(normalized_path)}")
+                if os.path.exists(normalized_path):
+                    file_path = normalized_path
+            except Exception as norm_error:
+                print(f"本地访问 - 路径规范化失败: {norm_error}")
             
             # 检查文件是否存在
             if not os.path.exists(file_path):
-                print(f"文件不存在: {file_path}")
-                
-                # 尝试从JSON文件中查找文件路径
-                json_file = Path('ai_organize_result.json')
-                if json_file.exists():
-                    try:
-                        with open(json_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                    except json.JSONDecodeError as e:
-                        print(f"JSON文件格式错误，跳过文件查找: {e}")
-                        data = []
-                    except Exception as e:
-                        print(f"读取JSON文件失败，跳过文件查找: {e}")
-                        data = []
-                    
-                    # 查找匹配的文件
-                    for item in data:
-                        target_path = item.get('最终目标路径', '')
-                        file_name = item.get('文件名', '')
-                        
-                        # 检查路径是否匹配
-                        if (target_path == file_path or 
-                            file_name in file_path or 
-                            file_path in target_path):
-                            
-                            if target_path and os.path.exists(target_path):
-                                file_path = target_path
-                                print(f"从JSON中找到文件: {file_path}")
-                                break
-                
-                # 如果仍然找不到，尝试不同的路径格式
-                if not os.path.exists(file_path):
-                    alt_path = file_path.replace('\\', '/')
-                    if os.path.exists(alt_path):
-                        file_path = alt_path
-                        print(f"使用备用路径: {file_path}")
-                    else:
-                        # 如果文件确实不存在，返回404
-                        self.send_response(404)
-                        self.send_header('Content-Type', 'text/plain; charset=utf-8')
-                        self.send_header('Access-Control-Allow-Origin', '*')
-                        self.end_headers()
-                        self.wfile.write(f"File not found: {file_path}".encode('utf-8'))
-                        return
+                print(f"本地访问 - 文件不存在: {file_path}")
+                self.send_response(404)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                if self.command != 'HEAD':
+                    self.wfile.write(f"File not found: {file_path}".encode('utf-8'))
+                return
             
             # 获取文件信息
             file_size = os.path.getsize(file_path)
             file_name = os.path.basename(file_path)
             file_ext = os.path.splitext(file_name)[1].lower()
             
-            # 处理Word文档转PDF
-            if file_ext in ['.doc', '.docx'] and REPORTLAB_AVAILABLE and DOCX_AVAILABLE:
-                print(f"检测到Word文档，尝试转换为PDF: {file_path}")
-                pdf_path = convert_docx_to_pdf(file_path)
+            print(f"本地访问 - 文件信息: 名称={file_name}, 扩展名={file_ext}, 大小={file_size}")
+            
+            # 本地访问：不进行Office文档转PDF，直接处理
+            print(f"本地访问Office文档，不进行PDF转换，直接处理: {file_path}")
+            
+            # 对于HEAD请求，只返回响应头
+            if self.command == 'HEAD':
+                mime_type = self.get_mime_type(file_name)
+                self.send_response(200)
+                self.send_header('Content-Type', mime_type)
+                self.send_header('Content-Length', str(file_size))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.end_headers()
+                return
+            
+            # 根据文件类型决定处理策略
+            if self.should_preview_inline(file_ext):
+                # 支持内联预览的文件类型
+                self.handle_inline_preview(file_path, file_name, file_size)
+            else:
+                # 不支持预览的文件类型，直接下载
+                self.handle_file_download(file_path, file_name, file_size)
+                
+        except Exception as e:
+            print(f"本地访问 - 处理文件下载请求时出错: {str(e)}")
+            self.send_error(500, f"Internal Server Error: {str(e)}")
+    
+    def handle_remote_download_file(self):
+        """处理远程访问的文件下载请求 - 进行PDF转换和下载"""
+        try:
+            # 解析文件路径参数
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            file_path = query_params.get('path', [None])[0]
+            
+            if not file_path:
+                self.send_error(400, "Missing file path parameter")
+                return
+            
+            # URL解码文件路径
+            file_path = unquote(file_path)
+            
+            # 处理Windows路径分隔符和空格问题
+            file_path = file_path.replace('/', '\\')
+            
+            # 调试信息
+            print(f"远程访问 - 原始请求路径: {self.path}")
+            print(f"远程访问 - 解析后的文件路径: {file_path}")
+            print(f"远程访问 - 文件是否存在: {os.path.exists(file_path)}")
+            
+            # 尝试规范化路径
+            try:
+                normalized_path = os.path.normpath(file_path)
+                print(f"远程访问 - 规范化后的路径: {normalized_path}")
+                print(f"远程访问 - 规范化路径是否存在: {os.path.exists(normalized_path)}")
+                if os.path.exists(normalized_path):
+                    file_path = normalized_path
+            except Exception as norm_error:
+                print(f"远程访问 - 路径规范化失败: {norm_error}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                print(f"远程访问 - 文件不存在: {file_path}")
+                self.send_response(404)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                if self.command != 'HEAD':
+                    self.wfile.write(f"File not found: {file_path}".encode('utf-8'))
+                return
+            
+            # 获取文件信息
+            file_size = os.path.getsize(file_path)
+            file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
+            
+            print(f"远程访问 - 文件信息: 名称={file_name}, 扩展名={file_ext}, 大小={file_size}")
+            
+            # 远程访问：进行Office文档转PDF
+            original_file_path = file_path  # 保存原始文件路径
+            if file_ext in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+                print(f"远程访问检测到Office文档，尝试转换为PDF: {file_path}")
+                try:
+                    pdf_path = convert_office_to_pdf_advanced(file_path)
+                    if pdf_path and os.path.exists(pdf_path):
+                        print(f"✅ Office文档转换成功，使用PDF文件: {pdf_path}")
+                        file_path = pdf_path
+                        file_name = os.path.basename(pdf_path)
+                        file_ext = '.pdf'
+                        file_size = os.path.getsize(pdf_path)
+                    else:
+                        print(f"❌ Office文档转换失败，使用原始文件: {original_file_path}")
+                        # 转换失败时，确保使用原始文件
+                        file_path = original_file_path
+                        file_name = os.path.basename(original_file_path)
+                        file_ext = os.path.splitext(file_name)[1].lower()
+                        file_size = os.path.getsize(original_file_path)
+                except Exception as conv_error:
+                    print(f"❌ Office文档转换异常: {conv_error}")
+                    print(f"使用原始文件: {original_file_path}")
+                    # 转换异常时，确保使用原始文件
+                    file_path = original_file_path
+                    file_name = os.path.basename(original_file_path)
+                    file_ext = os.path.splitext(file_name)[1].lower()
+                    file_size = os.path.getsize(original_file_path)
+            
+            # 对于HEAD请求，只返回响应头
+            if self.command == 'HEAD':
+                mime_type = self.get_mime_type(file_name)
+                self.send_response(200)
+                self.send_header('Content-Type', mime_type)
+                self.send_header('Content-Length', str(file_size))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.end_headers()
+                return
+            
+            # 根据文件类型决定处理策略
+            if self.should_preview_inline(file_ext):
+                # 支持内联预览的文件类型
+                self.handle_inline_preview(file_path, file_name, file_size)
+            else:
+                # 不支持预览的文件类型，直接下载
+                self.handle_file_download(file_path, file_name, file_size)
+                
+        except Exception as e:
+            print(f"远程访问 - 处理文件下载请求时出错: {str(e)}")
+            self.send_error(500, f"Internal Server Error: {str(e)}")
+    
+    def handle_download_file(self):
+        """处理文件下载请求（兼容旧版本）"""
+        try:
+            # 解析文件路径参数
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            file_path = query_params.get('path', [None])[0]
+            
+            if not file_path:
+                self.send_error(400, "Missing file path parameter")
+                return
+            
+            # URL解码文件路径
+            file_path = unquote(file_path)
+            
+            # 处理Windows路径分隔符和空格问题
+            file_path = file_path.replace('/', '\\')
+            
+            # 调试信息
+            print(f"原始请求路径: {self.path}")
+            print(f"解析后的文件路径: {file_path}")
+            print(f"文件是否存在: {os.path.exists(file_path)}")
+            print(f"文件路径类型: {type(file_path)}")
+            print(f"文件路径长度: {len(file_path)}")
+            
+            # 尝试规范化路径
+            try:
+                normalized_path = os.path.normpath(file_path)
+                print(f"规范化后的路径: {normalized_path}")
+                print(f"规范化路径是否存在: {os.path.exists(normalized_path)}")
+                if os.path.exists(normalized_path):
+                    file_path = normalized_path
+            except Exception as norm_error:
+                print(f"路径规范化失败: {norm_error}")
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                # 直接返回404错误，不进行任何搜索
+                self.send_response(404)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                # HEAD请求不需要发送响应体
+                if self.command != 'HEAD':
+                    self.wfile.write(f"File not found: {file_path}".encode('utf-8'))
+                return
+            
+            # 获取文件信息
+            file_size = os.path.getsize(file_path)
+            file_name = os.path.basename(file_path)
+            file_ext = os.path.splitext(file_name)[1].lower()
+            
+
+            
+            # 检测访问类型
+            client_ip = self.client_address[0]
+            is_local_access = client_ip in ['127.0.0.1', 'localhost', '::1']
+            is_local_network = client_ip.startswith(('192.168.', '10.', '172.'))
+            
+            print(f"客户端IP: {client_ip}, 本地访问: {is_local_access}, 局域网访问: {is_local_network}")
+            
+            # 只在局域网访问时进行Office文档转PDF
+            original_file_path = file_path  # 保存原始文件路径
+            if (is_local_network or not is_local_access) and file_ext in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+                print(f"局域网访问检测到Office文档，尝试转换为PDF: {file_path}")
+                pdf_path = convert_office_to_pdf_advanced(file_path)
                 if pdf_path and os.path.exists(pdf_path):
-                    print(f"Word文档已转换为PDF，使用PDF文件: {pdf_path}")
+                    print(f"Office文档已转换为PDF，使用PDF文件: {pdf_path}")
                     file_path = pdf_path
                     file_name = os.path.basename(pdf_path)
                     file_ext = '.pdf'
                     file_size = os.path.getsize(pdf_path)
+                else:
+                    print(f"Office文档转换失败，使用原始文件: {original_file_path}")
+                    # 转换失败时，确保使用原始文件
+                    file_path = original_file_path
+                    file_name = os.path.basename(original_file_path)
+                    file_ext = os.path.splitext(file_name)[1].lower()
+                    file_size = os.path.getsize(original_file_path)
+            elif is_local_access and file_ext in ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']:
+                print(f"本地访问Office文档，不进行PDF转换，直接处理: {file_path}")
+            
+            # 对于HEAD请求，只返回响应头
+            if self.command == 'HEAD':
+                mime_type = self.get_mime_type(file_name)
+                self.send_response(200)
+                self.send_header('Content-Type', mime_type)
+                self.send_header('Content-Length', str(file_size))
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Cache-Control', 'public, max-age=3600')
+                self.end_headers()
+                return
             
             # 根据文件类型决定处理策略
             if self.should_preview_inline(file_ext):
@@ -1171,25 +1664,41 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     
     def handle_file_download(self, file_path, file_name, file_size):
         """处理文件下载"""
-        mime_type = self.get_mime_type(file_name)
-        file_ext = os.path.splitext(file_name)[1]
-        
-        # 使用原始文件名，而不是通用的"file"前缀
-        # 对文件名进行URL编码，确保特殊字符能正确处理
-        import urllib.parse
-        safe_filename = urllib.parse.quote(file_name)
-        
-        # 设置响应头 - 强制下载文件
-        self.send_response(200)
-        self.send_header('Content-Type', mime_type)
-        self.send_header('Content-Disposition', f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{safe_filename}')
-        self.send_header('Content-Length', str(file_size))
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.end_headers()
-        
-        # 直接发送文件内容
-        with open(file_path, 'rb') as f:
-            self.wfile.write(f.read())
+        try:
+            mime_type = self.get_mime_type(file_name)
+            
+            # 对文件名进行URL编码，避免编码错误
+            safe_filename = urllib.parse.quote(file_name)
+            
+            # 设置响应头 - 强制下载文件
+            self.send_response(200)
+            self.send_header('Content-Type', mime_type)
+            self.send_header('Content-Disposition', f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{safe_filename}')
+            self.send_header('Content-Length', str(file_size))
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 直接发送文件内容
+            with open(file_path, 'rb') as f:
+                self.wfile.write(f.read())
+                
+        except Exception as e:
+            print(f"文件下载失败: {e}")
+            # 使用简单的错误信息，避免编码问题
+            try:
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                error_msg = f"Download failed: {str(e)}"
+                self.wfile.write(error_msg.encode('utf-8'))
+            except:
+                # 如果还是有问题，发送最简单的错误信息
+                self.send_response(500)
+                self.send_header('Content-Type', 'text/plain')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(b"Download failed")
     
     def get_mime_type(self, filename):
         """根据文件扩展名获取MIME类型"""
@@ -1255,15 +1764,11 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
         # 创建HTTP服务器
         handler = CustomHTTPRequestHandler
         
-        # 配置服务器参数，提高性能
+        # 配置服务器参数，提高性能（简化配置，减少不必要的设置）
         socketserver.TCPServer.allow_reuse_address = True
-        socketserver.TCPServer.allow_reuse_port = True
         
         # 尝试启动服务器
         with socketserver.TCPServer((bind_address, port), handler) as httpd:
-            # 设置服务器超时和缓冲区大小
-            httpd.timeout = 30
-            httpd.request_queue_size = 100
             # 获取本机IP地址
             local_ip = get_local_ip()
             
@@ -1320,7 +1825,7 @@ def main():
     """
     
     # 检查命令行参数
-    port = 8080  # 默认使用8080端口，避免权限问题
+    port = 80  # 默认使用80端口，支持局域网访问
     bind_address = "0.0.0.0"  # 默认绑定到所有网络接口
     
     # 解析命令行参数
@@ -1338,11 +1843,25 @@ def main():
         open_browser_with_urls(local_ip, port)
         return True
     
-    # 启动服务器
-    success = start_local_server(port, bind_address)
+    # 智能端口选择：优先使用80端口，如果失败则尝试其他端口
+    ports_to_try = [80, 8080, 8000, 8888]
+    success = False
+    
+    for try_port in ports_to_try:
+        print(f"尝试启动服务器在端口 {try_port}...")
+        success = start_local_server(try_port, bind_address)
+        if success:
+            print(f"服务器成功启动在端口 {try_port}")
+            break
+        else:
+            print(f"端口 {try_port} 启动失败，尝试下一个端口...")
     
     if not success:
-        print("\n服务器启动失败，请检查错误信息")
+        print("\n所有端口都无法启动服务器，请检查错误信息")
+        print("可能的原因：")
+        print("1. 防火墙阻止了端口访问")
+        print("2. 需要管理员权限（对于80端口）")
+        print("3. 网络配置问题")
         input("按回车键退出...")
         sys.exit(1)
 

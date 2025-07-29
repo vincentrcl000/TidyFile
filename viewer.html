@@ -334,8 +334,10 @@
             flex: 1;
             padding: 25px;
             overflow-y: auto;
-            column-count: 2;
-            column-gap: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            align-items: start;
         }
 
         /* 全新的卡片样式 */
@@ -348,8 +350,7 @@
             display: flex;
             flex-direction: column;
             width: 100%;
-            margin-bottom: 20px;
-            break-inside: avoid;
+            height: fit-content;
         }
 
         .file-item:hover {
@@ -527,6 +528,10 @@
             .filter-controls {
                 width: 280px;
             }
+            
+            .content {
+                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            }
         }
 
         @media (max-width: 1200px) {
@@ -537,6 +542,10 @@
             .filter-controls {
                 width: 260px;
             }
+            
+            .content {
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            }
         }
 
         @media (max-width: 992px) {
@@ -546,6 +555,26 @@
             
             .filter-controls {
                 width: 240px;
+            }
+            
+            .content {
+                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            }
+        }
+        
+        /* iPad 横屏 */
+        @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
+            .content {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 15px;
+            }
+        }
+        
+        /* iPad 竖屏 */
+        @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+            .content {
+                grid-template-columns: 1fr;
+                gap: 15px;
             }
         }
 
@@ -578,7 +607,8 @@
             
             .content {
                 padding: 15px;
-                column-count: 1;
+                grid-template-columns: 1fr;
+                gap: 15px;
             }
             
             .controls {
@@ -1473,25 +1503,84 @@
             });
         }
 
+        // 防抖函数
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+        
+        // 防抖的文件打开函数
+        const debouncedOpenFile = debounce(openFile, 300);
+
         function bindClickEvents() {
+            // 移除已存在的事件监听器，避免重复绑定
             document.querySelectorAll('.clickable-header').forEach(element => {
-                element.addEventListener('click', function() {
+                // 移除旧的事件监听器
+                element.removeEventListener('click', element._headerClickHandler);
+                element.removeEventListener('touchstart', element._headerTouchHandler);
+                
+                // 创建新的事件处理函数
+                element._headerClickHandler = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const fileItem = this.closest('.file-item');
                     const headerPath = fileItem.getAttribute('data-header-path');
                     if (headerPath) {
-                        openFile(headerPath);
+                        debouncedOpenFile(headerPath);
                     }
-                });
+                };
+                
+                element._headerTouchHandler = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const fileItem = this.closest('.file-item');
+                    const headerPath = fileItem.getAttribute('data-header-path');
+                    if (headerPath) {
+                        debouncedOpenFile(headerPath);
+                    }
+                };
+                
+                // 添加新的事件监听器
+                element.addEventListener('click', element._headerClickHandler);
+                element.addEventListener('touchstart', element._headerTouchHandler, { passive: false });
             });
             
             document.querySelectorAll('.clickable-bottom').forEach(element => {
-                element.addEventListener('click', function() {
+                // 移除旧的事件监听器
+                element.removeEventListener('click', element._bottomClickHandler);
+                element.removeEventListener('touchstart', element._bottomTouchHandler);
+                
+                // 创建新的事件处理函数
+                element._bottomClickHandler = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     const fileItem = this.closest('.file-item');
                     const bottomPath = fileItem.getAttribute('data-bottom-path');
                     if (bottomPath) {
-                        openFile(bottomPath);
+                        debouncedOpenFile(bottomPath);
                     }
-                });
+                };
+                
+                element._bottomTouchHandler = function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const fileItem = this.closest('.file-item');
+                    const bottomPath = fileItem.getAttribute('data-bottom-path');
+                    if (bottomPath) {
+                        debouncedOpenFile(bottomPath);
+                    }
+                };
+                
+                // 添加新的事件监听器
+                element.addEventListener('click', element._bottomClickHandler);
+                element.addEventListener('touchstart', element._bottomTouchHandler, { passive: false });
             });
         }
 
@@ -1675,28 +1764,308 @@
 
 
         function openFile(filePath) {
+            console.log('=== openFile 调试信息 ===');
+            console.log('文件路径:', filePath);
+            console.log('是否为Web URL:', isWebUrl(filePath));
+            console.log('是否为微信文章:', filePath.endsWith('.json') && filePath.includes('weixin_articles'));
+            
             if (!filePath) return;
             
             if (isWebUrl(filePath)) {
+                console.log('🌐 打开Web URL');
                 window.open(filePath, '_blank');
             } else if (filePath.endsWith('.json') && filePath.includes('weixin_articles')) {
+                console.log('📰 打开微信文章');
                 openWeixinArticle(filePath);
             } else {
+                console.log('📁 处理本地文件');
+                // 首先检查文件是否存在
+                checkFileExistsAndOpen(filePath);
+            }
+        }
+        
+        function checkFileExistsAndOpen(filePath) {
+            const fileName = filePath.split(/[\\/]/).pop();
+            
                 // 区分访问方式
-                const isLocal = isLocalAccess();
-                const isLocalNetwork = isLocalNetworkAccess();
-                const isRemote = isRemoteAccess();
-                const isMobile = isMobileDevice();
-                
-                console.log('openFile 访问方式检测:', {
-                    filePath: filePath,
-                    isLocal: isLocal,
-                    isLocalNetwork: isLocalNetwork,
-                    isRemote: isRemote,
-                    isMobile: isMobile
+            const hostname = window.location.hostname;
+            const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+            const isLocalIP = hostname === '127.0.0.1';
+            const isLocalhost = hostname === 'localhost';
+
+            console.log('=== checkFileExistsAndOpen 调试信息 ===');
+            console.log('文件路径:', filePath);
+            console.log('文件名:', fileName);
+            console.log('当前主机名:', hostname);
+            console.log('是否为IP地址:', isIPAddress);
+            console.log('是否为本地IP:', isLocalIP);
+            console.log('是否为localhost:', isLocalhost);
+
+            // 本地访问：直接调用打开文件接口，不检查文件存在性
+            if (isLocalhost || isLocalIP) {
+                console.log('✅ 检测到本地访问，直接打开文件');
+                openFileDirectly(filePath);
+                return;
+            }
+
+            console.log('🌐 检测到远程访问，检查文件存在性');
+
+            // 远程访问：检查文件存在性
+            const encodedPath = encodeURIComponent(filePath);
+            const fileUrl = `/api/download-file?path=${encodedPath}`;
+            
+            // 显示检查提示
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center; max-width: 400px;
+            `;
+            loadingDiv.innerHTML = `
+                <i class="fas fa-search" style="font-size: 24px; margin-bottom: 10px;"></i><br>
+                正在检查文件: ${fileName}<br>
+                <small style="opacity: 0.8;">请稍候...</small>
+            `;
+            document.body.appendChild(loadingDiv);
+            
+            // 检查文件是否存在
+            fetch(fileUrl, { 
+                method: 'HEAD',
+                mode: 'cors',
+                credentials: 'same-origin'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    // 文件存在，移除检查提示
+                    if (document.body.contains(loadingDiv)) {
+                        document.body.removeChild(loadingDiv);
+                    }
+                    
+                    // 继续正常的文件处理流程
+                    proceedWithFileOpen(filePath);
+                })
+                .catch(error => {
+                    console.error('检查文件存在性失败:', error);
+                    
+                    if (document.body.contains(loadingDiv)) {
+                        document.body.removeChild(loadingDiv);
+                    }
+                    
+                    // 检查是否是404错误
+                    if (error.message && error.message.includes('404')) {
+                        // 文件不存在，显示错误提示
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; background: #dc3545; color: white; 
+                            padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                        `;
+                        errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 文件不存在: ${fileName}`;
+                        document.body.appendChild(errorDiv);
+                        
+                        // 3秒后自动移除提示
+                        setTimeout(() => {
+                            if (document.body.contains(errorDiv)) {
+                                document.body.removeChild(errorDiv);
+                            }
+                        }, 3000);
+                    } else if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+                        // 网络连接错误，可能是HTTPS证书问题
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; background: #ffc107; color: #212529; 
+                            padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 350px;
+                        `;
+                        errorDiv.innerHTML = `
+                            <i class="fas fa-exclamation-triangle"></i> 网络连接失败<br>
+                            <small>可能是HTTPS证书问题，请检查服务器状态</small>
+                        `;
+                        document.body.appendChild(errorDiv);
+                        
+                        // 3秒后自动移除提示
+                        setTimeout(() => {
+                            if (document.body.contains(errorDiv)) {
+                                document.body.removeChild(errorDiv);
+                            }
+                        }, 3000);
+                    } else {
+                        // 其他错误，显示通用错误提示
+                        const errorDiv = document.createElement('div');
+                        errorDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; background: #dc3545; color: white; 
+                            padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                        `;
+                        errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 检查文件失败: ${error.message}`;
+                        document.body.appendChild(errorDiv);
+                        
+                        // 3秒后自动移除提示
+                        setTimeout(() => {
+                            if (document.body.contains(errorDiv)) {
+                                document.body.removeChild(errorDiv);
+                            }
+                        }, 3000);
+                    }
                 });
+        }
+        
+        function openFileDirectly(filePath) {
+            const fileName = filePath.split(/[\\/]/).pop();
+            
+            console.log('=== openFileDirectly 调试信息 ===');
+            console.log('文件路径:', filePath);
+            console.log('文件名:', fileName);
+            console.log('准备调用 /api/open-file 接口');
+            
+            // 显示打开提示
+            const loadingDiv = document.createElement('div');
+            loadingDiv.style.cssText = `
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                background: rgba(0,0,0,0.8); color: white; padding: 20px; border-radius: 10px;
+                z-index: 10000; font-size: 16px; text-align: center; max-width: 400px;
+            `;
+            loadingDiv.innerHTML = `
+                <i class="fas fa-play" style="font-size: 24px; margin-bottom: 10px;"></i><br>
+                正在打开文件: ${fileName}<br>
+                <small style="opacity: 0.8;">请稍候...</small>
+            `;
+            document.body.appendChild(loadingDiv);
+            
+            // 直接调用打开文件接口
+            console.log('📡 发送POST请求到 /api/open-file');
+            console.log('请求体:', JSON.stringify({ filePath: filePath }));
+            
+            fetch('/api/open-file', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                mode: 'cors',
+                credentials: 'same-origin',
+                body: JSON.stringify({ filePath: filePath })
+            })
+            .then(response => {
+                console.log('📥 收到响应:', response);
+                console.log('响应状态:', response.status);
+                console.log('响应头:', response.headers);
+                return response.json();
+            })
+            .then(data => {
+                console.log('📋 解析的响应数据:', data);
                 
-                if (isLocal) {
+                // 移除加载提示
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                if (data.success) {
+                    // 显示成功提示
+                    const successDiv = document.createElement('div');
+                    successDiv.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
+                        padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                    `;
+                    successDiv.innerHTML = `<i class="fas fa-check"></i> 文件已成功打开: ${fileName}`;
+                    document.body.appendChild(successDiv);
+                    
+                    // 3秒后自动移除提示
+                    setTimeout(() => {
+                        if (document.body.contains(successDiv)) {
+                            document.body.removeChild(successDiv);
+                        }
+                    }, 3000);
+                } else {
+                    // 显示错误提示
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; background: #dc3545; color: white; 
+                        padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                    `;
+                    errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 打开文件失败: ${data.error || '未知错误'}`;
+                    document.body.appendChild(errorDiv);
+                    
+                    // 3秒后自动移除提示
+                    setTimeout(() => {
+                        if (document.body.contains(errorDiv)) {
+                            document.body.removeChild(errorDiv);
+                        }
+                    }, 3000);
+                }
+            })
+            .catch(error => {
+                console.error('❌ 打开文件失败:', error);
+                console.error('错误类型:', error.constructor.name);
+                console.error('错误消息:', error.message);
+                console.error('错误堆栈:', error.stack);
+                
+                // 移除加载提示
+                if (document.body.contains(loadingDiv)) {
+                    document.body.removeChild(loadingDiv);
+                }
+                
+                // 检查是否是网络连接错误
+                if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+                    // 网络连接错误，可能是HTTPS证书问题
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; background: #ffc107; color: #212529; 
+                        padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 350px;
+                    `;
+                    errorDiv.innerHTML = `
+                        <i class="fas fa-exclamation-triangle"></i> 网络连接失败<br>
+                        <small>可能是HTTPS证书问题，请检查服务器状态</small>
+                    `;
+                    document.body.appendChild(errorDiv);
+                    
+                    // 3秒后自动移除提示
+                    setTimeout(() => {
+                        if (document.body.contains(errorDiv)) {
+                            document.body.removeChild(errorDiv);
+                        }
+                    }, 3000);
+                } else {
+                    // 其他错误，显示通用错误提示
+                    const errorDiv = document.createElement('div');
+                    errorDiv.style.cssText = `
+                        position: fixed; top: 20px; right: 20px; background: #dc3545; color: white; 
+                        padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                    `;
+                    errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> 打开文件失败: ${error.message}`;
+                    document.body.appendChild(errorDiv);
+                    
+                    // 3秒后自动移除提示
+                    setTimeout(() => {
+                        if (document.body.contains(errorDiv)) {
+                            document.body.removeChild(errorDiv);
+                        }
+                    }, 3000);
+                }
+            });
+        }
+
+        function proceedWithFileOpen(filePath) {
+            // 区分访问方式
+            const hostname = window.location.hostname;
+            const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+            const isLocalIP = hostname === '127.0.0.1';
+
+            // 1. 优先判断IP地址访问（只要不是127.0.0.1就强制客户端处理）
+            if (isIPAddress && !isLocalIP) {
+                console.log('检测到IP地址访问，强制使用客户端处理');
+                handleClientSideFile(filePath);
+                return;
+            }
+
+            // 2. 其次判断localhost/127.0.0.1为本地
+            if (isLocalAccess()) {
                     // 本地访问：直接调用服务器端程序
                     const fileName = filePath.split(/[\\/]/).pop();
                     const fileExt = fileName.split('.').pop().toLowerCase();
@@ -1709,12 +2078,12 @@
                         console.log('本地访问非Office文件：调用命令行打开');
                         openWithCommandLine(filePath);
                     }
-                } else {
-                    // 局域网访问、远程访问或移动设备：在客户端处理
+                return;
+            }
+
+            // 3. 其他情况都走客户端处理
                     console.log('非本地访问：在客户端处理文件');
                     handleClientSideFile(filePath);
-                }
-            }
         }
 
         function isWebUrl(path) {
@@ -1727,25 +2096,46 @@
 
         function isLocalAccess() {
             const hostname = window.location.hostname;
+            const port = window.location.port;
+            const protocol = window.location.protocol;
+            const fullUrl = window.location.href;
+            
             // 本地访问：只有localhost和127.0.0.1
             const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1';
             
-            console.log('isLocalAccess 检查:', {
+            // 强制检查：如果是IP地址且不是127.0.0.1，则不是本地访问
+            const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
+            const isLocalIP = hostname === '127.0.0.1';
+            const finalResult = isLocalhost && !(isIPAddress && !isLocalIP);
+            
+            console.log('isLocalAccess 详细检查:', {
                 hostname: hostname,
+                port: port,
+                protocol: protocol,
+                fullUrl: fullUrl,
                 isLocalhost: isLocalhost,
-                result: isLocalhost
+                isIPAddress: isIPAddress,
+                isLocalIP: isLocalIP,
+                finalResult: finalResult
             });
             
-            return isLocalhost;
+            return finalResult;
         }
 
         function isLocalNetworkAccess() {
             const hostname = window.location.hostname;
+            const port = window.location.port;
+            const protocol = window.location.protocol;
+            const fullUrl = window.location.href;
+            
             // 局域网访问：192.168.x.x, 10.x.x.x, 172.16-31.x.x
             const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
             
-            console.log('isLocalNetworkAccess 检查:', {
+            console.log('isLocalNetworkAccess 详细检查:', {
                 hostname: hostname,
+                port: port,
+                protocol: protocol,
+                fullUrl: fullUrl,
                 isLocalNetwork: isLocalNetwork,
                 result: isLocalNetwork
             });
@@ -1834,6 +2224,7 @@
                 .then(response => {
                     const contentType = response.headers.get('content-type');
                     console.log('文件响应类型:', contentType);
+                    console.log('响应状态:', response.status);
                     
                     if (contentType && contentType.includes('application/pdf')) {
                         // 成功转换为PDF，直接预览
@@ -1848,7 +2239,7 @@
                             padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
                             box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
                         `;
-                        successDiv.innerHTML = `<i class="fas fa-file-pdf"></i> Word文档已转换为PDF，正在打开预览！`;
+                        successDiv.innerHTML = `<i class="fas fa-file-pdf"></i> Office文档已转换为PDF，正在打开预览！`;
                         document.body.appendChild(successDiv);
                         
                         // 打开PDF预览
@@ -1865,7 +2256,7 @@
                         }, 3000);
                         
                     } else {
-                        // 转换失败，降级为下载
+                        // 转换失败或原始Office文件，直接下载
                         if (document.body.contains(loadingDiv)) {
                             document.body.removeChild(loadingDiv);
                         }
@@ -1877,7 +2268,7 @@
                             padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
                             box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
                         `;
-                        downloadDiv.innerHTML = `<i class="fas fa-download"></i> 无法在线预览，正在下载文件...`;
+                        downloadDiv.innerHTML = `<i class="fas fa-download"></i> Office文档转换失败，正在下载原始文件...<br><small>下载后请使用本地Office程序打开</small>`;
                         document.body.appendChild(downloadDiv);
                         
                         // 触发下载
@@ -1904,7 +2295,7 @@
                         document.body.removeChild(loadingDiv);
                     }
                     
-                    // 降级为直接下载
+                    // 其他错误，降级为直接下载
                     downloadAndOpenOfficeFile(filePath, fileName);
                 });
         }
@@ -1926,17 +2317,13 @@
             const encodedPath = encodeURIComponent(filePath);
             const fileUrl = `/api/download-file?path=${encodedPath}`;
             
-            // 创建隐藏的下载链接
+            // 文件存在性已在前面检查过，直接触发下载
             const downloadLink = document.createElement('a');
             downloadLink.href = fileUrl;
             downloadLink.download = fileName;
             downloadLink.style.display = 'none';
             document.body.appendChild(downloadLink);
-            
-            // 触发下载
             downloadLink.click();
-            
-            // 移除下载链接
             document.body.removeChild(downloadLink);
             
             // 延迟移除加载提示并显示成功消息
@@ -2025,7 +2412,7 @@
             console.log('原始文件路径:', filePath);
             console.log('编码后路径:', encodedPath);
             
-            // 直接在新窗口打开文件
+            // 文件存在性已在前面检查过，直接在新窗口打开文件
             const newWindow = window.open(fileUrl, '_blank');
             
             // 延迟移除加载提示
@@ -2038,59 +2425,7 @@
                 alert(successMsg);
             }, 1000);
             
-            // 如果打开失败，显示备用提示
-            setTimeout(() => {
-                if (document.body.contains(loadingDiv)) {
-                    document.body.removeChild(loadingDiv);
-                    
-                    // 创建可复制的提示框
-                    const copyDialog = document.createElement('div');
-                    copyDialog.style.cssText = `
-                        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-                        background: white; border: 2px solid #007bff; border-radius: 10px;
-                        padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-                        z-index: 10001; max-width: 500px; min-width: 300px;
-                    `;
-                    
-                    copyDialog.innerHTML = `
-                        <h3 style="margin: 0 0 15px 0; color: #007bff;">文件打开失败</h3>
-                        <p style="margin: 0 0 15px 0;">如果文件没有自动打开，请复制以下链接到浏览器地址栏：</p>
-                        <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 10px; margin: 10px 0;">
-                            <input type="text" value="${fileUrl}" readonly style="width: 100%; border: none; background: transparent; font-family: monospace; font-size: 12px;" id="copyUrl">
-                        </div>
-                        <div style="text-align: center; margin-top: 15px;">
-                            <button onclick="copyToClipboard()" style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer; margin-right: 10px;">复制链接</button>
-                            <button onclick="closeCopyDialog()" style="background: #6c757d; color: white; border: none; padding: 8px 16px; border-radius: 5px; cursor: pointer;">关闭</button>
-                        </div>
-                    `;
-                    
-                    document.body.appendChild(copyDialog);
-                    
-                    // 添加复制功能
-                    window.copyToClipboard = function() {
-                        const urlInput = document.getElementById('copyUrl');
-                        urlInput.select();
-                        urlInput.setSelectionRange(0, 99999);
-                        document.execCommand('copy');
-                        
-                        // 显示复制成功提示
-                        const copyBtn = copyDialog.querySelector('button');
-                        const originalText = copyBtn.textContent;
-                        copyBtn.textContent = '已复制！';
-                        copyBtn.style.background = '#28a745';
-                        setTimeout(() => {
-                            copyBtn.textContent = originalText;
-                            copyBtn.style.background = '#007bff';
-                        }, 2000);
-                    };
-                    
-                    window.closeCopyDialog = function() {
-                        if (document.body.contains(copyDialog)) {
-                            document.body.removeChild(copyDialog);
-                        }
-                    };
-                }
-            }, 3000);
+
         }
         
         function openWeixinArticle(jsonFilePath) {
@@ -2145,8 +2480,65 @@
                 }
                 
                 if (data.success) {
-                    console.log('Office文件打开成功:', filePath);
-                    // 显示成功提示，但不阻塞用户操作
+                    console.log('文件处理成功:', data);
+                    
+                    // 根据响应类型处理
+                    if (data.type === 'preview') {
+                        // 预览模式：在新窗口中打开
+                        console.log('预览模式，打开URL:', data.url);
+                        const newWindow = window.open(data.url, '_blank');
+                        if (!newWindow) {
+                            alert('浏览器阻止了弹窗，请允许弹窗后重试，或手动复制链接到新标签页打开。');
+                        }
+                        
+                        // 显示预览提示
+                        const successDiv = document.createElement('div');
+                        successDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; background: #007bff; color: white; 
+                            padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                        `;
+                        successDiv.innerHTML = `<i class="fas fa-eye"></i> ${data.message || '文件正在浏览器中预览！'}`;
+                        document.body.appendChild(successDiv);
+                        
+                        // 3秒后自动移除提示
+                        setTimeout(() => {
+                            if (document.body.contains(successDiv)) {
+                                document.body.removeChild(successDiv);
+                            }
+                        }, 3000);
+                        
+                    } else if (data.type === 'download') {
+                        // 下载模式：触发下载
+                        console.log('下载模式，下载URL:', data.url);
+                        const link = document.createElement('a');
+                        link.href = data.url;
+                        link.download = data.fileName || 'file';
+                        link.style.display = 'none';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        
+                        // 显示下载提示
+                        const successDiv = document.createElement('div');
+                        successDiv.style.cssText = `
+                            position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
+                            padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
+                        `;
+                        successDiv.innerHTML = `<i class="fas fa-download"></i> ${data.message || '文件下载已开始！'}`;
+                        document.body.appendChild(successDiv);
+                        
+                        // 3秒后自动移除提示
+                        setTimeout(() => {
+                            if (document.body.contains(successDiv)) {
+                                document.body.removeChild(successDiv);
+                            }
+                        }, 3000);
+                        
+                    } else {
+                        // 本地打开模式：显示成功提示
+                        console.log('本地打开模式:', data.message);
                     const successDiv = document.createElement('div');
                     successDiv.style.cssText = `
                         position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
@@ -2162,9 +2554,10 @@
                             document.body.removeChild(successDiv);
                         }
                     }, 3000);
+                    }
                 } else {
-                    console.error('Office文件打开失败:', data.error);
-                    alert('打开失败: ' + data.error + '\n\n请尝试下载文件后手动打开。');
+                    console.error('文件处理失败:', data.error);
+                    alert('处理失败: ' + data.error + '\n\n请尝试下载文件后手动打开。');
                 }
             })
             .catch(error => {

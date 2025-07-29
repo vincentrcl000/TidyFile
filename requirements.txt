@@ -1,46 +1,22 @@
-# 核心依赖
-ollama>=0.1.0
-Pillow>=10.0.0
-
-# GUI界面依赖
-tkinter-tooltip>=2.0.0
-ttkbootstrap>=1.10.1
-
-# 文档处理依赖
-PyPDF2>=3.0.0
-python-docx>=1.0.0
+# AI文件整理工具依赖包
+# 基础依赖
+requests>=2.25.1
+beautifulsoup4>=4.9.3
+lxml>=4.6.3
+openpyxl>=3.0.7
+python-docx>=0.8.11
+Pillow>=8.2.0
 reportlab>=3.6.0
 
-# Windows文档转换依赖（可选）
-pywin32>=306; sys_platform == "win32"
-pypandoc>=1.11
+# Windows COM支持（用于Office文档转PDF）
+pywin32>=228
 
-# 图像处理依赖
-opencv-python>=4.8.0
-numpy>=1.21.0
-
-# 文件处理依赖
-send2trash>=1.8.0
-chardet>=5.0.0
-
-# 日志和配置依赖
-pyyaml>=6.0
-coloredlogs>=15.0
-
-# 网络请求依赖
-requests>=2.31.0
-
-# AI模型依赖
+# AI模型支持
 openai>=1.0.0
+anthropic>=0.7.0
+dashscope>=1.13.0
+zhipuai>=1.0.0
 
-# 微信文章内容抓取与AI摘要依赖
-beautifulsoup4>=4.12.0
-html2text>=2025.4.15
-fake-useragent>=2.2.0
-
-# Markdown渲染依赖
-markdown>=3.0.0
-
-# 开发和测试依赖（可选）
-pytest>=7.0.0
-pytest-cov>=4.0.0
+# 其他工具
+tqdm>=4.62.0
+colorama>=0.4.4
