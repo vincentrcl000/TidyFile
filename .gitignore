@@ -71,6 +71,7 @@ Thumbs.db
 # 项目特定文件
 logs/
 transfer_logs/
+weixin_manager/
 test_*.py
 *.log
 *.tmp
