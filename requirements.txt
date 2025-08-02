@@ -20,3 +20,7 @@ zhipuai>=1.0.0
 # 其他工具
 tqdm>=4.62.0
 colorama>=0.4.4
+
+# 系统监控（用于连接管理）
+psutil>=5.8.0
+setproctitle>=1.3.2

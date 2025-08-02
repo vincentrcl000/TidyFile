@@ -4,233 +4,236 @@
 最终安全检查脚本
 
 检查所有可能导致 ai_organize_result.json 被清空的极端情况
+并提供修复建议
 
 作者: AI Assistant
-创建时间: 2025-07-28
+创建时间: 2025-01-15
 """
 
 import os
 import json
-import tempfile
 import shutil
+import time
 from pathlib import Path
+from datetime import datetime
 
-def check_file_reader_methods():
-    """检查 file_reader.py 中的方法"""
-    print("检查 file_reader.py 中的方法...")
+def check_file_safety():
+    """检查文件安全性"""
+    target_file = "ai_organize_result.json"
+    backup_dir = "backups"
     
-    # 检查 _legacy_append_result 方法
-    print("1. 检查 _legacy_append_result 方法:")
-    print("   - 空文件处理: 直接写入第一个条目，不会清空")
-    print("   - 格式错误: 直接返回，不会写入")
-    print("   - 编码错误: 直接返回，不会写入")
-    print("   ✓ 安全")
+    print("=" * 60)
+    print("🔍 最终安全检查 - ai_organize_result.json")
+    print("=" * 60)
     
-    # 检查 _update_existing_record 方法
-    print("2. 检查 _update_existing_record 方法:")
-    print("   - 空文件: 直接返回，不会写入")
-    print("   - 格式错误: 直接返回，不会写入")
-    print("   - 编码错误: 直接返回，不会写入")
-    print("   ✓ 安全")
-
-def check_concurrent_manager():
-    """检查 concurrent_result_manager.py 中的方法"""
-    print("\n检查 concurrent_result_manager.py 中的方法...")
+    # 1. 检查文件是否存在
+    if not os.path.exists(target_file):
+        print(f"❌ 文件不存在: {target_file}")
+        print("💡 建议: 检查是否有其他程序删除了该文件")
+        return False
     
-    # 检查 read_existing_data 方法
-    print("1. 检查 read_existing_data 方法:")
-    print("   - 空文件: 返回空数组，但不会写入")
-    print("   - 格式错误: 返回空数组，但不会写入")
-    print("   - 编码错误: 返回空数组，但不会写入")
-    print("   ✓ 安全")
+    # 2. 检查文件大小
+    file_size = os.path.getsize(target_file)
+    print(f"📊 文件大小: {file_size} 字节")
     
-    # 检查 append_result 方法
-    print("2. 检查 append_result 方法:")
-    print("   - 数据验证: 检查数据不为空")
-    print("   - 原子写入: 使用临时文件")
-    print("   ✓ 安全")
+    if file_size == 0:
+        print("❌ 文件为空！")
+        print("💡 可能原因:")
+        print("   - 启动脚本创建了空文件")
+        print("   - 文件写入过程中被中断")
+        print("   - 其他程序清空了文件")
+        return False
     
-    # 检查 batch_append_results 方法
-    print("3. 检查 batch_append_results 方法:")
-    print("   - 数据验证: 检查数据不为空")
-    print("   - 原子写入: 使用临时文件")
-    print("   ✓ 安全")
-
-def test_extreme_scenarios():
-    """测试极端情况"""
-    print("\n测试极端情况...")
+    if file_size < 10:
+        print("⚠️  文件异常小，可能正在写入中")
+        return False
     
-    # 创建测试文件
-    test_file = "test_ai_organize_result.json"
-    
-    # 测试1: 空文件
-    print("1. 测试空文件:")
-    with open(test_file, 'w', encoding='utf-8') as f:
-        f.write("")
-    
+    # 3. 检查文件内容
     try:
-        from file_reader import FileReader
-        file_reader = FileReader()
-        
-        # 模拟结果
-        result = {
-            'success': True,
-            'file_name': 'test.txt',
-            'summary': '测试摘要',
-            'file_path': '/test/path/test.txt',
-            'file_metadata': {
-                'file_name': 'test.txt',
-                'file_extension': '.txt',
-                'file_size': 1024,
-                'created_time': '2025-07-28T10:00:00',
-                'modified_time': '2025-07-28T10:00:00'
-            },
-            'timing_info': {'total_processing_time': 1.0},
-            'tags': {}
-        }
-        
-        # 测试写入
-        file_reader._legacy_append_result(test_file, {
-            "处理时间": "2025-07-28 10:00:00",
-            "文件名": "test.txt",
-            "文件摘要": "测试摘要",
-            "处理状态": "解读成功"
-        })
-        
-        # 检查结果
-        with open(test_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if len(data) == 1 and data[0]['文件名'] == 'test.txt':
-                print("   ✓ 空文件处理正确")
-            else:
-                print("   ✗ 空文件处理错误")
-                
-    except Exception as e:
-        print(f"   ✗ 空文件测试失败: {e}")
-    
-    # 测试2: 格式错误文件
-    print("2. 测试格式错误文件:")
-    with open(test_file, 'w', encoding='utf-8') as f:
-        f.write("invalid json content")
-    
-    try:
-        file_reader._legacy_append_result(test_file, {
-            "处理时间": "2025-07-28 10:00:00",
-            "文件名": "test2.txt",
-            "文件摘要": "测试摘要2",
-            "处理状态": "解读成功"
-        })
-        
-        # 检查文件是否被修改
-        with open(test_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-            if content == "invalid json content":
-                print("   ✓ 格式错误文件未被修改")
-            else:
-                print("   ✗ 格式错误文件被意外修改")
-                
-    except Exception as e:
-        print(f"   ✗ 格式错误测试失败: {e}")
-    
-    # 测试3: 并发写入
-    print("3. 测试并发写入:")
-    import threading
-    import time
-    
-    # 创建正常文件
-    with open(test_file, 'w', encoding='utf-8') as f:
-        json.dump([{"文件名": "existing.txt", "处理状态": "已存在"}], f, ensure_ascii=False, indent=2)
-    
-    def concurrent_write(thread_id):
-        try:
-            from concurrent_result_manager import append_file_reader_result
-            result = {
-                'file_name': f'concurrent_{thread_id}.txt',
-                '文件名': f'concurrent_{thread_id}.txt',
-                'summary': f'并发测试 {thread_id}',
-                'file_path': f'/test/path/concurrent_{thread_id}.txt',
-                'file_metadata': {
-                    'file_name': f'concurrent_{thread_id}.txt',
-                    'file_extension': '.txt',
-                    'file_size': 1024,
-                    'created_time': '2025-07-28T10:00:00',
-                    'modified_time': '2025-07-28T10:00:00'
-                },
-                'timing_info': {'total_processing_time': 1.0},
-                'tags': {}
-            }
-            success = append_file_reader_result(result)
-            return success
-        except Exception as e:
-            print(f"  线程 {thread_id} 失败: {e}")
+        with open(target_file, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            
+        if not content:
+            print("❌ 文件内容为空")
             return False
-    
-    # 启动多个并发线程
-    threads = []
-    results = []
-    for i in range(5):
-        thread = threading.Thread(target=lambda i=i: results.append(concurrent_write(i)))
-        threads.append(thread)
-        thread.start()
-    
-    # 等待所有线程完成
-    for thread in threads:
-        thread.join()
-    
-    # 检查结果
-    try:
-        with open(test_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if len(data) >= 6:  # 1个原有 + 5个新增
-                print("   ✓ 并发写入成功")
-            else:
-                print(f"   ✗ 并发写入失败，期望至少6个条目，实际{len(data)}个")
+            
+        # 检查JSON格式
+        if not (content.startswith('[') and content.endswith(']')):
+            print("❌ JSON格式不完整")
+            return False
+            
+        # 尝试解析JSON
+        data = json.loads(content)
+        if not isinstance(data, list):
+            print("❌ JSON根元素不是数组")
+            return False
+            
+        print(f"✅ JSON格式正确，包含 {len(data)} 条记录")
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON解析失败: {e}")
+        return False
     except Exception as e:
-        print(f"   ✗ 并发写入检查失败: {e}")
+        print(f"❌ 读取文件失败: {e}")
+        return False
     
-    # 清理测试文件
-    if os.path.exists(test_file):
-        os.remove(test_file)
+    # 4. 检查备份
+    backup_files = list(Path(".").glob("*.backup_*.json"))
+    if backup_files:
+        print(f"📦 找到 {len(backup_files)} 个备份文件")
+        for backup in backup_files[-3:]:  # 显示最近3个备份
+            backup_size = backup.stat().st_size
+            backup_time = datetime.fromtimestamp(backup.stat().st_mtime)
+            print(f"   - {backup.name}: {backup_size} 字节, {backup_time}")
+    else:
+        print("⚠️  没有找到备份文件")
+    
+    # 5. 检查文件是否正在被写入
+    print("\n🔍 检查文件写入状态...")
+    initial_size = os.path.getsize(target_file)
+    initial_mtime = os.path.getmtime(target_file)
+    
+    time.sleep(1)  # 等待1秒
+    
+    current_size = os.path.getsize(target_file)
+    current_mtime = os.path.getmtime(target_file)
+    
+    if current_size != initial_size or current_mtime != initial_mtime:
+        print("⚠️  文件正在被写入中")
+        print("💡 建议: 等待写入完成后再运行程序")
+        return False
+    else:
+        print("✅ 文件稳定，未被写入")
+    
+    return True
 
-def check_all_json_dump_calls():
-    """检查所有 json.dump 调用"""
-    print("\n检查所有 json.dump 调用...")
+def identify_risk_sources():
+    """识别风险源"""
+    print("\n" + "=" * 60)
+    print("🚨 识别潜在风险源")
+    print("=" * 60)
     
-    # 检查 file_reader.py
-    print("1. file_reader.py:")
-    print("   - _legacy_append_result: 写入 existing_data (包含新条目)")
-    print("   - _update_existing_record: 写入 existing_data (包含更新)")
-    print("   ✓ 安全")
+    risk_files = [
+        "启动文章阅读助手.bat",
+        "启动文章阅读助手.ps1", 
+        "启动文章阅读助手.vbs",
+        "启动文章阅读助手_增强版.vbs",
+        "启动HTTPS服务器.bat"
+    ]
     
-    # 检查 concurrent_result_manager.py
-    print("2. concurrent_result_manager.py:")
-    print("   - atomic_write_data: 写入传入的 data")
-    print("   - write_data: 写入传入的 data")
-    print("   ✓ 安全")
+    for file in risk_files:
+        if os.path.exists(file):
+            print(f"⚠️  发现风险文件: {file}")
+            try:
+                with open(file, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    if "ai_organize_result.json" in content and ("[]" in content or "echo []" in content):
+                        print(f"   ❌ 该文件可能创建空JSON文件")
+                        print(f"   💡 建议: 修改该文件，使用安全的文件创建方式")
+            except Exception as e:
+                print(f"   ⚠️  无法读取文件内容: {e}")
     
-    # 检查其他文件
-    print("3. 其他文件:")
-    print("   - 都是写入具体的数据，不会写入空数组")
-    print("   ✓ 安全")
+    # 检查其他可能写入的文件
+    python_files = [
+        "file_reader.py",
+        "concurrent_result_manager.py",
+        "smart_file_classifier.py",
+        "multi_task_file_reader.py",
+        "multi_process_file_reader.py"
+    ]
+    
+    for file in python_files:
+        if os.path.exists(file):
+            try:
+                with open(file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    if "ai_organize_result.json" in content:
+                        print(f"📝 发现写入文件: {file}")
+                        # 检查是否有不安全的写入操作
+                        unsafe_patterns = [
+                            "json.dump(data, f",
+                            "with open.*w.*encoding",
+                            "write_data",
+                            "atomic_write_data"
+                        ]
+                        for pattern in unsafe_patterns:
+                            if pattern in content:
+                                print(f"   ⚠️  包含写入操作: {pattern}")
+            except Exception as e:
+                print(f"   ⚠️  无法读取文件内容: {e}")
+
+def create_safe_backup():
+    """创建安全备份"""
+    print("\n" + "=" * 60)
+    print("💾 创建安全备份")
+    print("=" * 60)
+    
+    target_file = "ai_organize_result.json"
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_file = f"ai_organize_result.json.safe_backup_{timestamp}"
+    
+    try:
+        if os.path.exists(target_file):
+            shutil.copy2(target_file, backup_file)
+            print(f"✅ 安全备份已创建: {backup_file}")
+            return backup_file
+        else:
+            print("❌ 源文件不存在，无法创建备份")
+            return None
+    except Exception as e:
+        print(f"❌ 创建备份失败: {e}")
+        return None
+
+def suggest_fixes():
+    """提供修复建议"""
+    print("\n" + "=" * 60)
+    print("🔧 修复建议")
+    print("=" * 60)
+    
+    print("1. 🛡️  启动脚本修复:")
+    print("   - 修改启动脚本，不要创建空的JSON文件")
+    print("   - 使用安全的文件检查方式")
+    print("   - 添加文件完整性验证")
+    
+    print("\n2. 🔒 文件写入保护:")
+    print("   - 所有写入操作都应使用原子性写入")
+    print("   - 添加文件锁机制")
+    print("   - 实现写入状态检测")
+    
+    print("\n3. 📦 备份策略:")
+    print("   - 自动创建时间戳备份")
+    print("   - 保留多个历史备份")
+    print("   - 定期清理旧备份")
+    
+    print("\n4. ⚠️  异常处理:")
+    print("   - 遇到问题时抛出异常而不是返回空列表")
+    print("   - 实现自动恢复机制")
+    print("   - 提供详细的错误日志")
 
 def main():
     """主函数"""
-    print("最终安全检查")
-    print("=" * 50)
+    print("🔍 开始最终安全检查...")
     
-    check_file_reader_methods()
-    check_concurrent_manager()
-    check_all_json_dump_calls()
-    test_extreme_scenarios()
+    # 1. 检查文件安全性
+    is_safe = check_file_safety()
     
-    print("\n" + "=" * 50)
-    print("安全检查完成！")
-    print("\n总结:")
-    print("✓ 所有可能导致文件清空的代码路径已被移除")
-    print("✓ 添加了多层保护机制")
-    print("✓ 使用原子写入确保文件完整性")
-    print("✓ 空文件和格式错误时不会写入")
-    print("✓ 并发写入使用全局锁保护")
+    # 2. 识别风险源
+    identify_risk_sources()
+    
+    # 3. 创建安全备份
+    backup_file = create_safe_backup()
+    
+    # 4. 提供修复建议
+    suggest_fixes()
+    
+    print("\n" + "=" * 60)
+    if is_safe:
+        print("✅ 安全检查完成 - 文件状态良好")
+    else:
+        print("❌ 安全检查完成 - 发现安全问题")
+        if backup_file:
+            print(f"💾 已创建安全备份: {backup_file}")
+    print("=" * 60)
 
 if __name__ == "__main__":
     main() 

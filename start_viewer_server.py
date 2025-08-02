@@ -15,6 +15,8 @@ import http.server
 import socketserver
 import subprocess
 import threading
+import psutil
+import gc
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse, unquote, quote
 import urllib.parse
@@ -22,6 +24,11 @@ import mimetypes
 import hashlib
 import tempfile
 import shutil
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+# 进程名称设置已移至VBS启动脚本中
+PROCESS_TITLE_SET = False
 
 # 添加Windows COM支持
 try:
@@ -39,6 +46,162 @@ if not CACHE_DIR.exists():
 
 # 文档转换缓存
 DOC_CONVERSION_CACHE = {}
+
+# 连接管理配置
+CONNECTION_CONFIG = {
+    'max_connections': 5,  # 最大并发连接数
+    'connection_timeout': 300,  # 连接超时时间（秒）
+    'keepalive_timeout': 60,  # Keep-Alive超时时间（秒）
+    'cleanup_interval': 30,  # 清理间隔（秒）
+    'max_memory_mb': 512,  # 最大内存使用（MB）
+    'max_file_descriptors': 1000,  # 最大文件描述符数
+}
+
+# 连接状态跟踪
+connection_stats = {
+    'active_connections': 0,
+    'total_connections': 0,
+    'connection_history': defaultdict(int),
+    'last_cleanup': time.time(),
+    'memory_usage': 0,
+    'file_descriptors': 0,
+    'start_time': time.time()
+}
+
+class ConnectionManager:
+    """连接管理器"""
+    
+    def __init__(self):
+        self.active_connections = set()
+        self.connection_times = {}
+        self.lock = threading.Lock()
+        self.cleanup_thread = None
+        self.monitor_thread = None
+        
+    def add_connection(self, connection_id):
+        """添加新连接"""
+        with self.lock:
+            self.active_connections.add(connection_id)
+            self.connection_times[connection_id] = time.time()
+            connection_stats['active_connections'] = len(self.active_connections)
+            connection_stats['total_connections'] += 1
+            
+    def remove_connection(self, connection_id):
+        """移除连接"""
+        with self.lock:
+            if connection_id in self.active_connections:
+                self.active_connections.remove(connection_id)
+            if connection_id in self.connection_times:
+                del self.connection_times[connection_id]
+            connection_stats['active_connections'] = len(self.active_connections)
+            
+    def cleanup_expired_connections(self):
+        """清理过期连接"""
+        current_time = time.time()
+        expired_connections = []
+        
+        with self.lock:
+            for conn_id, conn_time in self.connection_times.items():
+                if current_time - conn_time > CONNECTION_CONFIG['connection_timeout']:
+                    expired_connections.append(conn_id)
+            
+            for conn_id in expired_connections:
+                self.remove_connection(conn_id)
+                
+        if expired_connections:
+            print(f"清理了 {len(expired_connections)} 个过期连接")
+            
+    def get_stats(self):
+        """获取连接统计信息"""
+        with self.lock:
+            return {
+                'active_connections': len(self.active_connections),
+                'total_connections': connection_stats['total_connections'],
+                'connection_times': len(self.connection_times)
+            }
+            
+    def start_monitoring(self):
+        """启动监控线程"""
+        self.cleanup_thread = threading.Thread(target=self._cleanup_worker, daemon=True)
+        self.cleanup_thread.start()
+        
+        self.monitor_thread = threading.Thread(target=self._monitor_worker, daemon=True)
+        self.monitor_thread.start()
+        
+    def _cleanup_worker(self):
+        """清理工作线程"""
+        while True:
+            try:
+                time.sleep(CONNECTION_CONFIG['cleanup_interval'])
+                self.cleanup_expired_connections()
+                self._check_resource_limits()
+            except Exception as e:
+                print(f"清理线程异常: {e}")
+                
+    def _monitor_worker(self):
+        """监控工作线程"""
+        while True:
+            try:
+                time.sleep(10)  # 每10秒监控一次
+                self._update_resource_stats()
+            except Exception as e:
+                print(f"监控线程异常: {e}")
+                
+    def _update_resource_stats(self):
+        """更新资源统计"""
+        try:
+            # 更新内存使用
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            connection_stats['memory_usage'] = memory_info.rss / 1024 / 1024  # MB
+            
+            # 更新文件描述符数量
+            connection_stats['file_descriptors'] = len(process.open_files())
+            
+        except Exception as e:
+            print(f"更新资源统计失败: {e}")
+            
+    def _check_resource_limits(self):
+        """检查资源限制"""
+        try:
+            # 检查内存使用
+            if connection_stats['memory_usage'] > CONNECTION_CONFIG['max_memory_mb']:
+                print(f"内存使用超过限制: {connection_stats['memory_usage']:.1f}MB > {CONNECTION_CONFIG['max_memory_mb']}MB")
+                gc.collect()  # 强制垃圾回收
+                
+            # 检查文件描述符
+            if connection_stats['file_descriptors'] > CONNECTION_CONFIG['max_file_descriptors']:
+                print(f"文件描述符超过限制: {connection_stats['file_descriptors']} > {CONNECTION_CONFIG['max_file_descriptors']}")
+                
+            # 检查连接数
+            if len(self.active_connections) > CONNECTION_CONFIG['max_connections']:
+                print(f"连接数超过限制: {len(self.active_connections)} > {CONNECTION_CONFIG['max_connections']}")
+                # 强制清理最旧的连接
+                self._force_cleanup_oldest_connections()
+                
+        except Exception as e:
+            print(f"检查资源限制失败: {e}")
+            
+    def _force_cleanup_oldest_connections(self):
+        """强制清理最旧的连接"""
+        with self.lock:
+            if len(self.connection_times) > CONNECTION_CONFIG['max_connections']:
+                # 按时间排序，保留最新的连接
+                sorted_connections = sorted(
+                    self.connection_times.items(), 
+                    key=lambda x: x[1], 
+                    reverse=True
+                )
+                
+                # 移除最旧的连接
+                connections_to_remove = sorted_connections[CONNECTION_CONFIG['max_connections']:]
+                for conn_id, _ in connections_to_remove:
+                    self.remove_connection(conn_id)
+                    
+                print(f"强制清理了 {len(connections_to_remove)} 个旧连接")
+
+# 全局连接管理器实例
+connection_manager = ConnectionManager()
 
 def get_cache_key(file_path):
     """生成缓存键"""
@@ -275,6 +438,30 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     自定义HTTP请求处理器，支持清理重复文件的API
     """
     
+    def setup(self):
+        """设置连接，添加连接管理"""
+        super().setup()
+        # 设置连接超时
+        self.connection.settimeout(CONNECTION_CONFIG['connection_timeout'])
+        
+        # 生成连接ID并添加到管理器
+        self.connection_id = f"{self.client_address[0]}:{self.client_address[1]}:{time.time()}"
+        connection_manager.add_connection(self.connection_id)
+        
+        print(f"新连接建立: {self.connection_id}")
+    
+    def finish(self):
+        """连接结束，清理资源"""
+        try:
+            # 从连接管理器中移除
+            if hasattr(self, 'connection_id'):
+                connection_manager.remove_connection(self.connection_id)
+                print(f"连接结束: {self.connection_id}")
+        except Exception as e:
+            print(f"清理连接时出错: {e}")
+        finally:
+            super().finish()
+    
     def end_headers(self):
         """重写end_headers方法，添加缓存控制头和CORS头，避免重复头"""
         # 为HTML文件添加缓存控制头，强制浏览器重新加载
@@ -326,6 +513,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_shutdown()
         elif self.path == '/api/heartbeat':
             self.handle_heartbeat()
+        elif self.path == '/api/connection-stats':
+            self.handle_connection_stats()
         elif self.path == '/api/open-file':
             # 根据客户端类型使用不同的处理方法
             if client_info['is_local']:
@@ -351,6 +540,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.handle_remote_download_file()
         elif self.path == '/api/heartbeat':
             self.handle_heartbeat()
+        elif self.path == '/api/connection-stats':
+            self.handle_connection_stats()
         else:
             super().do_GET()
     
@@ -368,6 +559,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 self.handle_remote_download_file()
         elif self.path == '/api/heartbeat':
             self.handle_heartbeat()
+        elif self.path == '/api/connection-stats':
+            self.handle_connection_stats()
         else:
             super().do_HEAD()
     
@@ -576,11 +769,49 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_heartbeat(self):
         """处理心跳检测请求"""
         import time
+        # 更新连接时间
+        if hasattr(self, 'connection_id'):
+            with connection_manager.lock:
+                if self.connection_id in connection_manager.connection_times:
+                    connection_manager.connection_times[self.connection_id] = time.time()
+        
+        # 获取连接统计信息
+        stats = connection_manager.get_stats()
+        resource_stats = {
+            'memory_usage_mb': round(connection_stats['memory_usage'], 2),
+            'file_descriptors': connection_stats['file_descriptors'],
+            'active_connections': stats['active_connections'],
+            'total_connections': stats['total_connections']
+        }
+        
         self.send_json_response({
             'success': True, 
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'message': '服务器运行正常'
+            'message': '服务器运行正常',
+            'stats': resource_stats
         })
+    
+    def handle_connection_stats(self):
+        """处理连接统计请求"""
+        try:
+            stats = connection_manager.get_stats()
+            resource_stats = {
+                'memory_usage_mb': round(connection_stats['memory_usage'], 2),
+                'file_descriptors': connection_stats['file_descriptors'],
+                'active_connections': stats['active_connections'],
+                'total_connections': stats['total_connections'],
+                'connection_times_count': stats['connection_times'],
+                'uptime_seconds': time.time() - connection_stats.get('start_time', time.time()),
+                'last_cleanup': connection_stats['last_cleanup']
+            }
+            
+            self.send_json_response({
+                'success': True,
+                'stats': resource_stats,
+                'config': CONNECTION_CONFIG
+            })
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'获取统计信息失败: {str(e)}'})
     
     def check_and_fix_file_paths(self, data):
         """检查并修复文件路径"""
@@ -1769,6 +2000,12 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
         
         # 尝试启动服务器
         with socketserver.TCPServer((bind_address, port), handler) as httpd:
+            # 设置连接超时
+            httpd.timeout = CONNECTION_CONFIG['keepalive_timeout']
+            
+            # 启动连接管理器监控
+            print("启动连接管理器...")
+            connection_manager.start_monitoring()
             # 获取本机IP地址
             local_ip = get_local_ip()
             
@@ -1798,6 +2035,7 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
                 print(f"警告: JSON文件 {json_file} 不存在，将显示空数据")
             
             print(f"服务器已启动 - 本机: {localhost_primary_url}")
+            print(f"连接配置: 最大连接数={CONNECTION_CONFIG['max_connections']}, 超时={CONNECTION_CONFIG['connection_timeout']}秒")
             
             # 启动服务器后立即打开浏览器
             open_browser_with_urls(local_ip, port)

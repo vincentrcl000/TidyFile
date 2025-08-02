@@ -1,8 +1,8 @@
 @echo off
 chcp 65001 >nul
-title TidyFile文章阅读助手
+title TidyFile文件整理器
 echo ================================================
-echo     TidyFile文章阅读助手启动中...
+echo     TidyFile文件整理器启动中...
 echo ================================================
 
 cd /d "%~dp0"
@@ -16,15 +16,15 @@ if errorlevel 1 (
 )
 
 REM 检查主程序文件
-if not exist "start_viewer_server.py" (
-    echo [错误] 找不到主程序文件 start_viewer_server.py
+if not exist "gui_app_tabbed.py" (
+    echo [错误] 找不到主程序文件 gui_app_tabbed.py
     pause
     exit /b 1
 )
 
 REM 启动程序
-echo [信息] 正在启动文章阅读助手...
-python start_viewer_server.py
+echo [信息] 正在启动文件整理器...
+python gui_app_tabbed.py
 
 if errorlevel 1 (
     echo [错误] 程序异常退出

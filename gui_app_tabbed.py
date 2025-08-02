@@ -1120,7 +1120,7 @@ class FileOrganizerTabGUI:
                     return
                 
                 # 直接调用VBS脚本启动服务器
-                vbs_script = "启动文章阅读助手.vbs"
+                vbs_script = "启动文章阅读助手_增强版.vbs"
                 if os.path.exists(vbs_script):
                     subprocess.Popen(["cscript", "//nologo", vbs_script], 
                                    cwd=os.getcwd(), 

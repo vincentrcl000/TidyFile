@@ -115,9 +115,35 @@ class WeixinManagerTab:
 
     def _backup_worker(self, talker, start_date, end_date):
         try:
-            self.log_message("正在拉取微信收藏文章数据...")
-            count, save_path = self.logic.backup_wechat_favorites(talker, start_date, end_date)
-            self.frame.after(0, lambda: self._backup_completed(count, save_path))
+            # 重定向print输出到GUI日志
+            import sys
+            from io import StringIO
+            
+            # 创建字符串缓冲区来捕获print输出
+            output_buffer = StringIO()
+            original_stdout = sys.stdout
+            sys.stdout = output_buffer
+            
+            try:
+                self.log_message("正在拉取微信收藏文章数据...")
+                count, save_path = self.logic.backup_wechat_favorites(talker, start_date, end_date)
+                
+                # 获取捕获的输出并发送到GUI日志
+                captured_output = output_buffer.getvalue()
+                if captured_output:
+                    # 按行分割并发送到GUI
+                    lines = captured_output.strip().split('\n')
+                    for line in lines:
+                        if line.strip():
+                            self.frame.after(0, lambda line=line: self.log_message(line.strip()))
+                
+                self.frame.after(0, lambda: self._backup_completed(count, save_path))
+                
+            finally:
+                # 恢复原始stdout
+                sys.stdout = original_stdout
+                output_buffer.close()
+                
         except Exception as e:
             error_msg = str(e)
             self.log_message(f"收藏文章备份异常: {error_msg}", "ERROR")
@@ -158,23 +184,40 @@ class WeixinManagerTab:
             ]
             
             self.log_message(f"执行命令: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            output = result.stdout + "\n" + result.stderr
             
-            # 将输出按行分割并逐行记录日志
-            output_lines = output.strip().split('\n')
-            for line in output_lines:
-                if line.strip():
-                    self.frame.after(0, lambda line=line: self.log_message(line.strip()))
+            # 使用Popen实时捕获输出
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # 将stderr重定向到stdout
+                text=True,
+                bufsize=1,  # 行缓冲
+                universal_newlines=True
+            )
             
-            # 根据不同的错误类型显示相应的错误提示
-            if result.returncode != 0:
-                error_message = self._analyze_error_type(output)
+            # 实时读取输出
+            while True:
+                output_line = process.stdout.readline()
+                if output_line == '' and process.poll() is not None:
+                    break
+                if output_line:
+                    # 去除行尾的换行符并记录日志
+                    line = output_line.rstrip()
+                    if line.strip():
+                        self.frame.after(0, lambda line=line: self.log_message(line.strip()))
+            
+            # 等待进程完成并获取返回码
+            return_code = process.wait()
+            
+            # 根据返回码判断是否成功
+            if return_code != 0:
+                error_message = self._analyze_error_type("进程返回非零退出码")
                 self.log_message(f"备份文章解读失败: {error_message}", "ERROR")
                 messagebox.showerror("解读失败", error_message)
             else:
                 self.log_message("微信文章批量解读已完成，摘要已写入ai_organize_result.json")
                 messagebox.showinfo("解读完成", "微信文章批量解读已完成，摘要已写入ai_organize_result.json")
+                
         except Exception as e:
             error_msg = str(e)
             self.log_message(f"备份文章解读异常: {error_msg}", "ERROR")
@@ -212,6 +255,10 @@ class WeixinManagerTab:
         elif any(keyword in output_lower for keyword in ["out of memory"]) or \
              ("memory" in output_lower and "error" in output_lower):
             return "内存不足\n\n请关闭其他程序释放内存，或减少处理的文章数量。"
+        
+        # 进程返回非零退出码
+        elif "进程返回非零退出码" in output:
+            return "微信文章批量解读失败\n\n请检查操作日志获取详细错误信息，或联系技术支持。"
         
         # 其他未知错误
         else:

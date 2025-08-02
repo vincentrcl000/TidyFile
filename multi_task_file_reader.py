@@ -176,7 +176,7 @@ class FileReadTask:
                 
                 try:
                     # 解读单个文件（使用与file_reader.py相同的流程）
-                    result = file_reader.generate_summary(file_path, self.summary_length)
+                    result = file_reader.generate_summary(file_path, self.summary_length, "ai_organize_result.json")
                     
                     # 检查处理状态
                     processing_status = result.get('processing_status', '')

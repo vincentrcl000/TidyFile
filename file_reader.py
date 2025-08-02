@@ -497,9 +497,21 @@ class FileReader:
         try:
             if not os.path.exists(ai_result_file):
                 return result
-                
-            with open(ai_result_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            
+            # 在多进程环境中，使用文件锁防止并发读取冲突
+            import fcntl
+            try:
+                with open(ai_result_file, 'r', encoding='utf-8') as f:
+                    # 尝试获取共享锁（读锁）
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    try:
+                        data = json.load(f)
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except (ImportError, AttributeError):
+                # Windows系统或fcntl不可用时，直接读取
+                with open(ai_result_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
                 
             file_name = Path(file_path).name
             
@@ -1186,7 +1198,7 @@ class FileReader:
                             # 验证数据格式
                             if not isinstance(existing_data, list):
                                 logging.error(f"AI结果文件格式错误：根元素不是数组: {ai_result_file}")
-                                return
+                                raise RuntimeError(f"AI结果文件格式错误：根元素不是数组: {ai_result_file}")
                         else:
                             # 空文件时，如果这是第一个条目，直接写入
                             if entry.get('文件名'):
@@ -1197,13 +1209,13 @@ class FileReader:
                                 return
                             else:
                                 logging.error("无效的条目，无法写入空文件")
-                                return
+                                raise RuntimeError("无效的条目，无法写入空文件")
                 except json.JSONDecodeError:
                     logging.error(f"AI结果文件格式错误，无法读取: {ai_result_file}")
-                    return
+                    raise RuntimeError(f"AI结果文件格式错误，无法读取: {ai_result_file}")
                 except UnicodeDecodeError:
                     logging.error(f"AI结果文件编码错误，无法读取: {ai_result_file}")
-                    return
+                    raise RuntimeError(f"AI结果文件编码错误，无法读取: {ai_result_file}")
             
             # 添加新条目
             existing_data.append(entry)

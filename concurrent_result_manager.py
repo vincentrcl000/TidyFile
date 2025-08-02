@@ -104,28 +104,33 @@ class ConcurrentResultManager:
                                 content = f.read().strip()
                                 if not content:  # 空文件
                                     logging.warning("AI结果文件为空，跳过读取")
-                                    return []
+                                    # 不要返回空列表，而是抛出异常
+                                    raise RuntimeError("AI结果文件为空，可能正在写入中")
                                 
                                 data = json.loads(content)
                                 if not isinstance(data, list):
                                     logging.error("AI结果文件格式错误：根元素不是数组")
                                     logging.error("请手动检查文件格式或备份后重新处理")
-                                    return []
+                                    # 不要返回空列表，而是抛出异常
+                                    raise RuntimeError("AI结果文件格式错误：根元素不是数组")
                                 return data
                             except json.JSONDecodeError as e:
                                 logging.error(f"AI结果文件JSON格式错误: {e}")
                                 logging.error("请手动检查文件格式或备份后重新处理")
-                                return []
+                                # 不要返回空列表，而是抛出异常
+                                raise RuntimeError(f"AI结果文件JSON格式错误: {e}")
                             finally:
                                 self._release_file_lock(f)
                         else:
                             logging.warning("无法获取文件锁，等待重试")
                             time.sleep(0.1)
                             return self.read_existing_data()
-                return []
+                # 不要返回空列表，而是抛出异常
+                raise RuntimeError("文件不存在或无法访问")
             except Exception as e:
                 logging.error(f"读取文件失败: {e}")
-                return []
+                # 不要返回空列表，而是抛出异常
+                raise RuntimeError(f"读取文件失败: {e}")
     
     def atomic_write_data(self, data: List[Dict[str, Any]], operation_type: str = "未知操作") -> bool:
         """原子写入数据（使用临时文件确保写入安全）"""

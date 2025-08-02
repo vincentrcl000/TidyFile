@@ -94,8 +94,8 @@ class ProcessFileReader:
             file_reader = FileReader(model_name=self.model_name)
             file_reader.summary_length = summary_length
             
-            # 生成摘要
-            result = file_reader.generate_summary(file_path, summary_length)
+            # 生成摘要（确保指定结果文件路径以正确进行去重检查）
+            result = file_reader.generate_summary(file_path, summary_length, "ai_organize_result.json")
             
             # 添加进程信息
             result['process_id'] = self.process_id
@@ -119,9 +119,14 @@ class ProcessFileReader:
             }
 
 def process_file_worker(process_id: int, file_queue: multiprocessing.Queue, result_queue: multiprocessing.Queue, 
-                       summary_length: int, model_name: str = None):
+                       summary_length: int, model_name: str = None, working_dir: str = None):
     """进程工作函数"""
     try:
+        # 确保子进程在正确的工作目录下运行
+        if working_dir and os.path.exists(working_dir):
+            os.chdir(working_dir)
+            logging.info(f"进程 {process_id} 切换到工作目录: {working_dir}")
+        
         # 初始化进程级文件解读器
         reader = ProcessFileReader(process_id, model_name)
         
@@ -407,7 +412,7 @@ class MultiProcessFileReadTask:
             for i in range(self.max_processes):
                 process = multiprocessing.Process(
                     target=process_file_worker,
-                    args=(i + 1, self.file_queue, self.result_queue, self.summary_length, model_name)
+                    args=(i + 1, self.file_queue, self.result_queue, self.summary_length, model_name, os.getcwd())
                 )
                 process.start()
                 self.processes.append(process)

@@ -7,11 +7,11 @@ Option Explicit
 Dim objShell, objFSO, strPath, strPythonPath
 Dim strCommand, strArgs, intResult
 
-' 创建对象
+' Create objects
 Set objShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 
-' 获取当前脚本所在目录
+' Get current script directory
 strPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 
 ' Check if Python is available
@@ -50,10 +50,10 @@ End If
 
 ' Check if JSON file exists (optional)
 If Not objFSO.FileExists(strPath & "\ai_organize_result.json") Then
-    ' Create empty JSON file
+    ' Create safe JSON file
     Dim objFile
     Set objFile = objFSO.CreateTextFile(strPath & "\ai_organize_result.json", True)
-    objFile.Write "[]"
+    objFile.Write "[{""processing_time"": ""initialization"", ""filename"": ""system_init"", ""summary"": ""safe_file_created_at_startup"", ""status"": ""initialized"", ""operation_type"": ""system_init""}]"
     objFile.Close
     Set objFile = Nothing
 End If
@@ -65,7 +65,7 @@ If intResult = 0 Then
     MsgBox "Info: Port 80 is occupied, will try other ports", vbInformation, "Port Occupied"
 End If
 
-' Start Article Reader Assistant server
+' Start Article Reader Assistant server directly
 strCommand = strPythonPath
 strArgs = strPath & "\start_viewer_server.py"
 

@@ -64,6 +64,84 @@
             resize: horizontal;
             overflow: hidden;
         }
+        
+        /* 侧边栏收起状态 */
+        .sidebar.collapsed {
+            width: 60px;
+            min-width: 60px;
+            max-width: 60px;
+            resize: none;
+        }
+        
+        /* 主内容区域过渡动画 */
+        .main-content {
+            transition: var(--transition);
+        }
+        
+        .sidebar.collapsed .sidebar-content,
+        .sidebar.collapsed .filter-controls {
+            display: none;
+        }
+        
+        .sidebar.collapsed .sidebar-header h2 {
+            font-size: 0;
+            opacity: 0;
+        }
+        
+        .sidebar.collapsed .sidebar-header {
+            justify-content: center;
+            padding: 15px 10px;
+        }
+        
+        /* 切换按钮样式 */
+        .sidebar-toggle {
+            position: absolute;
+            top: 20px;
+            right: -15px;
+            width: 30px;
+            height: 30px;
+            background: var(--secondary);
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: var(--transition);
+            z-index: 101;
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* 确保按钮在侧边栏内完全显示 */
+        .sidebar {
+            overflow: visible;
+        }
+        
+        .sidebar-toggle:hover {
+            background: var(--secondary-dark);
+            transform: scale(1.1);
+        }
+        
+        .sidebar-toggle i {
+            color: var(--primary);
+            font-size: 0.9rem;
+            transition: var(--transition);
+        }
+        
+        /* 桌面端收起状态下的提示 */
+        @media (min-width: 769px) {
+            .sidebar.collapsed .sidebar-header::after {
+                content: '筛选区域已收起';
+                position: absolute;
+                bottom: -25px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 0.7rem;
+                color: rgba(255, 255, 255, 0.6);
+                white-space: nowrap;
+                pointer-events: none;
+            }
+        }
 
         .sidebar-resize-handle {
             position: absolute;
@@ -338,6 +416,9 @@
             grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
             gap: 20px;
             align-items: start;
+            width: 100%;
+            box-sizing: border-box;
+            min-width: 0;
         }
 
         /* 全新的卡片样式 */
@@ -351,6 +432,8 @@
             flex-direction: column;
             width: 100%;
             height: fit-content;
+            box-sizing: border-box;
+            max-width: 100%;
         }
 
         .file-item:hover {
@@ -381,6 +464,7 @@
             justify-content: space-between;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
 
         .file-name {
@@ -397,6 +481,7 @@
             text-overflow: ellipsis;
             flex: 1;
             min-width: 0;
+            word-break: break-word;
         }
 
         .file-name:hover {
@@ -593,6 +678,60 @@
                 resize: none;
             }
             
+            /* 移动端收起状态：保留窄的底边栏 */
+            .sidebar.collapsed {
+                width: 100%;
+                min-width: auto;
+                max-width: none;
+                height: 60px;
+                max-height: 60px;
+                overflow: visible;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .sidebar.collapsed .sidebar-header {
+                justify-content: center;
+                padding: 15px 20px;
+                width: 100%;
+                text-align: center;
+            }
+            
+            .sidebar.collapsed .sidebar-header h2 {
+                font-size: 1.25rem;
+                opacity: 1;
+                margin: 0;
+            }
+            
+            /* 移动端收起时隐藏内容区域 */
+            .sidebar.collapsed .sidebar-content,
+            .sidebar.collapsed .filter-controls {
+                display: none;
+            }
+            
+            /* 确保移动端收起时按钮可见 */
+            .sidebar.collapsed .sidebar-toggle {
+                position: absolute;
+                top: 50%;
+                right: 20px;
+                transform: translateY(-50%);
+                width: 35px;
+                height: 35px;
+                z-index: 102;
+            }
+            
+            .sidebar-toggle {
+                top: 15px;
+                right: 20px;
+                width: 35px;
+                height: 35px;
+            }
+            
+            .sidebar-toggle i {
+                font-size: 1rem;
+            }
+            
             .main-content {
                 order: 1;
             }
@@ -607,8 +746,18 @@
             
             .content {
                 padding: 15px;
-                grid-template-columns: 1fr;
+                grid-template-columns: 1fr !important;
                 gap: 15px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                min-width: 0;
             }
             
             .controls {
@@ -635,6 +784,30 @@
                 max-height: 40vh;
             }
             
+            /* 小屏幕收起状态 */
+            .sidebar.collapsed {
+                height: 50px;
+                max-height: 50px;
+            }
+            
+            .sidebar.collapsed .sidebar-header {
+                padding: 10px 15px;
+            }
+            
+            .sidebar.collapsed .sidebar-header h2 {
+                font-size: 1.1rem;
+            }
+            
+            .sidebar.collapsed .sidebar-toggle {
+                width: 30px;
+                height: 30px;
+                right: 15px;
+            }
+            
+            .sidebar.collapsed .sidebar-toggle i {
+                font-size: 0.9rem;
+            }
+            
             .file-header {
                 padding: 12px 15px 8px;
             }
@@ -657,6 +830,16 @@
             
             .content {
                 padding: 10px;
+                grid-template-columns: 1fr !important;
+                gap: 12px;
+                min-width: 0;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                min-width: 0;
             }
         }
 
@@ -665,12 +848,245 @@
                 max-height: 35vh;
             }
             
+            /* 超小屏幕收起状态 */
+            .sidebar.collapsed {
+                height: 45px;
+                max-height: 45px;
+            }
+            
+            .sidebar.collapsed .sidebar-header {
+                padding: 8px 12px;
+            }
+            
+            .sidebar.collapsed .sidebar-header h2 {
+                font-size: 1rem;
+            }
+            
+            .sidebar.collapsed .sidebar-toggle {
+                width: 28px;
+                height: 28px;
+                right: 12px;
+            }
+            
+            .sidebar.collapsed .sidebar-toggle i {
+                font-size: 0.8rem;
+            }
+            
             .controls {
                 padding: 8px 10px;
             }
             
             .content {
                 padding: 8px;
+                grid-template-columns: 1fr !important;
+                gap: 10px;
+                min-width: 0;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                min-width: 0;
+            }
+        }
+        
+        /* 移动端竖屏优化 */
+        @media (max-width: 768px) and (orientation: portrait) {
+            .content {
+                grid-template-columns: 1fr !important;
+                gap: 12px;
+                padding: 10px;
+                min-width: 0;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                box-sizing: border-box;
+                min-width: 0;
+            }
+            
+            .file-name {
+                font-size: 0.95rem;
+                line-height: 1.4;
+            }
+            
+            .file-summary {
+                font-size: 0.9rem;
+                line-height: 1.5;
+            }
+            
+            .file-path {
+                font-size: 0.8rem;
+            }
+        }
+        
+        /* 小屏手机优化 */
+        @media (max-width: 375px) {
+            .content {
+                padding: 8px;
+                gap: 10px;
+                grid-template-columns: 1fr !important;
+                min-width: 0;
+            }
+            
+            .file-header {
+                padding: 10px 12px 6px;
+            }
+            
+            .file-path {
+                padding: 5px 12px;
+            }
+            
+            .file-tags {
+                padding: 6px 12px 0;
+            }
+            
+            .file-summary {
+                padding: 0 12px 6px;
+            }
+            
+            .controls {
+                padding: 8px 10px;
+            }
+            
+            .file-name {
+                font-size: 0.9rem;
+            }
+            
+            .file-summary {
+                font-size: 0.85rem;
+            }
+            
+            .file-path {
+                font-size: 0.75rem;
+            }
+            
+            .file-meta {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            
+            .file-time {
+                font-size: 0.75rem;
+            }
+            
+            .file-status {
+                font-size: 0.65rem;
+            }
+        }
+        
+        /* 超小屏幕优化（iPhone SE等） */
+        @media (max-width: 320px) {
+            .content {
+                padding: 6px;
+                gap: 8px;
+                grid-template-columns: 1fr !important;
+                min-width: 0;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                min-width: 0;
+            }
+            
+            .file-header {
+                padding: 8px 10px 5px;
+            }
+            
+            .file-path {
+                padding: 4px 10px;
+            }
+            
+            .file-tags {
+                padding: 5px 10px 0;
+            }
+            
+            .file-summary {
+                padding: 0 10px 5px;
+            }
+            
+            .controls {
+                padding: 6px 8px;
+            }
+            
+            .file-name {
+                font-size: 0.85rem;
+            }
+            
+            .file-summary {
+                font-size: 0.8rem;
+            }
+            
+            .file-path {
+                font-size: 0.7rem;
+            }
+            
+            .file-time {
+                font-size: 0.7rem;
+            }
+            
+            .file-status {
+                font-size: 0.6rem;
+            }
+        }
+        
+        /* 强制移动端宽度适配 */
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr !important;
+                min-width: 0 !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                padding-left: 10px !important;
+                padding-right: 10px !important;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                margin: 0 !important;
+                box-sizing: border-box !important;
+                flex-shrink: 1 !important;
+            }
+            
+            .main-content {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow-x: hidden !important;
+            }
+            
+            .app-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                min-width: 0 !important;
+                overflow-x: hidden !important;
+            }
+            
+            /* 侧边栏收起时主内容区域自适应 */
+            .sidebar.collapsed + .main-content {
+                flex: 1 !important;
+                width: 100% !important;
+            }
+            
+            /* 移动端收起状态下的提示 */
+            .sidebar.collapsed .sidebar-header::after {
+                content: '点击右侧按钮展开筛选';
+                position: absolute;
+                bottom: -25px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 0.8rem;
+                color: rgba(255, 255, 255, 0.7);
+                white-space: nowrap;
+                pointer-events: none;
             }
         }
 
@@ -710,6 +1126,9 @@
         <!-- 侧边栏 -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-resize-handle" id="resizeHandle"></div>
+            <div class="sidebar-toggle" id="sidebarToggle" title="收起/展开筛选区域">
+                <i class="fas fa-chevron-left"></i>
+            </div>
             <div class="sidebar-header">
                 <h2><i class="fas fa-book-reader"></i> 文章阅读助手</h2>
             </div>
@@ -753,8 +1172,8 @@
         <div class="main-content">
             <div class="controls">
                 <div class="refresh-btn">
-                    <button id="refreshBtn" onclick="cleanDuplicateFiles()">
-                        <i class="fas fa-sync-alt"></i> 刷新数据并清理重复
+                    <button id="refreshBtn" onclick="refreshData()">
+                        <i class="fas fa-sync-alt"></i> 刷新数据
                     </button>
                 </div>
                 
@@ -777,14 +1196,26 @@
             <div class="content" id="content">
                 <div class="empty-state">
                     <i class="fas fa-folder-open"></i>
-                    <h3>请选择AI整理结果文件</h3>
-                    <p>点击上方按钮选择 ai_organize_result.json 文件开始浏览</p>
+                    <h3>文章内容载入中...</h3>
+                    <p>文章载入后，可点击左侧筛选条件进行筛选，点击标题或链接打开原文</p>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // ========================================
+        // AI文章阅读助手 - 标签过滤功能完善
+        // ========================================
+        // 完善了次级标签的过滤条件，过滤掉以下类型的标签：
+        // 1. 年份标签（如 "2023", "2023年"）
+        // 2. 纯数字标签（如 "1", "2", "3.14"）
+        // 3. 数字相关标签（如 "第1章", "1.2", "A1", "P1" 等）
+        // 4. 单字符标签（如 "a", "A", "中", "1", "!" 等）
+        // 5. 无效内容标签（空标签、过短标签等）
+        // 6. 保留有意义的标签（包含中文、英文或技术词汇的标签）
+        // ========================================
+        
         // 全局变量
         let allData = [];
         let filteredData = [];
@@ -828,9 +1259,15 @@
         }
 
         function startResize(e) {
+            const sidebar = document.getElementById('sidebar');
+            // 如果侧边栏已收起，不允许调整大小
+            if (sidebar.classList.contains('collapsed')) {
+                return;
+            }
+            
             isResizing = true;
             startX = e.clientX;
-            startWidth = parseInt(document.getElementById('sidebar').style.width, 10) || 300;
+            startWidth = parseInt(sidebar.style.width, 10) || 300;
             document.body.style.cursor = 'col-resize';
             e.preventDefault();
         }
@@ -868,9 +1305,108 @@
             }
         }
 
+        // 侧边栏切换功能
+        function updateToggleButtonIcon() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('sidebarToggle');
+            const icon = toggleBtn.querySelector('i');
+            const isMobile = window.innerWidth <= 768;
+            const isMobilePortrait = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+            
+            if (sidebar.classList.contains('collapsed')) {
+                // 收起状态：显示展开按钮（指向展开方向）
+                if (isMobilePortrait) {
+                    // 移动端竖屏：侧边栏在底部，展开时箭头向上
+                    icon.className = 'fas fa-chevron-up';
+                    toggleBtn.title = '展开筛选区域';
+                } else {
+                    // 桌面端和移动端横屏：侧边栏在左侧，展开时箭头向右
+                    icon.className = 'fas fa-chevron-right';
+                    toggleBtn.title = '展开筛选区域';
+                }
+            } else {
+                // 展开状态：显示收起按钮（指向收起方向）
+                if (isMobilePortrait) {
+                    // 移动端竖屏：侧边栏在底部，收起时箭头向下
+                    icon.className = 'fas fa-chevron-down';
+                    toggleBtn.title = '收起筛选区域';
+                } else {
+                    // 桌面端和移动端横屏：侧边栏在左侧，收起时箭头向左
+                    icon.className = 'fas fa-chevron-left';
+                    toggleBtn.title = '收起筛选区域';
+                }
+            }
+        }
+
+        function initSidebarToggle() {
+            const sidebar = document.getElementById('sidebar');
+            const toggleBtn = document.getElementById('sidebarToggle');
+            
+            // 加载保存的侧边栏状态
+            const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+            const isMobile = window.innerWidth <= 768;
+            const isMobilePortrait = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+            
+            // 桌面端和移动端横屏默认展开，移动端竖屏根据保存状态
+            if (isCollapsed && isMobilePortrait) {
+                sidebar.classList.add('collapsed');
+            } else {
+                // 桌面端和移动端横屏强制展开
+                sidebar.classList.remove('collapsed');
+                if (!isMobilePortrait) {
+                    localStorage.setItem('sidebarCollapsed', 'false');
+                }
+            }
+            
+            // 初始化箭头方向
+            updateToggleButtonIcon();
+            
+            // 切换按钮点击事件
+            toggleBtn.addEventListener('click', function() {
+                sidebar.classList.toggle('collapsed');
+                
+                // 保存状态到本地存储
+                localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+                
+                // 更新按钮图标
+                updateToggleButtonIcon();
+                
+                // 触发窗口大小变化事件，让布局重新计算
+                setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                }, 300);
+            });
+            
+            // 监听窗口大小变化
+            window.addEventListener('resize', function() {
+                const isMobileNow = window.innerWidth <= 768;
+                const isMobilePortraitNow = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+                
+                // 如果从桌面/横屏切换到移动端竖屏，根据保存状态决定
+                if (isMobilePortraitNow && !isMobilePortrait) {
+                    const savedState = localStorage.getItem('sidebarCollapsed') === 'true';
+                    if (savedState) {
+                        sidebar.classList.add('collapsed');
+                    } else {
+                        sidebar.classList.remove('collapsed');
+                    }
+                    // 更新箭头方向
+                    updateToggleButtonIcon();
+                }
+                // 如果从移动端竖屏切换到桌面/横屏，强制展开
+                else if (!isMobilePortraitNow && isMobilePortrait) {
+                    sidebar.classList.remove('collapsed');
+                    localStorage.setItem('sidebarCollapsed', 'false');
+                    // 更新箭头方向
+                    updateToggleButtonIcon();
+                }
+            });
+        }
+
         // 初始化侧边栏调整功能
         document.addEventListener('DOMContentLoaded', function() {
             initSidebarResize();
+            initSidebarToggle();
             loadDefaultFile();
             startHeartbeat();
             
@@ -1022,6 +1558,9 @@
             console.log('数据渲染完成，更新统计信息...');
             updateStats();
             
+            // 显示标签过滤统计信息
+            showTagFilterStatistics();
+            
             // 显示详细的数据统计信息
             showDataStatistics(data, validData);
             
@@ -1061,7 +1600,8 @@
                                         yearTags.add(cleanYear);
                                         hasYearFromChain = true;
                                     }
-                                } else {
+                                } else if (!isPureNumber(formattedTag) && !isNumericTag(formattedTag) && hasValidContent(formattedTag)) {
+                                    // 只添加非数字且有有效内容的次要标签
                                     if (!allSecondaryTags.has(formattedTag)) {
                                         allSecondaryTags.set(formattedTag, new Set());
                                     }
@@ -1133,7 +1673,8 @@
             const optimized = new Map();
             
             for (const [tag, primaryTags] of allSecondaryTags) {
-                if (!containsYear(tag)) {
+                // 过滤掉年份标签、纯数字标签和无意义的数字标签
+                if (!containsYear(tag) && !isPureNumber(tag) && !isNumericTag(tag) && hasValidContent(tag)) {
                     let shouldAdd = true;
                     
                     for (const [existingTag, existingPrimaryTags] of optimized) {
@@ -1163,8 +1704,161 @@
             return optimized;
         }
 
+        function hasValidContent(tag) {
+            // 检查标签是否有有效内容
+            // 过滤掉空标签、过短标签等无效内容
+            if (!tag || tag.length === 0) {
+                return false;
+            }
+            
+            // 过滤掉单个字符的标签（单个字母、单个汉字、单个数字等）
+            if (isSingleCharacterTag(tag)) {
+                return false;
+            }
+            
+            // 如果标签太短（小于2个字符），且不包含中文或英文，则无效
+            if (tag.length < 2) {
+                const hasChinese = /[\u4e00-\u9fa5]/.test(tag);
+                const hasEnglish = /[a-zA-Z]/.test(tag);
+                if (!hasChinese && !hasEnglish) {
+                    return false;
+                }
+            }
+            
+            return true;
+        }
+
         function containsYear(tag) {
             return /\d{4}/.test(tag);
+        }
+
+        function isPureNumber(tag) {
+            // 检查是否为纯数字（包括小数）
+            // 过滤掉如 "1", "2", "3.14" 等纯数字标签
+            return /^\d+(\.\d+)?$/.test(tag);
+        }
+
+        function isNumericTag(tag) {
+            // 检查是否为数字相关的标签（如"第1章"、"第2节"等）
+            // 过滤掉包含数字但不包含中文或英文的标签
+            // 完善了过滤条件，过滤掉各种数字标签模式
+            const hasChinese = /[\u4e00-\u9fa5]/.test(tag);
+            const hasEnglish = /[a-zA-Z]/.test(tag);
+            const hasNumber = /\d/.test(tag);
+            
+            // 如果包含数字但不包含中文和英文，则认为是数字标签
+            if (hasNumber && !hasChinese && !hasEnglish) {
+                return true;
+            }
+            
+            // 过滤掉常见的数字标签模式
+            const numericPatterns = [
+                /^第\d+[章节篇条]/,
+                /^\d+[章节篇条]/,
+                /^[一二三四五六七八九十]+[章节篇条]/,
+                /^\d+[\.\、]\d*/,
+                /^[A-Z]\d+/,
+                /^\d+[A-Z]/,
+                /^[一二三四五六七八九十]+[\.\、]\d*/,
+                /^\d+[\.\、][一二三四五六七八九十]+/,
+                /^[一二三四五六七八九十]+[\.\、]\d+/,
+                /^\d+[\.\、][A-Z]/,
+                /^[A-Z][\.\、]\d+/,
+                /^\d+[\.\、][a-z]/,
+                /^[a-z][\.\、]\d+/,
+                /^第[一二三四五六七八九十]+[章节篇条]/,
+                /^[一二三四五六七八九十]+[\.\、][一二三四五六七八九十]+/
+            ];
+            
+            // 检查是否为纯数字编号（如"1"、"2"、"3"等）
+            if (/^\d{1,3}$/.test(tag) && tag.length <= 3) {
+                return true;
+            }
+            
+            // 检查是否为版本号或编号（如"v1.0"、"1.0"等）
+            if (/^[vV]?\d+\.\d+/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为无意义的短数字标签（长度小于等于2且主要是数字）
+            if (tag.length <= 2 && /\d/.test(tag) && !hasChinese && !hasEnglish) {
+                return true;
+            }
+            
+            // 检查是否为页码或行号（如"P1"、"L1"等）
+            if (/^[PpLl]\d+$/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为有意义的标签（包含足够的内容）
+            if (hasMeaningfulContent(tag)) {
+                return false; // 有意义的标签不应该被过滤
+            }
+            
+            return numericPatterns.some(pattern => pattern.test(tag));
+        }
+
+        function isSingleCharacterTag(tag) {
+            // 检查是否为单个字符标签
+            // 过滤掉单个字母、单个汉字、单个数字、单个符号等无意义的单字符标签
+            if (!tag || tag.length !== 1) {
+                return false;
+            }
+            
+            // 检查是否为单个字母（a-z, A-Z）
+            if (/^[a-zA-Z]$/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为单个汉字
+            if (/^[\u4e00-\u9fa5]$/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为单个数字
+            if (/^\d$/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为单个特殊字符（标点符号、符号等）
+            if (/^[^\w\u4e00-\u9fa5]$/.test(tag)) {
+                return true;
+            }
+            
+            // 检查是否为单个空格或其他空白字符
+            if (/^\s$/.test(tag)) {
+                return true;
+            }
+            
+            return false;
+        }
+
+        function hasMeaningfulContent(tag) {
+            // 检查标签是否包含有意义的内容
+            const hasChinese = /[\u4e00-\u9fa5]/.test(tag);
+            const hasEnglish = /[a-zA-Z]/.test(tag);
+            const hasNumber = /\d/.test(tag);
+            
+            // 如果包含中文或英文，且长度大于等于2，认为是有意义的
+            if ((hasChinese || hasEnglish) && tag.length >= 2) {
+                return true;
+            }
+            
+            // 如果包含数字但同时也包含中文或英文，且总长度大于等于3，认为是有意义的
+            if (hasNumber && (hasChinese || hasEnglish) && tag.length >= 3) {
+                return true;
+            }
+            
+            // 检查是否包含常见的有意义词汇
+            const meaningfulWords = [
+                '技术', '产品', '市场', '管理', '设计', '开发', '测试', '运营', '销售', '财务',
+                '分析', '研究', '报告', '方案', '策略', '规划', '实施', '优化', '创新', '转型',
+                'AI', 'ML', 'DL', 'API', 'UI', 'UX', 'SEO', 'SEM', 'CRM', 'ERP', 'SaaS', 'PaaS',
+                'tech', 'product', 'market', 'design', 'develop', 'test', 'operate', 'sale', 'finance',
+                'analysis', 'research', 'report', 'strategy', 'plan', 'implement', 'optimize', 'innovate'
+            ];
+            
+            return meaningfulWords.some(word => tag.includes(word));
         }
 
         function renderSecondaryTags(optimizedSecondaryTags) {
@@ -1229,7 +1923,7 @@
                             const segment = tagSegments[i];
                             const formattedTag = formatTag(segment);
                             
-                            if (formattedTag && !isYearTag(formattedTag)) {
+                            if (formattedTag && !isYearTag(formattedTag) && !isPureNumber(formattedTag) && !isNumericTag(formattedTag) && hasValidContent(formattedTag)) {
                                 for (const selectedSecondary of activeFilters.secondary) {
                                     if (formattedTag === selectedSecondary || 
                                         formattedTag.includes(selectedSecondary) || 
@@ -1711,12 +2405,12 @@
                         tagElements.push(`<span class="file-tag"><i class="fas fa-tag"></i> 主要: ${primaryTag}</span>`);
                     }
                     
-                    // 只显示非年份的次要标签
+                    // 只显示非年份且非数字的次要标签
                     for (let i = 1; i < tagSegments.length; i++) {
                         const segment = tagSegments[i];
                         const formattedTag = formatTag(segment);
                         
-                        if (formattedTag && !isYearTag(formattedTag)) {
+                        if (formattedTag && !isYearTag(formattedTag) && !isPureNumber(formattedTag) && !isNumericTag(formattedTag) && hasValidContent(formattedTag)) {
                                 tagElements.push(`<span class="file-tag"><i class="fas fa-tags"></i> 次要: ${formattedTag}</span>`);
                             }
                         }
@@ -2056,34 +2750,41 @@
             const hostname = window.location.hostname;
             const isIPAddress = /^\d+\.\d+\.\d+\.\d+$/.test(hostname);
             const isLocalIP = hostname === '127.0.0.1';
+            const isLocalNetwork = /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname);
 
-            // 1. 优先判断IP地址访问（只要不是127.0.0.1就强制客户端处理）
-            if (isIPAddress && !isLocalIP) {
-                console.log('检测到IP地址访问，强制使用客户端处理');
+            console.log('proceedWithFileOpen 详细检查:', {
+                hostname: hostname,
+                isIPAddress: isIPAddress,
+                isLocalIP: isLocalIP,
+                isLocalNetwork: isLocalNetwork
+            });
+
+            // 1. 本地访问（localhost/127.0.0.1）：直接调用服务器端程序
+            if (isLocalAccess()) {
+                const fileName = filePath.split(/[\\/]/).pop();
+                const fileExt = fileName.split('.').pop().toLowerCase();
+                const isOfficeFile = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'].includes('.' + fileExt);
+                
+                if (isOfficeFile) {
+                    console.log('本地访问Office文件：调用服务器端程序');
+                    openWithLocalProgram(filePath);
+                } else {
+                    console.log('本地访问非Office文件：调用命令行打开');
+                    openWithCommandLine(filePath);
+                }
+                return;
+            }
+
+            // 2. 局域网访问：使用客户端处理，支持PDF转换
+            if (isLocalNetwork) {
+                console.log('检测到局域网访问，使用客户端处理（支持PDF转换）');
                 handleClientSideFile(filePath);
                 return;
             }
 
-            // 2. 其次判断localhost/127.0.0.1为本地
-            if (isLocalAccess()) {
-                    // 本地访问：直接调用服务器端程序
-                    const fileName = filePath.split(/[\\/]/).pop();
-                    const fileExt = fileName.split('.').pop().toLowerCase();
-                    const isOfficeFile = ['.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'].includes('.' + fileExt);
-                    
-                    if (isOfficeFile) {
-                        console.log('本地访问Office文件：调用服务器端程序');
-                        openWithLocalProgram(filePath);
-                    } else {
-                        console.log('本地访问非Office文件：调用命令行打开');
-                        openWithCommandLine(filePath);
-                    }
-                return;
-            }
-
-            // 3. 其他情况都走客户端处理
-                    console.log('非本地访问：在客户端处理文件');
-                    handleClientSideFile(filePath);
+            // 3. 其他远程访问：使用客户端处理
+            console.log('检测到远程访问，使用客户端处理');
+            handleClientSideFile(filePath);
         }
 
         function isWebUrl(path) {
@@ -2509,24 +3210,31 @@
                         }, 3000);
                         
                     } else if (data.type === 'download') {
-                        // 下载模式：触发下载
-                        console.log('下载模式，下载URL:', data.url);
-                        const link = document.createElement('a');
-                        link.href = data.url;
-                        link.download = data.fileName || 'file';
-                        link.style.display = 'none';
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
+                        // 本地访问时，优先尝试预览而不是下载
+                        console.log('本地访问收到下载模式，尝试预览:', data.url);
                         
-                        // 显示下载提示
+                        // 尝试在新窗口中打开，让浏览器决定是预览还是下载
+                        const newWindow = window.open(data.url, '_blank');
+                        if (!newWindow) {
+                            // 如果弹窗被阻止，则下载
+                            console.log('弹窗被阻止，改为下载');
+                            const link = document.createElement('a');
+                            link.href = data.url;
+                            link.download = data.fileName || 'file';
+                            link.style.display = 'none';
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }
+                        
+                        // 显示打开提示
                         const successDiv = document.createElement('div');
                         successDiv.style.cssText = `
                             position: fixed; top: 20px; right: 20px; background: #28a745; color: white; 
                             padding: 15px 20px; border-radius: 8px; z-index: 10001; font-size: 14px;
                             box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-width: 300px;
                         `;
-                        successDiv.innerHTML = `<i class="fas fa-download"></i> ${data.message || '文件下载已开始！'}`;
+                        successDiv.innerHTML = `<i class="fas fa-external-link-alt"></i> ${data.message || '文件正在打开！'}`;
                         document.body.appendChild(successDiv);
                         
                         // 3秒后自动移除提示
@@ -2811,34 +3519,307 @@
             }, 5000);
         }
 
+        function showTagFilterStatistics() {
+            if (!window.globalTagData) return;
+            
+            const { allSecondaryTags, optimizedSecondaryTags } = window.globalTagData;
+            
+            // 统计被过滤的标签
+            let totalSecondaryTags = 0;
+            let filteredOutTags = 0;
+            let filteredOutExamples = [];
+            let pureNumberTags = [];
+            let numericTags = [];
+            let singleCharacterTags = [];
+            let invalidContentTags = [];
+            
+            for (const [tag, primaryTags] of allSecondaryTags) {
+                totalSecondaryTags++;
+                if (isPureNumber(tag)) {
+                    filteredOutTags++;
+                    pureNumberTags.push(tag);
+                    if (filteredOutExamples.length < 3) {
+                        filteredOutExamples.push(`纯数字: ${tag}`);
+                    }
+                } else if (isNumericTag(tag)) {
+                    filteredOutTags++;
+                    numericTags.push(tag);
+                    if (filteredOutExamples.length < 3) {
+                        filteredOutExamples.push(`数字标签: ${tag}`);
+                    }
+                } else if (isSingleCharacterTag(tag)) {
+                    filteredOutTags++;
+                    singleCharacterTags.push(tag);
+                    if (filteredOutExamples.length < 3) {
+                        filteredOutExamples.push(`单字符: ${tag}`);
+                    }
+                } else if (!hasValidContent(tag)) {
+                    filteredOutTags++;
+                    invalidContentTags.push(tag);
+                    if (filteredOutExamples.length < 3) {
+                        filteredOutExamples.push(`无效内容: ${tag}`);
+                    }
+                }
+            }
+            
+            const remainingTags = totalSecondaryTags - filteredOutTags;
+            
+            console.log('=== 标签过滤统计 ===');
+            console.log(`次要标签总数: ${totalSecondaryTags}`);
+            console.log(`被过滤标签数: ${filteredOutTags}`);
+            console.log(`保留标签数: ${remainingTags}`);
+            console.log(`被过滤标签示例: ${filteredOutExamples.join(', ')}`);
+            
+            // 在控制台显示详细信息
+            if (filteredOutTags > 0) {
+                console.log('被过滤的标签类型:');
+                if (pureNumberTags.length > 0) {
+                    console.log(`  纯数字标签 (${pureNumberTags.length}个): ${pureNumberTags.join(', ')}`);
+                }
+                if (numericTags.length > 0) {
+                    console.log(`  数字相关标签 (${numericTags.length}个): ${numericTags.join(', ')}`);
+                }
+                if (singleCharacterTags.length > 0) {
+                    console.log(`  单字符标签 (${singleCharacterTags.length}个): ${singleCharacterTags.join(', ')}`);
+                    
+                    // 详细分类单字符标签
+                    const singleLetters = singleCharacterTags.filter(tag => /^[a-zA-Z]$/.test(tag));
+                    const singleChinese = singleCharacterTags.filter(tag => /^[\u4e00-\u9fa5]$/.test(tag));
+                    const singleNumbers = singleCharacterTags.filter(tag => /^\d$/.test(tag));
+                    const singleSymbols = singleCharacterTags.filter(tag => /^[^\w\u4e00-\u9fa5]$/.test(tag));
+                    
+                    if (singleLetters.length > 0) {
+                        console.log(`    单字母: ${singleLetters.join(', ')}`);
+                    }
+                    if (singleChinese.length > 0) {
+                        console.log(`    单汉字: ${singleChinese.join(', ')}`);
+                    }
+                    if (singleNumbers.length > 0) {
+                        console.log(`    单数字: ${singleNumbers.join(', ')}`);
+                    }
+                    if (singleSymbols.length > 0) {
+                        console.log(`    单符号: ${singleSymbols.join(', ')}`);
+                    }
+                }
+                if (invalidContentTags.length > 0) {
+                    console.log(`  无效内容标签 (${invalidContentTags.length}个): ${invalidContentTags.join(', ')}`);
+                }
+            }
+            
+            // 显示过滤效果提示（仅在过滤了标签时显示）
+            if (filteredOutTags > 0) {
+                showFilterEffectNotification(filteredOutTags, remainingTags, filteredOutExamples);
+            }
+        }
+
+        function showFilterEffectNotification(filteredCount, remainingCount, examples) {
+            const notificationDiv = document.createElement('div');
+            notificationDiv.style.cssText = `
+                position: fixed; top: 20px; right: 20px; 
+                background: rgba(40, 167, 69, 0.95); color: white; 
+                padding: 15px 20px; border-radius: 8px; z-index: 10001; 
+                font-size: 14px; max-width: 380px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                border-left: 4px solid #28a745;
+            `;
+            
+            notificationDiv.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <i class="fas fa-filter" style="font-size: 16px;"></i>
+                    <strong>标签过滤完成</strong>
+                    <button onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: white; font-size: 18px; cursor: pointer; margin-left: auto;">×</button>
+                </div>
+                <div style="font-size: 12px; line-height: 1.4;">
+                    <div>✅ 已过滤 ${filteredCount} 个无效标签</div>
+                    <div>📝 保留 ${remainingCount} 个有效标签</div>
+                    <div style="margin-top: 5px; font-size: 11px; opacity: 0.9;">
+                        过滤类型: 年份、纯数字、数字标签、单字符、无效内容
+                    </div>
+                    <div style="margin-top: 3px; font-size: 11px; opacity: 0.8;">
+                        示例: ${examples.join(', ')}
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(notificationDiv);
+            
+            // 10秒后自动关闭
+            setTimeout(() => {
+                if (document.body.contains(notificationDiv)) {
+                    document.body.removeChild(notificationDiv);
+                }
+            }, 10000);
+        }
+
+        // 测试单字符过滤功能的函数（可在控制台调用）
+        function testSingleCharacterFilter() {
+            const testTags = [
+                'a', 'A', '中', '文', '1', '2', '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', 
+                '技术', 'AI', '产品', '市场', '123', 'abc', 'ABC', '中文', 'Tech', 'Product'
+            ];
+            
+            console.log('=== 单字符过滤功能测试 ===');
+            testTags.forEach(tag => {
+                const isSingle = isSingleCharacterTag(tag);
+                const isValid = hasValidContent(tag);
+                console.log(`标签 "${tag}": 单字符=${isSingle}, 有效内容=${isValid}`);
+            });
+        }
+
         function showError(message) {
             console.error(message);
             alert(message);
         }
 
+        // 连接管理变量
+        let heartbeatInterval = null;
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let reconnectDelay = 5000; // 5秒
+        let serverStats = null;
+        let connectionStatus = 'connected';
+        
         function startHeartbeat() {
-            setInterval(function() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+            }
+            
+            heartbeatInterval = setInterval(function() {
                 // 心跳检测，保持连接
                 fetch('/api/heartbeat', {
                     method: 'GET',
                     headers: {
                         'Content-Type': 'application/json'
+                    },
+                    timeout: 10000 // 10秒超时
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
                     }
-                }).catch(error => {
-                    console.log('心跳检测失败，服务器可能已关闭');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        // 连接正常
+                        connectionStatus = 'connected';
+                        reconnectAttempts = 0;
+                        serverStats = data.stats;
+                        
+                        // 更新状态显示
+                        updateConnectionStatus('connected', data.stats);
+                        
+                        // 如果之前显示过连接错误，现在清除
+                        if (document.getElementById('connectionError')) {
+                            document.getElementById('connectionError').remove();
+                        }
+                    } else {
+                        throw new Error(data.message || '心跳响应异常');
+                    }
+                })
+                .catch(error => {
+                    console.log('心跳检测失败:', error.message);
+                    connectionStatus = 'disconnected';
+                    updateConnectionStatus('disconnected', null, error.message);
+                    
+                    // 尝试重连
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        console.log(`尝试重连 (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                        setTimeout(() => {
+                            startHeartbeat();
+                        }, reconnectDelay);
+                    } else {
+                        console.log('重连失败，停止心跳检测');
+                        showConnectionError('服务器连接失败，请刷新页面重试');
+                    }
                 });
             }, 30000); // 每30秒检测一次
         }
+        
+        function updateConnectionStatus(status, stats, errorMessage = null) {
+            // 更新连接状态显示
+            const statusElement = document.getElementById('connectionStatus');
+            if (!statusElement) {
+                // 创建状态显示元素
+                const statusDiv = document.createElement('div');
+                statusDiv.id = 'connectionStatus';
+                statusDiv.style.cssText = `
+                    position: fixed;
+                    top: 10px;
+                    right: 10px;
+                    padding: 8px 12px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    z-index: 1000;
+                    background: ${status === 'connected' ? '#28a745' : '#dc3545'};
+                    color: white;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                `;
+                document.body.appendChild(statusDiv);
+            }
+            
+            const statusDiv = document.getElementById('connectionStatus');
+            if (status === 'connected') {
+                statusDiv.style.background = '#28a745';
+                statusDiv.innerHTML = `
+                    <i class="fas fa-wifi"></i> 已连接
+                    ${stats ? `<br><small>内存: ${stats.memory_usage_mb}MB | 连接: ${stats.active_connections}</small>` : ''}
+                `;
+            } else {
+                statusDiv.style.background = '#dc3545';
+                statusDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle"></i> 连接断开
+                    ${errorMessage ? `<br><small>${errorMessage}</small>` : ''}
+                `;
+            }
+        }
+        
+        function showConnectionError(message) {
+            // 显示连接错误提示
+            if (document.getElementById('connectionError')) {
+                document.getElementById('connectionError').remove();
+            }
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.id = 'connectionError';
+            errorDiv.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #dc3545;
+                color: white;
+                padding: 20px;
+                border-radius: 8px;
+                text-align: center;
+                z-index: 1001;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+            errorDiv.innerHTML = `
+                <h3><i class="fas fa-exclamation-triangle"></i> 连接错误</h3>
+                <p>${message}</p>
+                <button onclick="location.reload()" style="
+                    background: white;
+                    color: #dc3545;
+                    border: none;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    margin-top: 10px;
+                ">刷新页面</button>
+            `;
+            document.body.appendChild(errorDiv);
+        }
 
-        // 完整版本的清理重复文件函数（集成强制刷新功能）
-        async function cleanDuplicateFiles() {
+        // 刷新数据函数
+        async function refreshData() {
             try {
                 const refreshBtn = document.getElementById('refreshBtn');
                 const originalText = refreshBtn.innerHTML;
-                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 清理重复中...';
+                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 刷新中...';
                 refreshBtn.disabled = true;
                 
-                // 第一步：强制刷新数据（清除缓存并重新加载）
+                // 强制刷新数据（清除缓存并重新加载）
                 console.log('开始强制刷新数据...');
                 
                 // 清除缓存的数据
@@ -2861,39 +3842,8 @@
                 await loadDefaultFile();
                 console.log('数据强制刷新完成');
                 
-                // 第二步：清理重复记录
-                const cleanResponse = await fetch('/api/clean-duplicates', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                const cleanResult = await cleanResponse.json();
-                
-                if (!cleanResult.success) {
-                    alert(`清理重复记录失败: ${cleanResult.message}`);
-                    refreshBtn.innerHTML = originalText;
-                    refreshBtn.disabled = false;
-                    return;
-                }
-                
-                // 构建清理结果消息
-                let message = '';
-                message += `✅ 数据刷新和清理完成！\n\n`;
-                if (cleanResult.removed_count > 0) {
-                    message += `重复记录清理结果:\n`;
-                    message += `原始记录: ${cleanResult.original_count}\n`;
-                    message += `清理后记录: ${cleanResult.cleaned_count}\n`;
-                    message += `删除重复: ${cleanResult.removed_count}\n\n`;
-                } else {
-                    message += `数据已是最新状态，无需清理重复记录！\n`;
-                    message += `当前记录数: ${cleanResult.original_count}\n\n`;
-                }
-                message += `数据已强制刷新，请检查最新数据。`;
-                
-                // 显示清理结果
-                alert(message);
+                // 显示刷新结果
+                alert('✅ 数据刷新完成！\n\n数据已强制刷新，请检查最新数据。');
                 
                 // 恢复按钮状态
                 refreshBtn.innerHTML = originalText;
@@ -2903,7 +3853,7 @@
                 startAsyncPathCheck();
                 
             } catch (error) {
-                alert(`操作失败: ${error.message}`);
+                alert(`刷新失败: ${error.message}`);
                 const refreshBtn = document.getElementById('refreshBtn');
                 refreshBtn.innerHTML = originalText;
                 refreshBtn.disabled = false;
