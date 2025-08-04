@@ -1988,6 +1988,7 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
         os.chdir(script_dir)
         
         # 检查必要文件是否存在
+        new_html_file = script_dir / 'viewer.html'
         html_file = script_dir / 'viewer.html'
         fallback_html_file = script_dir / 'ai_result_viewer.html'
         json_file = script_dir / 'ai_organize_result.json'
@@ -2017,18 +2018,24 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
                 server_url = f"http://{bind_address}" if port == 80 else f"http://{bind_address}:{port}"
                 localhost_url = server_url
             
-            # 优先使用viewer.html，如果不存在则使用ai_result_viewer.html
-            if html_file.exists():
+            # 优先使用新的拆分组件viewer.html，如果不存在则使用viewer.html，最后使用ai_result_viewer.html
+            if new_html_file.exists():
                 primary_html = 'viewer.html'
                 primary_url = f"{server_url}/viewer.html"
                 localhost_primary_url = f"{localhost_url}/viewer.html"
+                print(f"使用新的拆分组件: {new_html_file}")
+            elif html_file.exists():
+                primary_html = 'viewer.html'
+                primary_url = f"{server_url}/viewer.html"
+                localhost_primary_url = f"{localhost_url}/viewer.html"
+                print(f"使用原始HTML文件: {html_file}")
             elif fallback_html_file.exists():
                 primary_html = 'ai_result_viewer.html'
                 primary_url = f"{server_url}/ai_result_viewer.html"
                 localhost_primary_url = f"{localhost_url}/ai_result_viewer.html"
                 print(f"注意: 使用备用HTML文件 {fallback_html_file}")
             else:
-                print(f"错误: 找不到HTML文件 viewer.html 或 ai_result_viewer.html")
+                print(f"错误: 找不到HTML文件 viewer.html、viewer.html 或 ai_result_viewer.html")
                 return False
             
             if not json_file.exists():

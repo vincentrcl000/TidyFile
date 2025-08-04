@@ -1485,15 +1485,35 @@ def start_https_server(port=443, bind_address="0.0.0.0"):
         print("启动连接管理器...")
         connection_manager.start_monitoring()
         
+        # 检查HTML文件优先级
+        script_dir = Path(__file__).parent
+        new_html_file = script_dir / 'viewer.html'
+        html_file = script_dir / 'viewer.html'
+        
+        if new_html_file.exists():
+            primary_html = 'viewer.html'
+            print(f"使用新的拆分组件: {new_html_file}")
+        elif html_file.exists():
+            primary_html = 'viewer.html'
+            print(f"使用原始HTML文件: {html_file}")
+        else:
+            primary_html = 'viewer.html'
+            print("警告: 找不到HTML文件，将使用默认路径")
+        
         print(f"HTTPS服务器已启动 - 端口: {port}")
         print(f"连接配置: 最大连接数={CONNECTION_CONFIG['max_connections']}, 超时={CONNECTION_CONFIG['connection_timeout']}秒")
-        print(f"本机: https://localhost/viewer.html")
+        print(f"本机: https://localhost/{primary_html}")
         
         local_ip = get_local_ip()
-        print(f"局域网: https://{local_ip}/viewer.html")
+        print(f"局域网: https://{local_ip}/{primary_html}")
         
-        # 在新线程中打开浏览器
-        threading.Timer(1.0, lambda: open_browser_with_urls(local_ip, port)).start()
+        # 根据端口构建正确的URL
+        if port == 443:
+            url = "https://localhost/viewer.html"
+        else:
+            url = f"https://localhost:{port}/viewer.html"
+        # 打开浏览器
+        webbrowser.open(url)
         
         # 启动服务器
         httpd.serve_forever()
@@ -1601,12 +1621,27 @@ def start_http_server(port=80, bind_address="0.0.0.0"):
         print("启动连接管理器...")
         connection_manager.start_monitoring()
         
+        # 检查HTML文件优先级
+        script_dir = Path(__file__).parent
+        new_html_file = script_dir / 'viewer.html'
+        html_file = script_dir / 'viewer.html'
+        
+        if new_html_file.exists():
+            primary_html = 'viewer.html'
+            print(f"使用新的拆分组件: {new_html_file}")
+        elif html_file.exists():
+            primary_html = 'viewer.html'
+            print(f"使用原始HTML文件: {html_file}")
+        else:
+            primary_html = 'viewer.html'
+            print("警告: 找不到HTML文件，将使用默认路径")
+        
         print(f"HTTP服务器已启动 - 端口: {port}")
         print(f"连接配置: 最大连接数={CONNECTION_CONFIG['max_connections']}, 超时={CONNECTION_CONFIG['connection_timeout']}秒")
-        print(f"本机: http://localhost/viewer.html")
+        print(f"本机: http://localhost/{primary_html}")
         
         local_ip = get_local_ip()
-        print(f"局域网: http://{local_ip}/viewer.html")
+        print(f"局域网: http://{local_ip}/{primary_html}")
         
         # 在新线程中打开浏览器
         threading.Timer(1.0, lambda: open_browser_with_urls(local_ip, port)).start()

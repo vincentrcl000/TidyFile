@@ -412,13 +412,11 @@
             flex: 1;
             padding: 25px;
             overflow-y: auto;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 20px;
-            align-items: start;
             width: 100%;
             box-sizing: border-box;
             min-width: 0;
+            column-count: 2;
+            column-gap: 20px;
         }
 
         /* 全新的卡片样式 */
@@ -431,9 +429,10 @@
             display: flex;
             flex-direction: column;
             width: 100%;
-            height: fit-content;
             box-sizing: border-box;
             max-width: 100%;
+            break-inside: avoid;
+            margin-bottom: 20px;
         }
 
         .file-item:hover {
@@ -462,7 +461,7 @@
         .file-meta {
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
             gap: 10px;
             flex-wrap: wrap;
         }
@@ -476,12 +475,14 @@
             align-items: center;
             gap: 8px;
             transition: color 0.3s ease;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
             flex: 1;
             min-width: 0;
             word-break: break-word;
+            line-height: 1.4;
+            /* 标题过长时显示省略号 */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .file-name:hover {
@@ -498,6 +499,7 @@
             align-items: center;
             gap: 5px;
             white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .file-status {
@@ -507,6 +509,7 @@
             font-weight: 600;
             text-transform: uppercase;
             white-space: nowrap;
+            flex-shrink: 0;
         }
 
         .status-success {
@@ -553,7 +556,7 @@
             line-height: 1.5;
         }
 
-        /* 地址栏 - 固定在底部 */
+        /* 地址栏 - 固定在底部，优化路径显示 */
         .file-path {
             margin: 0;
             padding: 8px 20px;
@@ -566,14 +569,49 @@
             align-items: center;
             gap: 8px;
             cursor: pointer;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            word-break: break-all;
+            line-height: 1.4;
         }
 
         .file-path:hover {
             background: var(--primary);
             color: white;
+        }
+
+        /* 路径显示优化：总是显示头部、尾部、文件类型 */
+        .file-path-content {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .path-start {
+            flex-shrink: 0;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .path-middle {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+        }
+
+        .path-end {
+            flex-shrink: 0;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .path-separator {
+            color: #adb5bd;
+            margin: 0 2px;
+            flex-shrink: 0;
         }
 
         .empty-state {
@@ -613,10 +651,6 @@
             .filter-controls {
                 width: 280px;
             }
-            
-            .content {
-                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            }
         }
 
         @media (max-width: 1200px) {
@@ -626,10 +660,6 @@
             
             .filter-controls {
                 width: 260px;
-            }
-            
-            .content {
-                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             }
         }
 
@@ -641,26 +671,128 @@
             .filter-controls {
                 width: 240px;
             }
-            
-            .content {
-                grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            }
         }
         
         /* iPad 横屏 */
         @media (min-width: 768px) and (max-width: 1024px) and (orientation: landscape) {
             .content {
-                grid-template-columns: repeat(2, 1fr);
-                gap: 15px;
+                column-gap: 15px;
             }
         }
         
         /* iPad 竖屏 */
         @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
-            .content {
-                grid-template-columns: 1fr;
-                gap: 15px;
+            .app-container {
+                flex-direction: column;
             }
+            
+            .sidebar {
+                width: 100%;
+                height: auto;
+                max-height: 50vh;
+                order: 2;
+                min-width: auto;
+                max-width: none;
+                resize: none;
+            }
+            
+            /* iPad竖屏收起状态：保留窄的底边栏 */
+            .sidebar.collapsed {
+                width: 100%;
+                min-width: auto;
+                max-width: none;
+                height: 60px;
+                max-height: 60px;
+                overflow: visible;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .sidebar.collapsed .sidebar-header {
+                justify-content: center;
+                padding: 15px 20px;
+                width: 100%;
+                text-align: center;
+            }
+            
+            .sidebar.collapsed .sidebar-header h2 {
+                font-size: 1.25rem;
+                opacity: 1;
+                margin: 0;
+            }
+            
+            /* iPad竖屏收起时隐藏内容区域 */
+            .sidebar.collapsed .sidebar-content,
+            .sidebar.collapsed .filter-controls {
+                display: none;
+            }
+            
+            /* 确保iPad竖屏收起时按钮可见 */
+            .sidebar.collapsed .sidebar-toggle {
+                position: absolute;
+                top: 50%;
+                right: 20px;
+                transform: translateY(-50%);
+                width: 35px;
+                height: 35px;
+                z-index: 102;
+            }
+            
+            .sidebar-toggle {
+                top: 15px;
+                right: 20px;
+                width: 35px;
+                height: 35px;
+            }
+            
+            .sidebar-toggle i {
+                font-size: 1rem;
+            }
+            
+            .main-content {
+                order: 1;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+            }
+            
+            .filter-controls {
+                width: 100%;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                padding: 10px 20px;
+                background: var(--primary);
+                z-index: 102;
+            }
+            
+            .content {
+                column-count: 1;
+                column-gap: 15px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin-bottom: 15px;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+        }
+
+        /* 隐藏右上角浮窗 - 所有设备 */
+        #connectionStatus {
+            display: none !important;
+        }
+        
+        /* 隐藏数据统计浮窗 - 所有设备 */
+        div[style*="position: fixed"][style*="top: 10px"][style*="left: 10px"] {
+            display: none !important;
         }
 
         @media (max-width: 768px) {
@@ -734,30 +866,59 @@
             
             .main-content {
                 order: 1;
-            }
-            
-            .filter-controls {
-                width: 100%;
-                position: relative;
-                bottom: auto;
-                left: auto;
-                padding: 10px 20px;
-            }
-            
-            .content {
-                padding: 15px;
-                grid-template-columns: 1fr !important;
-                gap: 15px;
                 width: 100%;
                 max-width: 100%;
                 min-width: 0;
             }
             
+            .filter-controls {
+                width: 100%;
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                padding: 10px 20px;
+                background: var(--primary);
+                z-index: 102;
+            }
+            
+            .content {
+                padding: 15px;
+                column-count: 1;
+                column-gap: 15px;
+                width: 100%;
+                max-width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+            }
+            
             .file-item {
                 width: 100% !important;
                 max-width: 100% !important;
-                margin: 0;
+                margin-bottom: 15px;
                 min-width: 0;
+                box-sizing: border-box;
+            }
+            
+            /* 移动端卡片头部优化 */
+            .file-meta {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            
+            .file-name {
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0;
+                align-self: flex-start;
             }
             
             .controls {
@@ -830,16 +991,35 @@
             
             .content {
                 padding: 10px;
-                grid-template-columns: 1fr !important;
-                gap: 12px;
+                column-count: 1;
+                column-gap: 12px;
                 min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             
             .file-item {
                 width: 100% !important;
                 max-width: 100% !important;
-                margin: 0;
+                margin-bottom: 15px;
                 min-width: 0;
+                box-sizing: border-box;
+            }
+            
+            /* 小屏幕路径显示优化 */
+            .file-path-content {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 2px;
+            }
+            
+            .path-middle {
+                display: none;
+            }
+            
+            .path-separator {
+                display: none;
             }
         }
 
@@ -878,26 +1058,50 @@
             
             .content {
                 padding: 8px;
-                grid-template-columns: 1fr !important;
-                gap: 10px;
+                column-count: 1;
+                column-gap: 10px;
                 min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             
             .file-item {
                 width: 100% !important;
                 max-width: 100% !important;
-                margin: 0;
+                margin-bottom: 15px;
                 min-width: 0;
+                box-sizing: border-box;
+            }
+            
+            /* 超小屏幕卡片优化 */
+            .file-header {
+                padding: 10px 12px 6px;
+            }
+            
+            .file-path {
+                padding: 5px 12px;
+            }
+            
+            .file-tags {
+                padding: 6px 12px 0;
+            }
+            
+            .file-summary {
+                padding: 0 12px 6px;
             }
         }
         
         /* 移动端竖屏优化 */
         @media (max-width: 768px) and (orientation: portrait) {
             .content {
-                grid-template-columns: 1fr !important;
-                gap: 12px;
+                column-count: 1;
+                column-gap: 12px;
                 padding: 10px;
                 min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             
             .file-item {
@@ -908,9 +1112,28 @@
                 min-width: 0;
             }
             
+            /* 移动端竖屏卡片头部优化 */
+            .file-meta {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            
             .file-name {
                 font-size: 0.95rem;
                 line-height: 1.4;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0;
+                align-self: flex-start;
             }
             
             .file-summary {
@@ -927,9 +1150,20 @@
         @media (max-width: 375px) {
             .content {
                 padding: 8px;
-                gap: 10px;
-                grid-template-columns: 1fr !important;
+                column-count: 1;
+                column-gap: 10px;
                 min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
+            }
+            
+            .file-item {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0;
+                min-width: 0;
+                box-sizing: border-box;
             }
             
             .file-header {
@@ -952,8 +1186,26 @@
                 padding: 8px 10px;
             }
             
+            .file-meta {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            
             .file-name {
                 font-size: 0.9rem;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0;
+                align-self: flex-start;
             }
             
             .file-summary {
@@ -983,16 +1235,20 @@
         @media (max-width: 320px) {
             .content {
                 padding: 6px;
-                gap: 8px;
-                grid-template-columns: 1fr !important;
+                column-count: 1;
+                column-gap: 8px;
                 min-width: 0;
+                width: 100%;
+                max-width: 100%;
+                box-sizing: border-box;
             }
             
             .file-item {
                 width: 100% !important;
                 max-width: 100% !important;
-                margin: 0;
+                margin-bottom: 15px;
                 min-width: 0;
+                box-sizing: border-box;
             }
             
             .file-header {
@@ -1015,8 +1271,26 @@
                 padding: 6px 8px;
             }
             
+            .file-meta {
+                flex-direction: row;
+                align-items: flex-start;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            
             .file-name {
                 font-size: 0.85rem;
+                flex: 1;
+                min-width: 0;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0;
+                align-self: flex-start;
             }
             
             .file-summary {
@@ -1039,19 +1313,20 @@
         /* 强制移动端宽度适配 */
         @media (max-width: 768px) {
             .content {
-                grid-template-columns: 1fr !important;
+                column-count: 1 !important;
                 min-width: 0 !important;
                 width: 100% !important;
                 max-width: 100% !important;
                 padding-left: 10px !important;
                 padding-right: 10px !important;
+                box-sizing: border-box !important;
             }
             
             .file-item {
                 width: 100% !important;
                 max-width: 100% !important;
                 min-width: 0 !important;
-                margin: 0 !important;
+                margin-bottom: 15px !important;
                 box-sizing: border-box !important;
                 flex-shrink: 1 !important;
             }
@@ -1088,6 +1363,65 @@
                 white-space: nowrap;
                 pointer-events: none;
             }
+            
+            /* 移动端卡片头部优化 - 确保时间和图标总是在右侧 */
+            .file-meta {
+                flex-direction: row !important;
+                align-items: flex-start !important;
+                gap: 8px !important;
+                flex-wrap: wrap !important;
+            }
+            
+            .file-name {
+                flex: 1 !important;
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0 !important;
+                align-self: flex-start !important;
+            }
+        }
+
+        /* iPad竖屏收起状态下的提示 */
+        @media (min-width: 768px) and (max-width: 1024px) and (orientation: portrait) {
+            .sidebar.collapsed .sidebar-header::after {
+                content: '点击右侧按钮展开筛选';
+                position: absolute;
+                bottom: -25px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 0.8rem;
+                color: rgba(255, 255, 255, 0.7);
+                white-space: nowrap;
+                pointer-events: none;
+            }
+            
+            /* 移动端卡片头部优化 - 确保时间和图标总是在右侧 */
+            .file-meta {
+                flex-direction: row !important;
+                align-items: flex-start !important;
+                gap: 8px !important;
+                flex-wrap: wrap !important;
+            }
+            
+            .file-name {
+                flex: 1 !important;
+                min-width: 0 !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+                white-space: nowrap !important;
+            }
+            
+            .file-time,
+            .file-status {
+                flex-shrink: 0 !important;
+                align-self: flex-start !important;
+            }
         }
 
         /* 动画效果 */
@@ -1118,6 +1452,201 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
+        }
+
+        /* 移动端标签筛选浮窗样式 */
+        .mobile-filter-overlay {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--primary);
+            color: white;
+            z-index: 1000;
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            max-height: calc(80vh - 120px); /* 减去底部控制区域的高度 */
+            overflow-y: auto;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .mobile-filter-overlay.active {
+            transform: translateY(120px); /* 向上偏移，为底部控制区域留出空间 */
+        }
+
+        .mobile-filter-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            position: sticky;
+            top: 0;
+            background: var(--primary);
+            z-index: 1001;
+        }
+
+        .mobile-filter-header h3 {
+            margin: 0;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .mobile-filter-close {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 50%;
+            transition: background-color 0.3s ease;
+        }
+
+        .mobile-filter-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .mobile-filter-content {
+            padding: 20px;
+            padding-bottom: 40px; /* 为底部控制区域留出空间 */
+        }
+
+        .mobile-filter-section {
+            margin-bottom: 25px;
+        }
+
+        .mobile-filter-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            font-weight: 500;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .mobile-tag-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .mobile-tag-item {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 8px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mobile-tag-item:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .mobile-tag-item.selected {
+            background: var(--secondary);
+            color: var(--primary);
+            border-color: var(--secondary-dark);
+            font-weight: 500;
+        }
+
+        /* 移动端固定底部的筛选控制区域 */
+        .mobile-filter-controls {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--primary-dark);
+            color: white;
+            z-index: 1002;
+            padding: 15px 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.2);
+            transform: translateY(100%);
+            transition: transform 0.3s ease;
+            display: none; /* 默认隐藏 */
+        }
+
+        .mobile-filter-controls.active {
+            transform: translateY(0);
+            display: block;
+        }
+
+        .mobile-active-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+
+        .mobile-clear-filters {
+            background: rgba(0, 0, 0, 0.3);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            backdrop-filter: blur(10px);
+        }
+
+        .mobile-clear-filters:hover {
+            background: rgba(0, 0, 0, 0.5);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        /* 移动端标签筛选触发按钮 */
+        .mobile-filter-trigger {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: var(--secondary);
+            color: var(--primary);
+            padding: 15px 20px;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            z-index: 999;
+            display: none;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+            font-size: 1rem;
+        }
+
+        .mobile-filter-trigger:hover {
+            background: var(--secondary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 移动端显示触发按钮 */
+        @media (max-width: 768px) {
+            .mobile-filter-trigger {
+                display: flex;
+            }
         }
     </style>
 </head>
@@ -1201,6 +1730,55 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- 移动端标签筛选浮窗 -->
+    <div class="mobile-filter-overlay" id="mobileFilterOverlay">
+        <div class="mobile-filter-header">
+            <h3><i class="fas fa-filter"></i> 标签筛选</h3>
+            <button class="mobile-filter-close" onclick="toggleMobileFilter()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="mobile-filter-content">
+            <div class="mobile-filter-section">
+                <div class="mobile-filter-title">
+                    <span>年份筛选</span>
+                    <i class="fas fa-calendar-alt"></i>
+                </div>
+                <div class="mobile-tag-container" id="mobileYearTags"></div>
+            </div>
+            
+            <div class="mobile-filter-section">
+                <div class="mobile-filter-title">
+                    <span>主要分类</span>
+                    <i class="fas fa-tags"></i>
+                </div>
+                <div class="mobile-tag-container" id="mobilePrimaryTags"></div>
+            </div>
+            
+            <div class="mobile-filter-section">
+                <div class="mobile-filter-title">
+                    <span>次要分类</span>
+                    <i class="fas fa-tag"></i>
+                </div>
+                <div class="mobile-tag-container" id="mobileSecondaryTags"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 移动端固定底部的筛选控制区域 -->
+    <div class="mobile-filter-controls" id="mobileFilterControls">
+        <div class="mobile-active-filters" id="mobileActiveFilters"></div>
+        <button class="mobile-clear-filters" onclick="clearAllFilters()">
+            <i class="fas fa-trash-alt"></i> 清除所有筛选条件
+        </button>
+    </div>
+
+    <!-- 移动端标签筛选触发按钮 -->
+    <div class="mobile-filter-trigger" id="mobileFilterTrigger" onclick="toggleMobileFilter()">
+        <i class="fas fa-filter"></i>
+        <span>筛选</span>
     </div>
 
     <script>
@@ -1312,11 +1890,12 @@
             const icon = toggleBtn.querySelector('i');
             const isMobile = window.innerWidth <= 768;
             const isMobilePortrait = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+            const isIpadPortrait = window.innerWidth >= 768 && window.innerWidth <= 1024 && window.innerHeight > window.innerWidth;
             
             if (sidebar.classList.contains('collapsed')) {
                 // 收起状态：显示展开按钮（指向展开方向）
-                if (isMobilePortrait) {
-                    // 移动端竖屏：侧边栏在底部，展开时箭头向上
+                if (isMobilePortrait || isIpadPortrait) {
+                    // 移动端竖屏和iPad竖屏：侧边栏在底部，展开时箭头向上
                     icon.className = 'fas fa-chevron-up';
                     toggleBtn.title = '展开筛选区域';
                 } else {
@@ -1326,8 +1905,8 @@
                 }
             } else {
                 // 展开状态：显示收起按钮（指向收起方向）
-                if (isMobilePortrait) {
-                    // 移动端竖屏：侧边栏在底部，收起时箭头向下
+                if (isMobilePortrait || isIpadPortrait) {
+                    // 移动端竖屏和iPad竖屏：侧边栏在底部，收起时箭头向下
                     icon.className = 'fas fa-chevron-down';
                     toggleBtn.title = '收起筛选区域';
                 } else {
@@ -1346,14 +1925,15 @@
             const isCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
             const isMobile = window.innerWidth <= 768;
             const isMobilePortrait = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+            const isIpadPortrait = window.innerWidth >= 768 && window.innerWidth <= 1024 && window.innerHeight > window.innerWidth;
             
-            // 桌面端和移动端横屏默认展开，移动端竖屏根据保存状态
-            if (isCollapsed && isMobilePortrait) {
+            // 桌面端和移动端横屏默认展开，移动端竖屏和iPad竖屏根据保存状态
+            if (isCollapsed && (isMobilePortrait || isIpadPortrait)) {
                 sidebar.classList.add('collapsed');
             } else {
                 // 桌面端和移动端横屏强制展开
                 sidebar.classList.remove('collapsed');
-                if (!isMobilePortrait) {
+                if (!isMobilePortrait && !isIpadPortrait) {
                     localStorage.setItem('sidebarCollapsed', 'false');
                 }
             }
@@ -1381,9 +1961,10 @@
             window.addEventListener('resize', function() {
                 const isMobileNow = window.innerWidth <= 768;
                 const isMobilePortraitNow = window.innerWidth <= 768 && window.innerHeight > window.innerWidth;
+                const isIpadPortraitNow = window.innerWidth >= 768 && window.innerWidth <= 1024 && window.innerHeight > window.innerWidth;
                 
-                // 如果从桌面/横屏切换到移动端竖屏，根据保存状态决定
-                if (isMobilePortraitNow && !isMobilePortrait) {
+                // 如果从桌面/横屏切换到移动端竖屏或iPad竖屏，根据保存状态决定
+                if ((isMobilePortraitNow || isIpadPortraitNow) && !isMobilePortrait && !isIpadPortrait) {
                     const savedState = localStorage.getItem('sidebarCollapsed') === 'true';
                     if (savedState) {
                         sidebar.classList.add('collapsed');
@@ -1393,13 +1974,83 @@
                     // 更新箭头方向
                     updateToggleButtonIcon();
                 }
-                // 如果从移动端竖屏切换到桌面/横屏，强制展开
-                else if (!isMobilePortraitNow && isMobilePortrait) {
+                // 如果从移动端竖屏或iPad竖屏切换到桌面/横屏，强制展开
+                else if (!isMobilePortraitNow && !isIpadPortraitNow && (isMobilePortrait || isIpadPortrait)) {
                     sidebar.classList.remove('collapsed');
                     localStorage.setItem('sidebarCollapsed', 'false');
                     // 更新箭头方向
                     updateToggleButtonIcon();
                 }
+            });
+        }
+
+        // 移动端标签筛选浮窗控制
+        function toggleMobileFilter() {
+            const overlay = document.getElementById('mobileFilterOverlay');
+            const controls = document.getElementById('mobileFilterControls');
+            const isActive = overlay.classList.contains('active');
+            
+            if (isActive) {
+                // 关闭浮窗
+                overlay.classList.remove('active');
+                controls.classList.remove('active');
+            } else {
+                // 打开浮窗
+                overlay.classList.add('active');
+                controls.classList.add('active');
+                syncMobileTags();
+            }
+        }
+
+        // 同步移动端标签数据
+        function syncMobileTags() {
+            // 同步年份标签
+            const yearTags = document.getElementById('yearTags').innerHTML;
+            document.getElementById('mobileYearTags').innerHTML = yearTags;
+            
+            // 同步主要分类标签
+            const primaryTags = document.getElementById('primaryTags').innerHTML;
+            document.getElementById('mobilePrimaryTags').innerHTML = primaryTags;
+            
+            // 同步次要分类标签
+            const secondaryTags = document.getElementById('secondaryTags').innerHTML;
+            document.getElementById('mobileSecondaryTags').innerHTML = secondaryTags;
+            
+            // 同步活跃筛选条件
+            const activeFilters = document.getElementById('activeFilters').innerHTML;
+            document.getElementById('mobileActiveFilters').innerHTML = activeFilters;
+            
+            // 为移动端标签添加点击事件
+            addMobileTagEvents();
+        }
+
+        // 为移动端标签添加点击事件
+        function addMobileTagEvents() {
+            // 年份标签
+            document.querySelectorAll('#mobileYearTags .tag-item').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const year = this.textContent;
+                    toggleTag('years', year);
+                    syncMobileTags(); // 重新同步
+                });
+            });
+            
+            // 主要分类标签
+            document.querySelectorAll('#mobilePrimaryTags .tag-item').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const tagText = this.textContent;
+                    toggleTag('primary', tagText);
+                    syncMobileTags(); // 重新同步
+                });
+            });
+            
+            // 次要分类标签
+            document.querySelectorAll('#mobileSecondaryTags .tag-item').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    const tagText = this.textContent;
+                    toggleTag('secondary', tagText);
+                    syncMobileTags(); // 重新同步
+                });
             });
         }
 
@@ -1987,6 +2638,7 @@
 
         function updateActiveFiltersDisplay() {
             const container = document.getElementById('activeFilters');
+            const mobileContainer = document.getElementById('mobileActiveFilters');
             const allFilters = [];
             
             activeFilters.years.forEach(year => {
@@ -2001,17 +2653,35 @@
                 allFilters.push(`<div class="active-filter">次要: ${tag} <span class="remove" onclick="removeFilter('secondary', '${tag}')">×</span></div>`);
             });
             
-            container.innerHTML = allFilters.join('');
+            const filtersHtml = allFilters.join('');
+            container.innerHTML = filtersHtml;
+            
+            // 同步到移动端
+            if (mobileContainer) {
+                mobileContainer.innerHTML = filtersHtml;
+            }
             
             // 根据是否有筛选条件调整容器高度
             if (allFilters.length === 0) {
                 container.style.maxHeight = '0px';
                 container.style.marginBottom = '0px';
                 container.style.overflow = 'hidden';
+                
+                // 移动端底部控制区域也隐藏
+                const mobileControls = document.getElementById('mobileFilterControls');
+                if (mobileControls) {
+                    mobileControls.style.display = 'none';
+                }
             } else {
                 container.style.maxHeight = '120px';
                 container.style.marginBottom = '10px';
                 container.style.overflow = 'auto';
+                
+                // 移动端底部控制区域显示
+                const mobileControls = document.getElementById('mobileFilterControls');
+                if (mobileControls) {
+                    mobileControls.style.display = 'block';
+                }
             }
         }
 
@@ -2371,6 +3041,9 @@
             const tags = item['标签'] || {};
             const tagHtml = generateTagDisplay(tags, item);
 
+            // 优化路径显示：总是显示头部、尾部、文件类型
+            const pathHtml = bottomLink ? generateOptimizedPathHtml(bottomLink, isBottomWebLink, bottomOpenTitle) : '';
+
             return `
                 <div class="file-item ${itemClass}" id="${itemId}" data-header-path="${headerLink}" data-bottom-path="${bottomLink}">
                     <div class="file-header">
@@ -2387,9 +3060,56 @@
                     
                     ${summary ? `<div class="file-summary"><i class="fas fa-file-text"></i> ${summary}</div>` : ''}
                     
-                    ${bottomLink ? `<div class="file-path clickable-bottom" title="${bottomOpenTitle}"><i class="fas ${isBottomWebLink ? 'fa-link' : 'fa-folder'}"></i> ${bottomLink}</div>` : ''}
+                    ${pathHtml}
                 </div>
             `;
+        }
+
+        // 生成优化的路径显示HTML
+        function generateOptimizedPathHtml(path, isWebLink, title) {
+            if (!path) return '';
+            
+            const icon = isWebLink ? 'fa-link' : 'fa-folder';
+            
+            if (isWebLink) {
+                // Web链接直接显示完整URL
+                return `<div class="file-path clickable-bottom" title="${title}">
+                    <i class="fas ${icon}"></i> 
+                    <div class="file-path-content">
+                        <span class="path-start">${path}</span>
+                    </div>
+                </div>`;
+            } else {
+                // 本地文件路径优化显示
+                const pathParts = path.split(/[\\/]/);
+                const fileName = pathParts.pop() || '';
+                const fileExt = fileName.split('.').pop() || '';
+                
+                if (pathParts.length <= 2) {
+                    // 路径较短，直接显示
+                    return `<div class="file-path clickable-bottom" title="${title}">
+                        <i class="fas ${icon}"></i> 
+                        <div class="file-path-content">
+                            <span class="path-start">${path}</span>
+                        </div>
+                    </div>`;
+                } else {
+                    // 路径较长，显示头部、尾部、文件类型，中间用...代替
+                    const firstDir = pathParts[0];
+                    const lastDir = pathParts[pathParts.length - 1];
+                    
+                    return `<div class="file-path clickable-bottom" title="${title}">
+                        <i class="fas ${icon}"></i> 
+                        <div class="file-path-content">
+                            <span class="path-start">${firstDir}</span>
+                            <span class="path-separator">/</span>
+                            <span class="path-middle">...</span>
+                            <span class="path-separator">/</span>
+                            <span class="path-end">${lastDir}/${fileName}</span>
+                        </div>
+                    </div>`;
+                }
+            }
         }
 
         function generateTagDisplay(tags, item) {
