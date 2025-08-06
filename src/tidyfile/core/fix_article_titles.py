@@ -12,8 +12,11 @@ from datetime import datetime
 import re
 
 # 配置
-WEIXIN_ARTICLE_JSON = Path("weixin_manager/weixin_article.json")
-AI_RESULT_JSON = Path("ai_organize_result.json")
+# 使用app_paths获取正确的路径
+from tidyfile.utils.app_paths import get_app_paths
+app_paths = get_app_paths()
+WEIXIN_ARTICLE_JSON = app_paths.weixin_articles_dir / "weixin_article.json"
+AI_RESULT_JSON = app_paths.ai_results_file
 BACKUP_SUFFIX = f"_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 def is_bad_title(title):

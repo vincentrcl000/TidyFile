@@ -95,7 +95,12 @@ class ProcessFileReader:
             file_reader.summary_length = summary_length
             
             # 生成摘要（确保指定结果文件路径以正确进行去重检查）
-            result = file_reader.generate_summary(file_path, summary_length, "ai_organize_result.json")
+            # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        ai_result_file = str(app_paths.ai_results_file)
+        
+        result = file_reader.generate_summary(file_path, summary_length, ai_result_file)
             
             # 添加进程信息
             result['process_id'] = self.process_id
@@ -278,7 +283,12 @@ class MultiProcessFileReadTask:
                 from tidyfile.core.file_reader import FileReader
                 file_reader = FileReader()
                 # 使用文件解读器的安全写入方法，确保与multi_task_file_reader.py一致
-                file_reader.append_result_to_file("ai_organize_result.json", result, self.folder_path)
+                # 使用新的路径管理获取正确的文件路径
+                from tidyfile.utils.app_paths import get_app_paths
+                app_paths = get_app_paths()
+                ai_result_file = str(app_paths.ai_results_file)
+                
+                file_reader.append_result_to_file(ai_result_file, result, self.folder_path)
                 return True
             except Exception as e:
                 logging.error(f"任务 {self.task_id}: 写入结果失败: {e}")

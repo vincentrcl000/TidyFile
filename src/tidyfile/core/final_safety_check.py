@@ -114,11 +114,11 @@ def identify_risk_sources():
     print("=" * 60)
     
     risk_files = [
-        "启动文章阅读助手.bat",
-        "启动文章阅读助手.ps1", 
-        "启动文章阅读助手.vbs",
-        "启动文章阅读助手_增强版.vbs",
-        "启动HTTPS服务器.bat"
+        "scripts/start_article_reader.bat",
+        "scripts/start_article_reader.ps1", 
+        "scripts/start_article_reader.vbs",
+        "scripts/start_viewer_server_https.py",
+        "scripts/start_viewer_server.py"
     ]
     
     for file in risk_files:

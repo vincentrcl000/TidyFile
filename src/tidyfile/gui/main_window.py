@@ -18,6 +18,7 @@ from ttkbootstrap.scrolled import ScrolledText
 import threading
 import json
 import os
+import sys
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -448,7 +449,10 @@ class TagManagerGUI:
         """初始化标签管理器"""
         self.parent_frame = parent_frame
         self.root_window = root_window
-        self.json_file_path = "ai_organize_result.json"
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        self.json_file_path = str(app_paths.ai_results_file)
         self.tags_data = []
         self.first_level_tags = set()
         
@@ -1280,11 +1284,16 @@ class FileOrganizerTabGUI:
                     self._show_article_reader_urls("http://localhost/viewer.html", lan_url, t("server_running", "article_reader"))
                     return
                 
-                # 直接调用VBS脚本启动服务器
-                vbs_script = "启动文章阅读助手_增强版.vbs"
-                if os.path.exists(vbs_script):
-                    subprocess.Popen(["cscript", "//nologo", vbs_script], 
-                                   cwd=os.getcwd(), 
+                # 直接调用Python脚本启动服务器
+                # 从当前文件位置计算项目根目录
+                current_file_dir = os.path.dirname(__file__)  # src/tidyfile/gui
+                project_root = os.path.normpath(os.path.join(current_file_dir, '..', '..', '..'))  # 项目根目录
+                python_script = os.path.join(project_root, "scripts", "start_viewer_server.py")
+                
+                if os.path.exists(python_script):
+                    # 启动Python脚本
+                    subprocess.Popen([sys.executable, python_script], 
+                                   cwd=os.path.dirname(python_script), 
                                    creationflags=subprocess.CREATE_NO_WINDOW)
                     
                     self.log_message(t("server_started", "article_reader"))
@@ -1303,7 +1312,7 @@ class FileOrganizerTabGUI:
                     # 显示URL对话框
                     self._show_article_reader_urls("http://localhost/viewer.html", lan_url, t("startup_success", "article_reader"))
                 else:
-                    messagebox.showerror(t("error", "messages"), t("startup_script_not_found", "messages", script=vbs_script))
+                    messagebox.showerror(t("error", "messages"), f"找不到启动脚本: {python_script}")
                 
             except Exception as e:
                 self.log_message(f"启动文章阅读助手失败: {e}")
@@ -1903,8 +1912,19 @@ class FileOrganizerTabGUI:
                             logging.info(f"文件解读成功: {filename}")
                             self.log_message(f"文件解读成功: {filename}")
                             
+                            # 使用新的路径管理获取正确的文件路径
+                            try:
+                                from tidyfile.utils.app_paths import get_app_paths
+                                app_paths = get_app_paths()
+                                ai_result_file = str(app_paths.ai_results_file)
+                            except ImportError:
+                                # 兼容旧版本，使用相对路径
+                                from tidyfile.utils.app_paths import get_app_paths
+                            app_paths = get_app_paths()
+                            ai_result_file = str(app_paths.ai_results_file)
+                            
                             # 写入结果到ai_organize_result.json
-                            file_reader.append_result_to_file("ai_organize_result.json", result, folder_path)
+                            file_reader.append_result_to_file(ai_result_file, result, folder_path)
                         else:
                             failed_reads += 1
                             error_msg = result.get('error', '未知错误')
@@ -2538,8 +2558,15 @@ class FileOrganizerTabGUI:
             import subprocess
             import sys
             
-            # 启动多任务文件解读管理器
-            script_path = os.path.join(os.path.dirname(__file__), "multi_task_file_reader.py")
+            # 启动多任务文件解读管理器 - 修复路径
+            script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "src", "tidyfile", "core", "multi_task_file_reader.py")
+            if not os.path.exists(script_path):
+                # 尝试备用路径
+                script_path = os.path.join(os.path.dirname(__file__), "..", "core", "multi_task_file_reader.py")
+            
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"找不到多任务文件解读脚本: {script_path}")
+            
             subprocess.Popen([sys.executable, script_path])
             
             self.log_message("多任务文件解读管理器已启动")
@@ -2554,8 +2581,15 @@ class FileOrganizerTabGUI:
             import subprocess
             import sys
             
-            # 启动高并发文件解读管理器
-            script_path = os.path.join(os.path.dirname(__file__), "multi_process_file_reader.py")
+            # 启动高并发文件解读管理器 - 修复路径
+            script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "src", "tidyfile", "core", "multi_process_file_reader.py")
+            if not os.path.exists(script_path):
+                # 尝试备用路径
+                script_path = os.path.join(os.path.dirname(__file__), "..", "core", "multi_process_file_reader.py")
+            
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"找不到高并发文件解读脚本: {script_path}")
+            
             subprocess.Popen([sys.executable, script_path])
             
             self.log_message("高并发文件解读管理器已启动")
@@ -3345,8 +3379,20 @@ class FileOrganizerTabGUI:
                 tree.delete(item)
             
             # 获取日志管理器
-            log_manager = TransferLogManager()
-            log_files = log_manager.get_transfer_logs()
+            try:
+                from tidyfile.core.transfer_log_manager import TransferLogManager
+                log_manager = TransferLogManager()
+                log_files = log_manager.get_transfer_logs()
+                
+                # 调试信息
+                self.log_message(f"转移日志管理器初始化成功")
+                self.log_message(f"日志目录: {log_manager.log_directory}")
+                self.log_message(f"找到日志文件数量: {len(log_files)}")
+                
+            except Exception as e:
+                self.log_message(f"初始化日志管理器失败: {e}")
+                tree.insert("", "end", values=("日志管理器初始化失败", "", "", "", "", ""))
+                return
             
             if not log_files:
                 tree.insert("", "end", values=("暂无日志记录", "", "", "", "", ""))
@@ -3380,6 +3426,7 @@ class FileOrganizerTabGUI:
                     
                 except Exception as file_error:
                     # 如果单个文件加载失败，显示错误信息
+                    self.log_message(f"加载日志文件失败: {log_file_path} - {file_error}")
                     tree.insert("", "end", values=(
                         "文件损坏", os.path.basename(log_file_path), "0", "0", "0", log_file_path
                     ))

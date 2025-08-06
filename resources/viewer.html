@@ -1799,7 +1799,7 @@
         let filteredData = [];
         let displayedCount = 0;
         const itemsPerPage = 10; // 进一步减少每次加载的数量，提高响应速度
-        const defaultFilePath = 'ai_organize_result.json';
+        let defaultFilePath = 'ai_organize_result.json'; // 默认路径，将通过API获取实际路径
         let isLoading = false;
         let hasMoreData = true;
         let scrollListener = null;
@@ -2103,10 +2103,48 @@
             
             dataLoadPromise = (async () => {
                 try {
+                    console.log('开始获取数据文件路径...');
+                    
+                    // 首先获取正确的文件路径
+                    const pathResponse = await fetch('/api/data-file-path', {
+                        cache: 'no-cache',
+                        headers: {
+                            'Cache-Control': 'no-cache, no-store, must-revalidate',
+                            'Pragma': 'no-cache',
+                            'Expires': '0'
+                        }
+                    });
+                    
+                    if (!pathResponse.ok) {
+                        throw new Error('无法获取数据文件路径');
+                    }
+                    
+                    const pathData = await pathResponse.json();
+                    if (!pathData.success) {
+                        throw new Error(pathData.message || '获取文件路径失败');
+                    }
+                    
+                    // 使用服务器返回的文件名作为路径
+                    const actualFilePath = pathData.file_name;
+                    console.log('获取到数据文件路径:', actualFilePath);
+                    
+                    if (!pathData.file_exists) {
+                        document.getElementById('content').innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                <h3>数据文件不存在</h3>
+                                <p>文件路径: ${pathData.file_path}</p>
+                                <p>请先运行文件整理功能生成数据文件</p>
+                            </div>
+                        `;
+                        return;
+                    }
+                    
                     console.log('开始加载数据文件...');
                     const startTime = performance.now();
                     
-                    const response = await fetch(defaultFilePath, {
+                    // 使用新的API端点获取数据文件内容
+                    const response = await fetch('/api/data-file', {
                         // 禁用缓存，确保获取最新数据
                         cache: 'no-cache',
                         headers: {
@@ -2126,7 +2164,9 @@
                             <div class="empty-state">
                                 <i class="fas fa-exclamation-triangle"></i>
                                 <h3>文件未找到</h3>
-                                <p>无法加载 ${defaultFilePath}</p>
+                                <p>无法加载数据文件</p>
+                                <p>服务器路径: ${pathData.file_path}</p>
+                                <p>HTTP状态: ${response.status} ${response.statusText}</p>
                             </div>
                         `;
                     }
@@ -3850,8 +3890,30 @@
         }
         
         function openWeixinArticle(jsonFilePath) {
-            const rendererUrl = `weixin_article_renderer.html?file=${encodeURIComponent(jsonFilePath)}`;
-            window.open(rendererUrl, '_blank');
+            // 从JSON文件路径构造HTML文件路径
+            // 例如: C:\Users\xiang\AppData\Roaming\TidyFile\data\results\weixin_articles\文章名_时间戳.json
+            // 转换为: C:\Users\xiang\AppData\Roaming\TidyFile\data\results\weixin_articles\文章名_时间戳.html
+            const htmlFilePath = jsonFilePath.replace('.json', '.html');
+            
+            // 检查HTML文件是否存在
+            fetch(`/api/check-file-exists?file=${encodeURIComponent(htmlFilePath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.exists) {
+                        // HTML文件存在，通过HTTP服务器打开
+                        console.log('📄 通过HTTP服务器打开HTML文件:', htmlFilePath);
+                        const httpUrl = `/api/open-html-file?file=${encodeURIComponent(htmlFilePath)}`;
+                        window.open(httpUrl, '_blank');
+                    } else {
+                        // HTML文件不存在，显示错误信息
+                        console.error('❌ HTML文件不存在:', htmlFilePath);
+                        alert('HTML文件不存在，请检查文章解读是否成功完成。');
+                    }
+                })
+                .catch(error => {
+                    console.error('❌ 检查文件存在性失败:', error);
+                    alert('检查文件失败，请重试。');
+                });
         }
 
 

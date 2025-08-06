@@ -116,7 +116,12 @@ class FileReadTask:
         with _result_file_lock:
             try:
                 # 使用文件解读器的安全写入方法
-                file_reader.append_result_to_file("ai_organize_result.json", result, folder_path)
+                # 使用新的路径管理获取正确的文件路径
+                from tidyfile.utils.app_paths import get_app_paths
+                app_paths = get_app_paths()
+                ai_result_file = str(app_paths.ai_results_file)
+        
+        file_reader.append_result_to_file(ai_result_file, result, folder_path)
                 return True
             except Exception as e:
                 logging.error(f"任务 {self.task_id}: 写入结果失败: {e}")
@@ -176,7 +181,12 @@ class FileReadTask:
                 
                 try:
                     # 解读单个文件（使用与file_reader.py相同的流程）
-                    result = file_reader.generate_summary(file_path, self.summary_length, "ai_organize_result.json")
+                    # 使用新的路径管理获取正确的文件路径
+                    from tidyfile.utils.app_paths import get_app_paths
+                    app_paths = get_app_paths()
+                    ai_result_file = str(app_paths.ai_results_file)
+        
+        result = file_reader.generate_summary(file_path, self.summary_length, ai_result_file)
                     
                     # 检查处理状态
                     processing_status = result.get('processing_status', '')

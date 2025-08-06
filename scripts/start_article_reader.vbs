@@ -10,8 +10,11 @@ Dim strCommand, strArgs, intResult
 Set objShell = CreateObject("WScript.Shell")
 Set objFSO = CreateObject("Scripting.FileSystemObject")
 
-' Get current script directory
+' Get current script directory (scripts folder)
 strPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
+' Get project root directory (parent of scripts folder)
+Dim strProjectRoot
+strProjectRoot = objFSO.GetParentFolderName(strPath)
 
 ' Check if Python is available
 strPythonPath = "python"
@@ -37,24 +40,31 @@ If intResult <> 0 Then
 End If
 
 ' Check if main program file exists
-If Not objFSO.FileExists(strPath & "\scripts\start_viewer_server.py") Then
-    MsgBox "Error: Cannot find main program file scripts\start_viewer_server.py" & vbCrLf & "Current directory: " & strPath, vbCritical, "Startup Failed"
+If Not objFSO.FileExists(strPath & "\start_viewer_server.py") Then
+    MsgBox "Error: Cannot find main program file start_viewer_server.py" & vbCrLf & "Current directory: " & strPath, vbCritical, "Startup Failed"
     WScript.Quit 1
 End If
 
 ' Check if HTML file exists
-If Not objFSO.FileExists(strPath & "\viewer.html") Then
-    MsgBox "Warning: Cannot find viewer.html file, may affect functionality" & vbCrLf & "Please ensure files are complete", vbInformation, "File Missing"
+If Not objFSO.FileExists(strProjectRoot & "\resources\viewer.html") Then
+    MsgBox "Warning: Cannot find resources\viewer.html file, may affect functionality" & vbCrLf & "Please ensure files are complete", vbInformation, "File Missing"
 End If
 
-' Check if JSON file exists (optional)
-If Not objFSO.FileExists(strPath & "\ai_organize_result.json") Then
-    ' Create safe JSON file
-    Dim objFile
-    Set objFile = objFSO.CreateTextFile(strPath & "\ai_organize_result.json", True)
-    objFile.Write "[{""processing_time"": ""initialization"", ""filename"": ""system_init"", ""summary"": ""safe_file_created_at_startup"", ""status"": ""initialized"", ""operation_type"": ""system_init""}]"
-    objFile.Close
-    Set objFile = Nothing
+' Check if JSON file exists (optional) - use new app_data path
+Dim strJsonPath
+strJsonPath = strProjectRoot & "\ai_organize_result.json"
+If Not objFSO.FileExists(strJsonPath) Then
+    ' Try to find in app_data directory
+    Dim strAppDataPath
+    strAppDataPath = objFSO.GetSpecialFolder(5) & "\TidyFile\data\results\ai_organize_result.json"
+    If Not objFSO.FileExists(strAppDataPath) Then
+        ' Create safe JSON file in project root
+        Dim objFile
+        Set objFile = objFSO.CreateTextFile(strJsonPath, True)
+        objFile.Write "[{""processing_time"": ""initialization"", ""filename"": ""system_init"", ""summary"": ""safe_file_created_at_startup"", ""status"": ""initialized"", ""operation_type"": ""system_init""}]"
+        objFile.Close
+        Set objFile = Nothing
+    End If
 End If
 
 ' Check if port 80 is occupied
@@ -66,7 +76,7 @@ End If
 
 ' Start Article Reader Assistant server directly
 strCommand = strPythonPath
-strArgs = strPath & "\scripts\start_viewer_server.py"
+strArgs = strPath & "\start_viewer_server.py"
 
 ' Start server with hidden window
 intResult = objShell.Run("""" & strCommand & """ """ & strArgs & """", 0, False)

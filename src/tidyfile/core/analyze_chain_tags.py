@@ -48,6 +48,12 @@ class ChainTagsAnalyzer:
         Args:
             result_file: 结果文件路径
         """
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if result_file == "ai_organize_result.json":
+            result_file = str(app_paths.ai_results_file)
+        
         self.result_file = result_file
         
     def load_data(self) -> List[Dict[str, Any]]:
@@ -148,7 +154,10 @@ class ChainTagsAnalyzer:
         
         # 用于存储已写入的链式标签，避免重复
         written_tags = set()
-        output_file = "chain_tags_list.txt"
+        # 使用app_paths获取正确的输出路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        output_file = app_paths.results_dir / "chain_tags_list.txt"
         
         try:
             with open(output_file, 'w', encoding='utf-8') as f:

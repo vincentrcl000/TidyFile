@@ -107,49 +107,54 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
     
-    - name: Create resources directory
-      run: |
-        mkdir -p resources
-        # 如果没有图标文件，创建一个简单的占位符
-        if [ ! -f "resources/TidyFile.ico" ]; then
-          echo "Creating placeholder icon"
-          touch resources/TidyFile.ico
-        fi
-        if [ ! -f "resources/Article_Reader.ico" ]; then
-          echo "Creating placeholder icon"
-          touch resources/Article_Reader.ico
-        fi
+         - name: Create resources directory
+       run: |
+         mkdir -p resources
+         # 如果没有图标文件，创建一个简单的占位符
+         if (!(Test-Path "resources/TidyFile.ico")) {
+           echo "Creating placeholder icon"
+           New-Item -ItemType File -Path "resources/TidyFile.ico" -Force
+         }
+         if (!(Test-Path "resources/Article_Reader.ico")) {
+           echo "Creating placeholder icon"
+           New-Item -ItemType File -Path "resources/Article_Reader.ico" -Force
+         }
     
     - name: Build executable
       run: |
-        pyinstaller --onefile --windowed --name=TidyFile-Windows-x64 --icon=resources/TidyFile.ico --add-data=resources;resources --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --clean main.py
+        pyinstaller --onefile --windowed --name=TidyFile-Windows-x64 --icon=resources/TidyFile.ico --add-data=resources;resources --paths=src --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --clean main.py
     
-    - name: Create distribution packages
-      run: |
-        # 创建ZIP包
-        cd dist
-        powershell Compress-Archive -Path "TidyFile-Windows-x64.exe" -DestinationPath "TidyFile-Windows-x64.zip"
-        
-        # 创建安装包
-        mkdir TidyFile-Installer
-        copy TidyFile-Windows-x64.exe TidyFile-Installer\
-        copy ..\scripts\start_tidyfile.vbs TidyFile-Installer\
-        copy ..\scripts\start_article_reader.vbs TidyFile-Installer\
-        copy ..\scripts\create_desktop_shortcuts.py TidyFile-Installer\
-        xcopy ..\resources TidyFile-Installer\resources /E /I /Y
-        
-        # 创建安装说明
-        echo # TidyFile Windows 安装包 > TidyFile-Installer\README.txt
-        echo. >> TidyFile-Installer\README.txt
-        echo ## 安装说明 >> TidyFile-Installer\README.txt
-        echo. >> TidyFile-Installer\README.txt
-        echo 1. 解压此文件夹到任意位置 >> TidyFile-Installer\README.txt
-        echo 2. 运行 create_desktop_shortcuts.py 创建桌面快捷方式 >> TidyFile-Installer\README.txt
-        echo 3. 双击桌面上的 "TidyFile" 或 "Article Reader" 图标启动程序 >> TidyFile-Installer\README.txt
-        
-        # 创建安装包ZIP
-        powershell Compress-Archive -Path "TidyFile-Installer\*" -DestinationPath "TidyFile-Windows-Installer.zip"
-        cd ..
+         - name: Create distribution packages
+       run: |
+         # 创建ZIP包
+         cd dist
+         powershell Compress-Archive -Path "TidyFile-Windows-x64.exe" -DestinationPath "TidyFile-Windows-x64.zip"
+         
+         # 创建安装包
+         mkdir TidyFile-Installer
+         copy TidyFile-Windows-x64.exe TidyFile-Installer\
+         copy ..\scripts\start_tidyfile.vbs TidyFile-Installer\
+         copy ..\scripts\start_article_reader.vbs TidyFile-Installer\
+         copy ..\scripts\create_desktop_shortcuts.py TidyFile-Installer\
+         xcopy ..\resources TidyFile-Installer\resources /E /I /Y
+         
+         # 创建安装说明
+         echo # TidyFile Windows 安装包 > TidyFile-Installer\README.txt
+         echo. >> TidyFile-Installer\README.txt
+         echo ## 安装说明 >> TidyFile-Installer\README.txt
+         echo. >> TidyFile-Installer\README.txt
+         echo 1. 解压此文件夹到任意位置 >> TidyFile-Installer\README.txt
+         echo 2. 运行 create_desktop_shortcuts.py 创建桌面快捷方式 >> TidyFile-Installer\README.txt
+         echo 3. 双击桌面上的 "TidyFile" 或 "Article Reader" 图标启动程序 >> TidyFile-Installer\README.txt
+         echo. >> TidyFile-Installer\README.txt
+         echo ## 注意事项 >> TidyFile-Installer\README.txt
+         echo - 首次运行可能需要配置AI模型 >> TidyFile-Installer\README.txt
+         echo - 推荐使用Ollama本地模型 >> TidyFile-Installer\README.txt
+         echo - 详细使用说明请参考用户手册 >> TidyFile-Installer\README.txt
+         
+         # 创建安装包ZIP
+         powershell Compress-Archive -Path "TidyFile-Installer\*" -DestinationPath "TidyFile-Windows-Installer.zip"
+         cd ..
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v3

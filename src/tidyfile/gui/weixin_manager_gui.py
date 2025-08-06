@@ -55,6 +55,18 @@ class WeixinManagerTab:
         tb.Entry(fav_frame, textvariable=self.end_date_var, width=30).grid(row=row, column=1, sticky=(W, E), pady=5)
         self.end_date_var.set(datetime.now().strftime('%Y-%m-%d'))
         row += 1
+        # 超时设置
+        tb.Label(fav_frame, text="超时时间(秒)", font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5, padx=(0, 10))
+        self.timeout_var = tb.IntVar(value=60)
+        timeout_frame = tb.Frame(fav_frame)
+        timeout_frame.grid(row=row, column=1, sticky=(W, E), pady=5)
+        tb.Label(timeout_frame, text="30秒").pack(side=LEFT)
+        self.timeout_scale = tb.Scale(timeout_frame, from_=30, to=300, variable=self.timeout_var, orient=HORIZONTAL, length=180)
+        self.timeout_scale.pack(side=LEFT, padx=5)
+        self.timeout_value_label = tb.Label(timeout_frame, text="60秒")
+        self.timeout_value_label.pack(side=LEFT, padx=(10, 0))
+        self.timeout_var.trace_add('write', self.update_timeout_label)
+        row += 1
         # 摘要长度调节
         tb.Label(fav_frame, text=t("summary_length", "weixin_manager"), font=('Arial', 10)).grid(row=row, column=0, sticky=W, pady=5, padx=(0, 10))
         self.summary_length = tb.IntVar(value=200)
@@ -86,6 +98,10 @@ class WeixinManagerTab:
         value = self.summary_length.get()
         self.summary_value_label.config(text=f"{value}{t('characters', 'weixin_manager')}")
 
+    def update_timeout_label(self, *args):
+        value = self.timeout_var.get()
+        self.timeout_value_label.config(text=f"{value}秒")
+
     def validate_input(self):
         talker = self.talker_var.get().strip()
         start_date = self.start_date_var.get().strip()
@@ -110,18 +126,20 @@ class WeixinManagerTab:
     def start_backup(self):
         result = self.validate_input()
         if result is None:
-            self.log_message("收藏文章备份失败：输入参数验证失败", "WARNING")
+            self.log_message("收藏文章备份失败：输入参数验证失败")
             return
         talker, start_date, end_date = result
+        timeout = self.timeout_var.get()
         self.backup_btn.config(state='disabled')
         self.log_message(f"开始备份微信收藏文章")
         self.log_message(f"收藏账号: {talker}")
         self.log_message(f"时间范围: {start_date} ~ {end_date}")
+        self.log_message(f"超时设置: {timeout}秒")
         self.log_message("正在连接微信接口...")
-        thread = threading.Thread(target=self._backup_worker, args=(talker, start_date, end_date), daemon=True)
+        thread = threading.Thread(target=self._backup_worker, args=(talker, start_date, end_date, timeout), daemon=True)
         thread.start()
 
-    def _backup_worker(self, talker, start_date, end_date):
+    def _backup_worker(self, talker, start_date, end_date, timeout):
         try:
             # 重定向print输出到GUI日志
             import sys
@@ -134,7 +152,7 @@ class WeixinManagerTab:
             
             try:
                 self.log_message("正在拉取微信收藏文章数据...")
-                count, save_path = self.logic.backup_wechat_favorites(talker, start_date, end_date)
+                count, save_path = self.logic.backup_wechat_favorites(talker, start_date, end_date, timeout)
                 
                 # 获取捕获的输出并发送到GUI日志
                 captured_output = output_buffer.getvalue()
@@ -154,7 +172,7 @@ class WeixinManagerTab:
                 
         except Exception as e:
             error_msg = str(e)
-            self.log_message(f"收藏文章备份异常: {error_msg}", "ERROR")
+            self.log_message(f"收藏文章备份异常: {error_msg}")
             self.frame.after(0, lambda: self._backup_failed(error_msg))
 
     def _backup_completed(self, count, save_path):
@@ -167,7 +185,7 @@ class WeixinManagerTab:
         self.backup_btn.config(state='normal')
 
     def _backup_failed(self, error_msg):
-        self.log_message(f"收藏文章备份失败: {error_msg}", "ERROR")
+        self.log_message(f"收藏文章备份失败: {error_msg}")
         messagebox.showerror("备份失败", f"备份过程中发生错误:\n{error_msg}")
         self.backup_btn.config(state='normal')
 
@@ -185,13 +203,46 @@ class WeixinManagerTab:
             
             # 使用当前Python解释器的完整路径
             python_executable = sys.executable
-            # 调用独立脚本，传递摘要长度参数
+            # 获取脚本的正确路径
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            script_path = os.path.join(script_dir, "..", "core", "wechat_article_ai_summary.py")
+            
+            # 如果找不到脚本，尝试备用路径
+            if not os.path.exists(script_path):
+                script_path = os.path.join(os.path.dirname(script_dir), "core", "wechat_article_ai_summary.py")
+            
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"找不到微信文章AI解读脚本: {script_path}")
+            
+            # 直接运行脚本文件，但设置正确的环境
             cmd = [
-                python_executable, "wechat_article_ai_summary.py",
+                python_executable, script_path,
                 "--summary_length", str(summary_len)
             ]
             
             self.log_message(f"执行命令: {' '.join(cmd)}")
+            
+            # 设置工作目录为项目根目录，确保模块导入正常
+            # 从当前文件位置计算项目根目录：当前文件在 src/tidyfile/gui/，需要向上3级到项目根目录
+            current_file_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.normpath(os.path.join(current_file_dir, '..', '..', '..'))
+            
+            # 设置环境变量，添加src目录到Python路径
+            env = os.environ.copy()
+            src_path = os.path.join(project_root, 'src')
+            
+            # 确保PYTHONPATH包含src目录
+            if 'PYTHONPATH' in env:
+                if src_path not in env['PYTHONPATH']:
+                    env['PYTHONPATH'] = src_path + os.pathsep + env['PYTHONPATH']
+            else:
+                env['PYTHONPATH'] = src_path
+            
+            # 添加当前工作目录到Python路径
+            if 'PYTHONPATH' in env:
+                env['PYTHONPATH'] = project_root + os.pathsep + env['PYTHONPATH']
+            else:
+                env['PYTHONPATH'] = project_root
             
             # 使用Popen实时捕获输出
             process = subprocess.Popen(
@@ -200,7 +251,9 @@ class WeixinManagerTab:
                 stderr=subprocess.STDOUT,  # 将stderr重定向到stdout
                 text=True,
                 bufsize=1,  # 行缓冲
-                universal_newlines=True
+                universal_newlines=True,
+                cwd=project_root,  # 设置工作目录为项目根目录
+                env=env  # 设置环境变量
             )
             
             # 实时读取输出
@@ -220,7 +273,7 @@ class WeixinManagerTab:
             # 根据返回码判断是否成功
             if return_code != 0:
                 error_message = self._analyze_error_type("进程返回非零退出码")
-                self.log_message(f"备份文章解读失败: {error_message}", "ERROR")
+                self.log_message(f"备份文章解读失败: {error_message}")
                 messagebox.showerror("解读失败", error_message)
             else:
                 self.log_message("微信文章批量解读已完成，摘要已写入ai_organize_result.json")
@@ -228,7 +281,7 @@ class WeixinManagerTab:
                 
         except Exception as e:
             error_msg = str(e)
-            self.log_message(f"备份文章解读异常: {error_msg}", "ERROR")
+            self.log_message(f"备份文章解读异常: {error_msg}")
             self.frame.after(0, lambda: self.log_message(f"解读失败: {error_msg}"))
             messagebox.showerror("解读失败", f"解读过程中发生错误:\n{error_msg}")
     

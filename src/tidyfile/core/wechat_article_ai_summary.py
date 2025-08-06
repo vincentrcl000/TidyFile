@@ -4,7 +4,6 @@ import subprocess
 import shutil
 import tempfile
 import threading
-# fcntl 是 Unix/Linux 系统特有的，在 Windows 上不可用
 try:
     import fcntl
 except ImportError:
@@ -70,9 +69,13 @@ if missing:
         sys.exit(1)
 
 # --- 配置 ---
-ARTICLE_JSON = Path("weixin_manager/weixin_article.json")
-AI_RESULT_JSON = Path("ai_organize_result.json")
-ARTICLES_DIR = Path("weixin_manager/weixin_articles")
+# 使用app_paths获取正确的路径
+from tidyfile.utils.app_paths import get_app_paths
+app_paths = get_app_paths()
+ARTICLE_JSON = app_paths.weixin_articles_dir / "weixin_article.json"
+AI_RESULT_JSON = app_paths.ai_results_file
+ARTICLES_DIR = app_paths.weixin_articles_dir
+
 TIME_RANGE = (3, 6)
 RETRY = 3
 
@@ -597,7 +600,6 @@ def extract_wechat_article(soup: BeautifulSoup) -> dict:
             match = re.search(r"var createTime = ['\"]([^'\"]+)['\"]", script.string)
             if match:
                 publish_time = match.group(1)
-                print(f"[调试] 从JavaScript获取到时间: {publish_time}")
                 break
     
     # 方法2: 查找publish_time元素
@@ -605,7 +607,6 @@ def extract_wechat_article(soup: BeautifulSoup) -> dict:
         time_tag = soup.find("em", id="publish_time")
         if time_tag:
             publish_time = time_tag.get_text(strip=True)
-            print(f"[调试] 从publish_time元素获取到时间: {publish_time}")
     
     # 方法3: 查找rich_media_meta_text类的时间
     if not publish_time:
@@ -615,7 +616,6 @@ def extract_wechat_article(soup: BeautifulSoup) -> dict:
             # 检查是否包含时间格式
             if re.search(r'\d{4}-\d{2}-\d{2}|\d{2}-\d{2}|\d{2}:\d{2}', text):
                 publish_time = text
-                print(f"[调试] 从rich_media_meta_text获取到时间: {publish_time}")
                 break
     
     if not publish_time:
@@ -1366,7 +1366,23 @@ def save_article_to_html(article_data: dict) -> str:
         html_content = f"<pre>Markdown 渲染失败: {e}</pre>\n<pre>{article_data['content']}</pre>"
     # 变量级注释：读取HTML模板
     try:
+        # 简化模板路径查找逻辑
+        # 首先尝试从当前工作目录查找
         template_path = Path('weixin_article_template.html')
+        
+        # 如果不存在，尝试从resources目录查找
+        if not template_path.exists():
+            template_path = Path('resources/weixin_article_template.html')
+        
+        # 如果还是不存在，尝试从项目根目录的resources目录查找
+        if not template_path.exists():
+            current_file_dir = Path(__file__).parent  # src/tidyfile/core
+            project_root = current_file_dir.parent.parent.parent  # 项目根目录
+            template_path = project_root / 'resources' / 'weixin_article_template.html'
+        
+        if not template_path.exists():
+            raise FileNotFoundError(f"找不到模板文件: {template_path}")
+        
         template = template_path.read_text(encoding='utf-8')
     except Exception as e:
         raise RuntimeError(f"无法读取模板文件: {e}")

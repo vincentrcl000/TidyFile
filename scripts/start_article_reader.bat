@@ -16,15 +16,15 @@ if errorlevel 1 (
 )
 
 REM Check main program file
-if not exist "scripts\start_viewer_server.py" (
-    echo [ERROR] Main program file scripts\start_viewer_server.py not found
+if not exist "start_viewer_server.py" (
+    echo [ERROR] Main program file start_viewer_server.py not found
     pause
     exit /b 1
 )
 
 REM Start program
 echo [INFO] Starting TidyFile Article Reader...
-python scripts\start_viewer_server.py
+python start_viewer_server.py
 
 if errorlevel 1 (
     echo [ERROR] Program exited abnormally

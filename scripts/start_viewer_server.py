@@ -41,7 +41,11 @@ except ImportError:
 
 # 缓存目录
 try:
-    from app_paths import get_app_paths
+    import sys
+    import os
+    # 添加src目录到Python路径
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+    from tidyfile.utils.app_paths import get_app_paths
     app_paths = get_app_paths()
     CACHE_DIR = app_paths.cache_dir
 except ImportError:
@@ -488,6 +492,68 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         # 调用父类的end_headers，但不重复设置已存在的头
         super().end_headers()
     
+    def send_error(self, code, message=None, explain=None):
+        """重写send_error方法，支持UTF-8编码的错误消息"""
+        try:
+            print(f"[调试] 发送错误: {code}, 消息: {message}")
+            # 设置响应状态码
+            self.send_response(code, message)
+            
+            # 设置响应头
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 构建错误页面内容
+            if message is None:
+                message = self.responses[code][0]
+            if explain is None:
+                explain = self.responses[code][1]
+            
+            # 使用UTF-8编码构建错误页面
+            error_html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>错误 {code}</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 40px; }}
+        .error {{ color: #d32f2f; }}
+        .code {{ font-weight: bold; }}
+    </style>
+</head>
+<body>
+    <h1 class="error">错误 {code}</h1>
+    <p class="code">{message}</p>
+    <p>{explain}</p>
+</body>
+</html>"""
+            
+            print(f"[调试] 准备发送错误页面，长度: {len(error_html)}")
+            # 发送UTF-8编码的错误页面
+            self.wfile.write(error_html.encode('utf-8'))
+            print(f"[调试] 错误页面发送完成")
+            
+        except Exception as e:
+            # 如果UTF-8编码失败，回退到默认的latin-1编码
+            print(f"UTF-8错误编码失败，回退到默认编码: {e}")
+            try:
+                super().send_error(code, message, explain)
+            except Exception as e2:
+                print(f"默认send_error也失败: {e2}")
+                # 最后的回退：发送简单的错误响应
+                try:
+                    self.send_response(code)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.end_headers()
+                    error_msg = f"Error {code}: {message or 'Unknown error'}"
+                    self.wfile.write(error_msg.encode('utf-8'))
+                except Exception as e3:
+                    print(f"所有错误处理方法都失败: {e3}")
+    
     def get_client_info(self):
         """获取客户端信息"""
         client_ip = self.client_address[0]
@@ -548,6 +614,32 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_heartbeat()
         elif self.path == '/api/connection-stats':
             self.handle_connection_stats()
+        elif self.path == '/api/data-file-path':
+            self.handle_data_file_path()
+        elif self.path == '/api/data-file':
+            self.handle_data_file()
+        elif self.path.startswith('/api/check-file-exists'):
+            self.handle_check_file_exists()
+        elif self.path.startswith('/api/open-html-file'):
+            self.handle_open_html_file()
+        elif self.path == '/ai_organize_result.json':
+            # 直接处理ai_organize_result.json文件请求
+            self.handle_data_file()
+        elif self.path == '/viewer.html':
+            # 重定向到resources目录中的viewer.html
+            self.path = '/resources/viewer.html'
+            super().do_GET()
+        elif self.path == '/favicon.ico':
+            # 重定向到resources目录中的favicon.ico
+            self.path = '/resources/favicon.ico'
+            super().do_GET()
+        elif self.path == '/weixin_article_renderer.html':
+            # 重定向到resources目录中的weixin_article_renderer.html
+            self.path = '/resources/weixin_article_renderer.html'
+            super().do_GET()
+        elif self.path.startswith('/') and self.path.endswith('.json'):
+            # 处理JSON文件请求，这些文件可能在用户数据目录中
+            self.handle_json_file_request()
         else:
             super().do_GET()
     
@@ -567,6 +659,25 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self.handle_heartbeat()
         elif self.path == '/api/connection-stats':
             self.handle_connection_stats()
+        elif self.path == '/api/data-file-path':
+            self.handle_data_file_path()
+        elif self.path == '/api/data-file':
+            self.handle_data_file()
+        elif self.path == '/viewer.html':
+            # 重定向到resources目录中的viewer.html
+            self.path = '/resources/viewer.html'
+            super().do_HEAD()
+        elif self.path == '/favicon.ico':
+            # 重定向到resources目录中的favicon.ico
+            self.path = '/resources/favicon.ico'
+            super().do_HEAD()
+        elif self.path == '/weixin_article_renderer.html':
+            # 重定向到resources目录中的weixin_article_renderer.html
+            self.path = '/resources/weixin_article_renderer.html'
+            super().do_HEAD()
+        elif self.path.startswith('/') and self.path.endswith('.json'):
+            # 处理JSON文件请求，这些文件可能在用户数据目录中
+            self.handle_json_file_request()
         else:
             super().do_HEAD()
     
@@ -575,7 +686,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         只按文件名判断重复，保留每个文件的最新记录
         """
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -615,7 +726,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_check_and_fix_paths(self):
         """处理检查和修复文件路径的请求"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -660,7 +771,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_check_paths(self):
         """处理路径检查请求 - 只检查不修复"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -695,7 +806,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_search_and_update_paths(self):
         """处理搜索和更新文件路径的请求"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -818,6 +929,192 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             })
         except Exception as e:
             self.send_json_response({'success': False, 'message': f'获取统计信息失败: {str(e)}'})
+    
+    def handle_data_file_path(self):
+        """处理数据文件路径请求"""
+        try:
+            json_file = app_paths.ai_results_file
+            file_exists = json_file.exists()
+            
+            self.send_json_response({
+                'success': True,
+                'file_path': str(json_file),
+                'file_exists': file_exists,
+                'file_name': json_file.name
+            })
+        except Exception as e:
+            self.send_json_response({'success': False, 'message': f'获取文件路径失败: {str(e)}'})
+    
+    def handle_data_file(self):
+        """处理数据文件内容请求"""
+        try:
+            json_file = app_paths.ai_results_file
+            
+            if not json_file.exists():
+                self.send_error(404, "数据文件不存在")
+                return
+            
+            # 读取文件内容
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = f.read()
+            except Exception as e:
+                self.send_error(500, f"读取文件失败: {str(e)}")
+                return
+            
+            # 设置响应头
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 发送文件内容
+            self.wfile.write(data.encode('utf-8'))
+            
+        except Exception as e:
+            self.send_error(500, f"处理请求失败: {str(e)}")
+    
+    def handle_check_file_exists(self):
+        """处理检查文件是否存在的请求"""
+        try:
+            # 解析查询参数
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            
+            file_path = query_params.get('file', [None])[0]
+            if not file_path:
+                self.send_json_response({'exists': False, 'error': '缺少文件路径参数'})
+                return
+            
+            # URL解码文件路径
+            file_path = unquote(file_path)
+            
+            # 检查文件是否存在
+            exists = os.path.exists(file_path)
+            
+            print(f"[调试] 检查文件存在性: {file_path} -> {exists}")
+            
+            self.send_json_response({'exists': exists, 'file_path': file_path})
+            
+        except Exception as e:
+            print(f"[错误] 检查文件存在性失败: {e}")
+            self.send_json_response({'exists': False, 'error': str(e)})
+    
+    def handle_open_html_file(self):
+        """处理打开HTML文件的请求"""
+        try:
+            # 解析查询参数
+            parsed_url = urlparse(self.path)
+            query_params = parse_qs(parsed_url.query)
+            
+            file_path = query_params.get('file', [None])[0]
+            if not file_path:
+                self.send_error(400, "缺少文件路径参数")
+                return
+            
+            # URL解码文件路径
+            file_path = unquote(file_path)
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                self.send_error(404, f"HTML文件不存在: {file_path}")
+                return
+            
+            # 检查文件是否在允许的目录中（安全考虑）
+            allowed_dirs = [
+                str(app_paths.user_data_dir),
+                str(app_paths.results_dir),
+                str(app_paths.weixin_articles_dir)
+            ]
+            
+            file_path_normalized = os.path.normpath(file_path)
+            is_allowed = any(file_path_normalized.startswith(os.path.normpath(allowed_dir)) 
+                           for allowed_dir in allowed_dirs)
+            
+            if not is_allowed:
+                self.send_error(403, f"访问被拒绝: {file_path}")
+                return
+            
+            # 读取HTML文件内容
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    html_content = f.read()
+            except Exception as e:
+                self.send_error(500, f"读取HTML文件失败: {str(e)}")
+                return
+            
+            # 设置响应头
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 发送HTML内容
+            self.wfile.write(html_content.encode('utf-8'))
+            
+            print(f"[信息] 成功提供HTML文件: {file_path}")
+            
+        except Exception as e:
+            print(f"[错误] 处理HTML文件请求失败: {e}")
+            self.send_error(500, f"处理HTML文件请求失败: {str(e)}")
+    
+    def handle_json_file_request(self):
+        """处理JSON文件请求，支持从用户数据目录加载文件"""
+        try:
+            # 从URL路径中提取文件路径
+            # 例如: /C:/Users/xiang/AppData/Roaming/TidyFile/data/results/weixin_articles/file.json
+            # 需要解码并转换为实际文件路径
+            file_path = self.path[1:]  # 移除开头的 '/'
+            file_path = unquote(file_path)  # URL解码
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                self.send_error(404, f"文件不存在: {file_path}")
+                return
+            
+            # 检查文件是否在允许的目录中（安全考虑）
+            allowed_dirs = [
+                str(app_paths.user_data_dir),
+                str(app_paths.results_dir),
+                str(app_paths.weixin_articles_dir)
+            ]
+            
+            file_path_normalized = os.path.normpath(file_path)
+            is_allowed = any(file_path_normalized.startswith(os.path.normpath(allowed_dir)) 
+                           for allowed_dir in allowed_dirs)
+            
+            if not is_allowed:
+                self.send_error(403, f"访问被拒绝: {file_path}")
+                return
+            
+            # 读取文件内容
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = f.read()
+            except Exception as e:
+                self.send_error(500, f"读取文件失败: {str(e)}")
+                return
+            
+            # 设置响应头
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            
+            # 发送文件内容
+            self.wfile.write(data.encode('utf-8'))
+            
+        except Exception as e:
+            self.send_error(500, f"处理JSON文件请求失败: {str(e)}")
     
     def check_and_fix_file_paths(self, data):
         """检查并修复文件路径"""
@@ -1991,13 +2288,27 @@ def start_local_server(port=80, bind_address="0.0.0.0"):
     try:
         # 确保在正确的目录下启动服务器
         script_dir = Path(__file__).parent
-        os.chdir(script_dir)
+        # 将工作目录设置为项目根目录，这样服务器可以访问resources目录
+        project_root = script_dir.parent
+        os.chdir(project_root)
         
         # 检查必要文件是否存在
-        new_html_file = script_dir / 'viewer.html'
-        html_file = script_dir / 'viewer.html'
-        fallback_html_file = script_dir / 'ai_result_viewer.html'
-        json_file = script_dir / 'ai_organize_result.json'
+        # 首先尝试在resources目录中查找HTML文件
+        resources_dir = script_dir.parent / 'resources'
+        new_html_file = resources_dir / 'viewer.html'
+        html_file = resources_dir / 'viewer.html'
+        fallback_html_file = resources_dir / 'ai_result_viewer.html'
+        
+        # 如果resources目录中没有找到，则在scripts目录中查找
+        if not new_html_file.exists():
+            new_html_file = script_dir / 'viewer.html'
+        if not html_file.exists():
+            html_file = script_dir / 'viewer.html'
+        if not fallback_html_file.exists():
+            fallback_html_file = script_dir / 'ai_result_viewer.html'
+        
+        # JSON文件路径使用app_paths
+        json_file = app_paths.ai_results_file
         
         # 创建HTTP服务器
         handler = CustomHTTPRequestHandler

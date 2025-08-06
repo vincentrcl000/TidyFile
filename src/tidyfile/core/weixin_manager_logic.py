@@ -10,15 +10,19 @@ class WeixinManagerLogic:
     
     def __init__(self):
         self.base_url = "http://127.0.0.1:5030"
-        self.save_dir = "weixin_manager"
+        # 使用app_paths获取正确的路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        self.save_dir = str(app_paths.weixin_articles_dir)
         self.save_file = "weixin_article.json"
     
-    def fetch_wechat_favorites(self, talker, start_date, end_date):
+    def fetch_wechat_favorites(self, talker, start_date, end_date, timeout=60):
         """
         拉取微信收藏文章接口
         :param talker: 收藏账号
         :param start_date: 起始日期 YYYY-MM-DD
         :param end_date: 结束日期 YYYY-MM-DD
+        :param timeout: 请求超时时间（秒），默认60秒
         :return: 原始文本内容
         """
         try:
@@ -30,8 +34,10 @@ class WeixinManagerLogic:
             print(f"[微信接口] 正在连接API服务器: {self.base_url}")
             print(f"[微信接口] 正在请求接口: {url}")
             print(f"[微信接口] 请求参数: 账号={talker}, 时间范围={start_date}~{end_date}")
+            print(f"[微信接口] 超时设置: {timeout}秒")
             
-            response = requests.get(url, params=params, timeout=30)
+            # 使用更长的超时时间，支持大数据量
+            response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
             
             print(f"[微信接口] API连接成功！")
@@ -52,8 +58,9 @@ class WeixinManagerLogic:
             print(f"[微信接口] 请检查API服务是否已启动")
             raise Exception(f"API连接失败: {e}")
         except requests.exceptions.Timeout as e:
-            print(f"[微信接口] 请求超时: 服务器响应时间过长")
-            raise Exception(f"API请求超时: {e}")
+            print(f"[微信接口] 请求超时: 服务器响应时间超过{timeout}秒")
+            print(f"[微信接口] 建议: 1. 检查网络连接 2. 减少时间范围 3. 增加超时时间")
+            raise Exception(f"API请求超时({timeout}秒): {e}")
         except requests.exceptions.RequestException as e:
             print(f"[微信接口] 请求失败: {e}")
             raise Exception(f"接口请求失败: {e}")
@@ -187,24 +194,26 @@ class WeixinManagerLogic:
             print(f"[保存] 文件写入失败: {e}")
             raise Exception(f"保存文件失败: {e}")
     
-    def backup_wechat_favorites(self, talker, start_date, end_date):
+    def backup_wechat_favorites(self, talker, start_date, end_date, timeout=60):
         """
         完整的微信收藏文章备份流程
         :param talker: 收藏账号
         :param start_date: 起始日期
         :param end_date: 结束日期
+        :param timeout: 请求超时时间（秒），默认60秒
         :return: (成功数量, 保存路径)
         """
         print(f"[备份] ===== 微信收藏文章备份任务开始 =====")
         print(f"[备份] 收藏账号: {talker}")
         print(f"[备份] 时间范围: {start_date} ~ {end_date}")
+        print(f"[备份] 超时设置: {timeout}秒")
         print(f"[备份] API服务器: {self.base_url}")
         print(f"[备份] 保存目录: {self.save_dir}")
         
         try:
             # 1. 拉取数据
             print(f"[备份] 步骤1: 正在连接API并拉取数据...")
-            raw_text = self.fetch_wechat_favorites(talker, start_date, end_date)
+            raw_text = self.fetch_wechat_favorites(talker, start_date, end_date, timeout)
             
             # 2. 解析文章
             print(f"[备份] 步骤2: 正在解析收藏文章...")

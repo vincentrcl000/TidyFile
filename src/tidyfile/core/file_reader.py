@@ -487,6 +487,12 @@ class FileReader:
             - duplicate_info: 重复记录的详细信息（如果重复）
             - error: 错误信息（如果有）
         """
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if ai_result_file == "ai_organize_result.json":
+            ai_result_file = str(app_paths.ai_results_file)
+        
         result = {
             'is_duplicate': False,
             'is_same_file_different_path': False,
@@ -587,6 +593,11 @@ class FileReader:
         return result
 
     def generate_summary(self, file_path: str, max_summary_length: int = 50, ai_result_file: str = "ai_organize_result.json") -> Dict[str, Any]:
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if ai_result_file == "ai_organize_result.json":
+            ai_result_file = str(app_paths.ai_results_file)
         """
         生成文件内容摘要（与智能文件分类器保持一致）
         
@@ -1027,6 +1038,11 @@ class FileReader:
             return []
     
     def append_result_to_file(self, ai_result_file: str, result: dict, base_folder: str = "") -> None:
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if ai_result_file == "ai_organize_result.json":
+            ai_result_file = str(app_paths.ai_results_file)
         """将文件解读结果追加到JSON文件（使用并发管理器）"""
         try:
             # 检查是否为重复文件

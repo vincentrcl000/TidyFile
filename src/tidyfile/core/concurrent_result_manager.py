@@ -34,6 +34,12 @@ class ConcurrentResultManager:
     """并发结果管理器，支持多线程安全写入"""
     
     def __init__(self, result_file: str = "ai_organize_result.json"):
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if result_file == "ai_organize_result.json":
+            result_file = str(app_paths.ai_results_file)
+        
         self.result_file = result_file
         self.file_lock = threading.Lock()  # 线程锁
         self.backup_file = f"{result_file}.backup"
@@ -97,40 +103,31 @@ class ConcurrentResultManager:
         """读取现有数据（线程安全）"""
         with self.file_lock:
             try:
+                # 确保目录存在
+                os.makedirs(os.path.dirname(self.result_file), exist_ok=True)
+                
                 if os.path.exists(self.result_file):
                     with open(self.result_file, 'r', encoding='utf-8') as f:
-                        if self._acquire_file_lock(f):
-                            try:
-                                content = f.read().strip()
-                                if not content:  # 空文件
-                                    logging.warning("AI结果文件为空，跳过读取")
-                                    # 不要返回空列表，而是抛出异常
-                                    raise RuntimeError("AI结果文件为空，可能正在写入中")
-                                
-                                data = json.loads(content)
-                                if not isinstance(data, list):
-                                    logging.error("AI结果文件格式错误：根元素不是数组")
-                                    logging.error("请手动检查文件格式或备份后重新处理")
-                                    # 不要返回空列表，而是抛出异常
-                                    raise RuntimeError("AI结果文件格式错误：根元素不是数组")
-                                return data
-                            except json.JSONDecodeError as e:
-                                logging.error(f"AI结果文件JSON格式错误: {e}")
-                                logging.error("请手动检查文件格式或备份后重新处理")
-                                # 不要返回空列表，而是抛出异常
-                                raise RuntimeError(f"AI结果文件JSON格式错误: {e}")
-                            finally:
-                                self._release_file_lock(f)
+                        content = f.read().strip()
+                        if content:  # 只有当文件不为空时才尝试解析JSON
+                            return json.loads(content)
                         else:
-                            logging.warning("无法获取文件锁，等待重试")
-                            time.sleep(0.1)
-                            return self.read_existing_data()
-                # 不要返回空列表，而是抛出异常
-                raise RuntimeError("文件不存在或无法访问")
+                            return []  # 空文件时返回空列表
+                else:
+                    # 文件不存在，返回空列表
+                    return []
+                    
+            except json.JSONDecodeError as e:
+                logging.error(f"JSON解析错误: {e}")
+                # 尝试从备份恢复
+                if self._restore_from_backup():
+                    return self.read_existing_data()
+                else:
+                    # 如果恢复失败，返回空列表
+                    return []
             except Exception as e:
                 logging.error(f"读取文件失败: {e}")
-                # 不要返回空列表，而是抛出异常
-                raise RuntimeError(f"读取文件失败: {e}")
+                return []
     
     def atomic_write_data(self, data: List[Dict[str, Any]], operation_type: str = "未知操作") -> bool:
         """原子写入数据（使用临时文件确保写入安全）"""

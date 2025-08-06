@@ -42,9 +42,19 @@ except ImportError:
     print("警告: pywin32库未安装，Microsoft Office COM转换功能将不可用")
 
 # 缓存目录
-CACHE_DIR = Path("cache")
-if not CACHE_DIR.exists():
-    CACHE_DIR.mkdir(exist_ok=True)
+try:
+    import sys
+    import os
+    # 添加src目录到Python路径
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+    from tidyfile.utils.app_paths import get_app_paths
+    app_paths = get_app_paths()
+    CACHE_DIR = app_paths.cache_dir
+except ImportError:
+    # 兼容旧版本
+    CACHE_DIR = Path("cache")
+    if not CACHE_DIR.exists():
+        CACHE_DIR.mkdir(exist_ok=True)
 
 # 文档转换缓存
 DOC_CONVERSION_CACHE = {}
@@ -568,7 +578,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_clean_duplicates(self):
         """处理清理重复文件的请求"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -608,7 +618,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_check_and_fix_paths(self):
         """处理检查和修复文件路径的请求"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -653,7 +663,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_check_paths(self):
         """处理路径检查请求 - 只检查不修复"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})
@@ -692,7 +702,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def handle_search_and_update_paths(self):
         """处理搜索和更新文件路径的请求"""
         try:
-            json_file = Path('ai_organize_result.json')
+            json_file = app_paths.ai_results_file
             
             if not json_file.exists():
                 self.send_json_response({'success': False, 'message': 'JSON文件不存在'})

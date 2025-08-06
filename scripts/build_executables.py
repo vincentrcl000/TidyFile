@@ -55,6 +55,7 @@ def build_executable():
         "--windowed",
         "--name=TidyFile-Windows-x64",
         "--add-data=resources;resources",
+        "--paths=src",
         "--hidden-import=tkinter",
         "--hidden-import=ttkbootstrap", 
         "--hidden-import=flask",

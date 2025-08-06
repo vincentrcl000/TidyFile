@@ -89,6 +89,12 @@ class ChainTagsBatchProcessor:
         Args:
             result_file: 结果文件路径
         """
+        # 使用新的路径管理获取正确的文件路径
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        if result_file == "ai_organize_result.json":
+            result_file = str(app_paths.ai_results_file)
+        
         self.result_file = result_file
         self.backup_file_path = f"{result_file}.backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
@@ -1065,7 +1071,9 @@ class ChainTagsBatchProcessor:
     
     def load_chain_tags_from_file(self) -> List[str]:
         """从chain_tags_list.txt文件加载链式标签列表"""
-        chain_tags_file = "chain_tags_list.txt"
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        chain_tags_file = app_paths.results_dir / "chain_tags_list.txt"
         chain_tags = []
         
         try:
@@ -1704,13 +1712,16 @@ class ChainTagsBatchProcessor:
             return False
         
         # 检查 chain_tags_list.txt 是否生成成功
-        if not os.path.exists("chain_tags_list.txt"):
+        from tidyfile.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        chain_tags_file = app_paths.results_dir / "chain_tags_list.txt"
+        if not chain_tags_file.exists():
             print("失败 chain_tags_list.txt 文件未生成")
             return False
         
         # 显示生成的文件信息
         try:
-            with open("chain_tags_list.txt", 'r', encoding='utf-8') as f:
+            with open(chain_tags_file, 'r', encoding='utf-8') as f:
                 chain_tags_count = sum(1 for line in f if line.strip())
             print(f"成功 chain_tags_list.txt 文件已生成，包含 {chain_tags_count} 个唯一标签")
         except Exception as e:

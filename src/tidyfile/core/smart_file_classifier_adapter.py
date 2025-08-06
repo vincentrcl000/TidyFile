@@ -265,7 +265,12 @@ class SmartFileClassifierAdapter:
                     self.classifier.append_result_to_file(result_file, result, target_directory)
                     
                     # 同时写入到主程序期望的文件名
-                    self.classifier.append_result_to_file("ai_organize_result.json", result, target_directory)
+                    # 使用新的路径管理获取正确的文件路径
+                    from tidyfile.utils.app_paths import get_app_paths
+                    app_paths = get_app_paths()
+                    ai_result_file = str(app_paths.ai_results_file)
+                    
+                    self.classifier.append_result_to_file(ai_result_file, result, target_directory)
                     
                     # 清理文件缓存
                     self.classifier.clear_file_cache(file_path)

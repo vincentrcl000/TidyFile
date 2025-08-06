@@ -87,7 +87,15 @@ class SmartFileClassifier:
     
     def setup_logging(self):
         """设置日志"""
-        log_dir = "logs"
+        try:
+            # 使用新的路径管理
+            from tidyfile.utils.app_paths import get_app_paths
+            app_paths = get_app_paths()
+            log_dir = str(app_paths.logs_dir)
+        except ImportError:
+            # 兼容旧版本
+            log_dir = "logs"
+        
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         
@@ -106,8 +114,10 @@ class SmartFileClassifier:
     def load_classification_rules(self) -> Dict[str, str]:
         """加载分类规则"""
         try:
-            if os.path.exists('classification_rules.json'):
-                with open('classification_rules.json', 'r', encoding='utf-8') as f:
+            from tidyfile.utils.app_paths import get_app_paths
+            app_paths = get_app_paths()
+            if app_paths.classification_rules_file.exists():
+                with open(app_paths.classification_rules_file, 'r', encoding='utf-8') as f:
                     rules = json.load(f)
                 logging.info(f"成功加载分类规则，共 {len(rules)} 条规则")
                 return rules
@@ -771,6 +781,12 @@ class SmartFileClassifier:
     def append_result_to_file(self, ai_result_file: str, result: dict, target_directory: str = "") -> None:
         """将AI结果追加到JSON文件（使用并发管理器）"""
         try:
+            # 使用新的路径管理获取正确的文件路径
+            from tidyfile.utils.app_paths import get_app_paths
+            app_paths = get_app_paths()
+            if ai_result_file == "ai_organize_result.json":
+                ai_result_file = str(app_paths.ai_results_file)
+            
             # 构建最终目标路径
             final_target_path = ""
             if result['success'] and result['recommended_folder']:
@@ -829,6 +845,9 @@ class SmartFileClassifier:
     def _legacy_append_result(self, ai_result_file: str, entry: dict) -> None:
         """传统方法写入结果（备用）"""
         try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(ai_result_file), exist_ok=True)
+            
             # 读取现有文件
             existing_data = []
             if os.path.exists(ai_result_file):
@@ -855,7 +874,7 @@ class SmartFileClassifier:
             logging.info(f"结果已写入: {ai_result_file}")
             
         except Exception as e:
-            logging.error(f"传统方法写入结果文件失败: {e}") 
+            logging.error(f"传统方法写入结果文件失败: {e}")
 
     def run_with_timeout(self, func, *args, **kwargs):
         """
