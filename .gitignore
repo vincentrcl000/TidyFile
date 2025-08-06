@@ -79,6 +79,24 @@ test_*.py
 ai_organize_result.json
 ai_organize_result.json.*
 
+# 用户数据目录（通用化改造后）
+app_data/
+user_data/
+
+# 配置文件（包含个人数据）
+ai_models_config.json
+classification_rules.json
+app_settings.json
+
+# 数据文件
+cache/
+results/
+temp/
+
+# 迁移相关
+migration_status.json
+migration.log
+
 # 构建产物
 dist/
 build/
