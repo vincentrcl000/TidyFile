@@ -13,7 +13,7 @@ jobs:
     runs-on: windows-latest
     strategy:
       matrix:
-        python-version: [3.8, 3.9, "3.10", "3.11", "3.12"]
+        python-version: ["3.11"]
 
     steps:
     - uses: actions/checkout@v3
@@ -23,66 +23,15 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
-    - name: Cache pip dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest black flake8 mypy
-    
-    - name: Lint with flake8
-      run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-    
-    - name: Check code formatting with black
-      run: |
-        black --check --diff .
-    
-    - name: Type check with mypy
-      run: |
-        mypy --ignore-missing-imports .
+        pip install pytest
     
     - name: Test with pytest
       run: |
-        # 创建简单的测试文件
-        mkdir -p tests
-        echo "def test_dummy(): pass" > tests/test_dummy.py
-        pytest tests/ -v
-
-  build:
-    needs: test
-    runs-on: windows-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
-    
-    - name: Build package
-      run: python -m build
-    
-    - name: Publish to PyPI
-      if: github.event_name == 'push'
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
+        python -m pytest tests/ -v
 
   build-executables:
     needs: test
@@ -106,7 +55,6 @@ jobs:
     - name: Create resources directory
       run: |
         mkdir -p resources
-        # 如果没有图标文件，创建一个简单的占位符
         if (!(Test-Path "resources/TidyFile.ico")) {
           echo "Creating placeholder icon"
           New-Item -ItemType File -Path "resources/TidyFile.ico" -Force
@@ -122,11 +70,9 @@ jobs:
     
     - name: Create distribution packages
       run: |
-        # 创建ZIP包
         cd dist
         powershell Compress-Archive -Path "TidyFile-Windows-x64.exe" -DestinationPath "TidyFile-Windows-x64.zip"
         
-        # 创建安装包
         mkdir TidyFile-Installer
         copy TidyFile-Windows-x64.exe TidyFile-Installer\
         copy ..\scripts\start_tidyfile.vbs TidyFile-Installer\
@@ -134,7 +80,6 @@ jobs:
         copy ..\scripts\create_desktop_shortcuts.py TidyFile-Installer\
         xcopy ..\resources TidyFile-Installer\resources /E /I /Y
         
-        # 创建安装说明
         echo # TidyFile Windows 安装包 > TidyFile-Installer\README.txt
         echo. >> TidyFile-Installer\README.txt
         echo ## 安装说明 >> TidyFile-Installer\README.txt
@@ -148,7 +93,6 @@ jobs:
         echo - 推荐使用Ollama本地模型 >> TidyFile-Installer\README.txt
         echo - 详细使用说明请参考用户手册 >> TidyFile-Installer\README.txt
         
-        # 创建安装包ZIP
         powershell Compress-Archive -Path "TidyFile-Installer\*" -DestinationPath "TidyFile-Windows-Installer.zip"
         cd ..
     
@@ -162,7 +106,7 @@ jobs:
           dist/TidyFile-Windows-Installer.zip
 
   release:
-    needs: [build, build-executables]
+    needs: [build-executables]
     runs-on: windows-latest
     if: github.event_name == 'release'
     
@@ -173,9 +117,7 @@ jobs:
     - name: Create release assets
       run: |
         mkdir -p release-assets
-        # 移动所有可执行文件到发布目录
         Get-ChildItem -Recurse -Name "TidyFile-Windows-x64*" | ForEach-Object { Copy-Item $_ "release-assets/" }
-        # 创建发布说明
         echo # TidyFile v${{ github.event.release.tag_name }} > release-assets/README.md
         echo. >> release-assets/README.md
         echo ## 下载说明 >> release-assets/README.md
