@@ -135,12 +135,19 @@ jobs:
         Write-Host "Building TidyFile executable..."
         $outputName = "TidyFile-Windows-x64"
         
+        # 验证目录结构
+        Write-Host "Current directory: $PWD"
+        Write-Host "Resources directory contents:"
+        Get-ChildItem resources -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+        Write-Host "Scripts directory contents:"
+        Get-ChildItem scripts -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+        
         # 构建PyInstaller命令
         Write-Host "Building with resources path: $PWD\resources"
         Write-Host "Add-data argument: $PWD\resources:resources"
         
         # 执行PyInstaller命令，使用相对路径
-        pyinstaller --onefile --windowed --name=$outputName --icon="resources\TidyFile.ico" --add-data="resources;resources" --add-data="scripts;scripts" --paths=src --distpath=dist --workpath=build --specpath=build --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --hidden-import=concurrent.futures --hidden-import=threading --hidden-import=logging --hidden-import=json --hidden-import=pathlib --hidden-import=subprocess --hidden-import=socket --hidden-import=http.server --hidden-import=socketserver --hidden-import=webbrowser --hidden-import=psutil --hidden-import=gc --hidden-import=tempfile --hidden-import=shutil --hidden-import=hashlib --hidden-import=mimetypes --hidden-import=urllib.parse --hidden-import=collections --hidden-import=datetime --hidden-import=ssl --hidden-import=re --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=bs4 --hidden-import=beautifulsoup4 --hidden-import=html2text --hidden-import=markdown --hidden-import=openai --collect-all=tidyfile --clean main.py
+        pyinstaller --onefile --windowed --name=$outputName --icon="resources\TidyFile.ico" --add-data="resources;resources" --add-data="scripts;scripts" --paths=src --distpath=dist --workpath=build --specpath=build --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --hidden-import=concurrent.futures --hidden-import=threading --hidden-import=logging --hidden-import=json --hidden-import=pathlib --hidden-import=subprocess --hidden-import=socket --hidden-import=http.server --hidden-import=socketserver --hidden-import=webbrowser --hidden-import=psutil --hidden-import=gc --hidden-import=tempfile --hidden-import=shutil --hidden-import=hashlib --hidden-import=mimetypes --hidden-import=urllib.parse --hidden-import=collections --hidden-import=datetime --hidden-import=ssl --hidden-import=re --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=bs4 --hidden-import=beautifulsoup4 --hidden-import=html2text --hidden-import=markdown --hidden-import=openai --hidden-import=tidyfile --hidden-import=tidyfile.core --hidden-import=tidyfile.gui --hidden-import=tidyfile.ai --hidden-import=tidyfile.i18n --hidden-import=tidyfile.utils --clean main.py
         
                  if ($LASTEXITCODE -eq 0) {
            Write-Host "[SUCCESS] Build completed successfully"

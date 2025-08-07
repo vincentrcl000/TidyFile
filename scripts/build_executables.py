@@ -92,7 +92,12 @@ def build_executable():
         "--hidden-import=html2text",
         "--hidden-import=markdown",
         "--hidden-import=openai",
-        "--collect-all=tidyfile",
+        "--hidden-import=tidyfile",
+        "--hidden-import=tidyfile.core",
+        "--hidden-import=tidyfile.gui", 
+        "--hidden-import=tidyfile.ai",
+        "--hidden-import=tidyfile.i18n",
+        "--hidden-import=tidyfile.utils",
         "--clean",
         "main.py"
     ]
