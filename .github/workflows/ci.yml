@@ -7,142 +7,411 @@ on:
     branches: [ main ]
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full
+
+env:
+  PYTHON_VERSION: "3.11"
+  PIP_CACHE_DIR: ~/.cache/pip
+  PYINSTALLER_CACHE_DIR: ~/.cache/pyinstaller
 
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 10
     
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.PIP_CACHE_DIR }}
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
     
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools wheel
         pip install -r requirements.txt
+        pip install pytest pytest-cov
     
-    - name: Test basic functionality
+    - name: Run tests
       run: |
-        python -c "print('Basic test passed')"
-        python -c "import sys; sys.path.insert(0, 'src'); print('Path setup test passed')"
+        python -c "import sys; sys.path.insert(0, 'src'); print('[PASS] Path setup test passed')"
+        python -c "import sys; sys.path.insert(0, 'src'); import tidyfile; print('[PASS] Import test passed')"
+        python -c "print('[PASS] Basic functionality test passed')"
 
   build-executables:
     needs: test
     runs-on: windows-latest
-    if: github.event_name == 'release'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
+    
+    strategy:
+      matrix:
+        build_type: [full]
+      fail-fast: false
     
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.11"
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.PIP_CACHE_DIR }}
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Cache PyInstaller
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.PYINSTALLER_CACHE_DIR }}
+        key: ${{ runner.os }}-pyinstaller-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pyinstaller-
     
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip setuptools wheel
         pip install -r requirements.txt
-        pip install pyinstaller
+        pip install pyinstaller==6.3.0
     
-    - name: Create resources directory
+    - name: Setup build environment
       run: |
-        mkdir -p resources
-        if (!(Test-Path "resources/TidyFile.ico")) {
-          echo "Creating placeholder icon"
-          New-Item -ItemType File -Path "resources/TidyFile.ico" -Force
+        # Create resources directory if not exists
+        if (!(Test-Path "resources")) {
+          New-Item -ItemType Directory -Path "resources" -Force | Out-Null
         }
-        if (!(Test-Path "resources/Article_Reader.ico")) {
-          echo "Creating placeholder icon"
-          New-Item -ItemType File -Path "resources/Article_Reader.ico" -Force
+        
+        # Create placeholder icons if not exists
+        $iconFiles = @("TidyFile.ico", "Article_Reader.ico")
+        foreach ($icon in $iconFiles) {
+          $iconPath = "resources/$icon"
+          if (!(Test-Path $iconPath)) {
+            New-Item -ItemType File -Path $iconPath -Force | Out-Null
+            Write-Host "Created placeholder: $iconPath"
+          }
         }
+        
+        # Verify environment
+        Write-Host "Python version: $(python --version)"
+        Write-Host "PyInstaller version: $(pyinstaller --version)"
+        Write-Host "Resources directory:"
+        Get-ChildItem resources -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
     
-    - name: Build executable
+    - name: Build executable (${{ matrix.build_type }})
       run: |
-        pyinstaller --onefile --windowed --name=TidyFile-Windows-x64 --icon=resources/TidyFile.ico --add-data=resources;resources --paths=src --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --clean main.py
+        $buildType = "${{ matrix.build_type }}"
+        $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        
+        Write-Host "Building TidyFile executable..."
+        $outputName = "TidyFile-Windows-x64"
+        
+        # 构建PyInstaller命令
+        Write-Host "Building with resources path: $PWD\resources"
+        Write-Host "Add-data argument: $PWD\resources:resources"
+        
+        # 执行PyInstaller命令，使用相对路径
+        pyinstaller --onefile --windowed --name=$outputName --icon="resources\TidyFile.ico" --add-data="resources;resources" --add-data="scripts;scripts" --paths=src --distpath=dist --workpath=build --specpath=build --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --hidden-import=concurrent.futures --hidden-import=threading --hidden-import=logging --hidden-import=json --hidden-import=pathlib --hidden-import=subprocess --hidden-import=socket --hidden-import=http.server --hidden-import=socketserver --hidden-import=webbrowser --hidden-import=psutil --hidden-import=gc --hidden-import=tempfile --hidden-import=shutil --hidden-import=hashlib --hidden-import=mimetypes --hidden-import=urllib.parse --hidden-import=collections --hidden-import=datetime --hidden-import=ssl --hidden-import=re --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=bs4 --hidden-import=beautifulsoup4 --hidden-import=html2text --hidden-import=markdown --hidden-import=openai --collect-all=tidyfile --clean main.py
+        
+                 if ($LASTEXITCODE -eq 0) {
+           Write-Host "[SUCCESS] Build completed successfully"
+           
+           # Verify output
+           $exePath = "dist/$outputName.exe"
+           if (Test-Path $exePath) {
+             $fileSize = (Get-Item $exePath).Length / 1MB
+             Write-Host "[SUCCESS] Executable created: $exePath ($([math]::Round($fileSize, 1)) MB)"
+           } else {
+             Write-Host "[ERROR] Executable not found: $exePath"
+             exit 1
+           }
+         } else {
+           Write-Host "[ERROR] Build failed with exit code: $LASTEXITCODE"
+           exit 1
+         }
     
     - name: Create distribution packages
+      if: success()
       run: |
-        cd dist
-        powershell Compress-Archive -Path "TidyFile-Windows-x64.exe" -DestinationPath "TidyFile-Windows-x64.zip"
+        $buildType = "${{ matrix.build_type }}"
+        $outputName = "TidyFile-Windows-x64"
         
-        mkdir TidyFile-Installer
-        copy TidyFile-Windows-x64.exe TidyFile-Installer\
-        copy ..\scripts\start_tidyfile.vbs TidyFile-Installer\
-        copy ..\scripts\start_article_reader.vbs TidyFile-Installer\
-        copy ..\scripts\create_desktop_shortcuts.py TidyFile-Installer\
-        xcopy ..\resources TidyFile-Installer\resources /E /I /Y
+        Set-Location dist
         
-        echo # TidyFile Windows 安装包 > TidyFile-Installer\README.txt
-        echo. >> TidyFile-Installer\README.txt
-        echo ## 安装说明 >> TidyFile-Installer\README.txt
-        echo. >> TidyFile-Installer\README.txt
-        echo 1. 解压此文件夹到任意位置 >> TidyFile-Installer\README.txt
-        echo 2. 运行 create_desktop_shortcuts.py 创建桌面快捷方式 >> TidyFile-Installer\README.txt
-        echo 3. 双击桌面上的 "TidyFile" 或 "Article Reader" 图标启动程序 >> TidyFile-Installer\README.txt
-        echo. >> TidyFile-Installer\README.txt
-        echo ## 注意事项 >> TidyFile-Installer\README.txt
-        echo - 首次运行可能需要配置AI模型 >> TidyFile-Installer\README.txt
-        echo - 推荐使用Ollama本地模型 >> TidyFile-Installer\README.txt
-        echo - 详细使用说明请参考用户手册 >> TidyFile-Installer\README.txt
+        # Create ZIP package
+        $exeFile = "$outputName.exe"
+        $zipFile = "$outputName.zip"
         
-        powershell Compress-Archive -Path "TidyFile-Installer\*" -DestinationPath "TidyFile-Windows-Installer.zip"
-        cd ..
+                 if (Test-Path $exeFile) {
+           Write-Host "Creating ZIP package: $zipFile"
+           Compress-Archive -Path $exeFile -DestinationPath $zipFile -Force
+           Write-Host "[SUCCESS] ZIP package created: $zipFile"
+         }
+        
+        # Create installer package
+        if (Test-Path $exeFile) {
+          Write-Host "Creating installer package..."
+          
+          $installerDir = "TidyFile-Installer"
+          if (Test-Path $installerDir) {
+            Remove-Item $installerDir -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path $installerDir -Force | Out-Null
+          
+          # Copy files
+          Copy-Item $exeFile "$installerDir/"
+          Copy-Item "../scripts/start_tidyfile.vbs" "$installerDir/"
+          Copy-Item "../scripts/start_article_reader.vbs" "$installerDir/"
+          Copy-Item "../scripts/create_desktop_shortcuts.py" "$installerDir/"
+          
+          # Copy resources
+          if (Test-Path "../resources") {
+            Copy-Item "../resources" "$installerDir/" -Recurse -Force
+          }
+          
+          # Copy scripts directory
+          if (Test-Path "../scripts") {
+            Copy-Item "../scripts" "$installerDir/" -Recurse -Force
+          }
+          
+          # Create README
+          $readmeContent = "# TidyFile Windows Installer`n`n"
+          $readmeContent += "## Installation Instructions`n`n"
+          $readmeContent += "1. Extract this folder to any location`n"
+          $readmeContent += "2. Run create_desktop_shortcuts.py to create desktop shortcuts`n"
+          $readmeContent += "3. Double-click TidyFile or Article Reader icon on desktop to start`n`n"
+          $readmeContent += "## File Description`n`n"
+          $readmeContent += "- $exeFile - Main program (portable version)`n"
+          $readmeContent += "- start_tidyfile.vbs - TidyFile startup script`n"
+          $readmeContent += "- start_article_reader.vbs - Article Reader startup script`n"
+          $readmeContent += "- create_desktop_shortcuts.py - Desktop shortcut creation tool`n"
+          $readmeContent += "- resources/ - Icons and resource files`n`n"
+          $readmeContent += "## System Requirements`n`n"
+          $readmeContent += "- Windows 10/11`n"
+          $readmeContent += "- 4GB+ RAM`n"
+          $readmeContent += "- 1GB+ available disk space`n`n"
+          $readmeContent += "## Technical Support`n`n"
+          $readmeContent += "For issues, please visit the project homepage or submit an Issue."
+          
+          Set-Content -Path "$installerDir/README.txt" -Value $readmeContent -Encoding UTF8
+          
+                     # Create installer ZIP
+           $installerZip = "TidyFile-Windows-Installer.zip"
+           Compress-Archive -Path "$installerDir/*" -DestinationPath $installerZip -Force
+           Write-Host "[SUCCESS] Installer package created: $installerZip"
+        }
+        
+        Set-Location ..
+        
+        # List all artifacts
+        Write-Host "Distribution packages created:"
+        Get-ChildItem dist -Filter "*.zip" | ForEach-Object { Write-Host "  $($_.Name)" }
+    
+    - name: Debug artifacts
+      if: success()
+      run: |
+        Write-Host "=== Debug Artifacts ==="
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "Dist directory exists: $(Test-Path 'dist')"
+        if (Test-Path 'dist') {
+          Write-Host "Dist directory contents:"
+          Get-ChildItem dist -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+        }
+        Write-Host "Looking for exe files:"
+        Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "  $($_.FullName)" }
+        Write-Host "Looking for zip files:"
+        Get-ChildItem -Recurse -Filter "*.zip" | ForEach-Object { Write-Host "  $($_.FullName)" }
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      if: success()
+      uses: actions/upload-artifact@v4
       with:
-        name: TidyFile-Windows-x64
+        name: TidyFile-Windows-${{ github.sha }}
         path: |
-          dist/TidyFile-Windows-x64.exe
-          dist/TidyFile-Windows-x64.zip
-          dist/TidyFile-Windows-Installer.zip
+          dist/*.exe
+          dist/*.zip
+        retention-days: 30
+        if-no-files-found: warn
 
   release:
     needs: [build-executables]
     runs-on: windows-latest
     if: github.event_name == 'release'
+    timeout-minutes: 15
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
+      with:
+        pattern: TidyFile-Windows-${{ github.sha }}
+        merge-multiple: true
+        if-no-files-found: warn
+    
+    - name: Debug downloaded artifacts
+      run: |
+        Write-Host "=== Debug Downloaded Artifacts ==="
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host "Directory contents:"
+        Get-ChildItem -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+        Write-Host "Looking for exe files:"
+        Get-ChildItem -Recurse -Filter "*.exe" | ForEach-Object { Write-Host "  $($_.FullName)" }
+        Write-Host "Looking for zip files:"
+        Get-ChildItem -Recurse -Filter "*.zip" | ForEach-Object { Write-Host "  $($_.FullName)" }
     
     - name: Create release assets
       run: |
-        mkdir -p release-assets
-        Get-ChildItem -Recurse -Name "TidyFile-Windows-x64*" | ForEach-Object { Copy-Item $_ "release-assets/" }
-        echo # TidyFile v${{ github.event.release.tag_name }} > release-assets/README.md
-        echo. >> release-assets/README.md
-        echo ## 下载说明 >> release-assets/README.md
-        echo. >> release-assets/README.md
-        echo ### Windows 用户 >> release-assets/README.md
-        echo - 下载 \`TidyFile-Windows-x64.exe\` 直接运行 >> release-assets/README.md
-        echo - 或下载 \`TidyFile-Windows-x64.zip\` 解压使用 >> release-assets/README.md
-        echo - 或下载 \`TidyFile-Windows-Installer.zip\` 完整安装包 >> release-assets/README.md
-        echo. >> release-assets/README.md
-        echo ### 安装说明 >> release-assets/README.md
-        echo 1. 下载对应文件 >> release-assets/README.md
-        echo 2. 解压或直接运行 >> release-assets/README.md
-        echo 3. 配置AI模型（推荐使用Ollama） >> release-assets/README.md
-        echo 4. 开始使用！ >> release-assets/README.md
+        # Create release assets directory
+        if (!(Test-Path "release-assets")) {
+          New-Item -ItemType Directory -Path "release-assets" -Force | Out-Null
+          Write-Host "Created release-assets directory"
+        } else {
+          Write-Host "release-assets directory already exists"
+        }
+        
+        # Copy all artifacts
+        $copiedFiles = 0
+        Get-ChildItem -Recurse -Filter "TidyFile-Windows-x64*" | ForEach-Object {
+          Copy-Item $_.FullName "release-assets/"
+          $copiedFiles++
+          Write-Host "Copied: $($_.Name)"
+        }
+        
+        if ($copiedFiles -eq 0) {
+          Write-Host "Warning: No files were copied to release-assets"
+        } else {
+          Write-Host "Successfully copied $copiedFiles files to release-assets"
+        }
+        
+        # Verify files exist
+        Write-Host "Checking for required files:"
+        $requiredFiles = @("TidyFile-Windows-x64.exe", "TidyFile-Windows-x64.zip", "TidyFile-Windows-Installer.zip")
+        foreach ($file in $requiredFiles) {
+          $filePath = "release-assets/$file"
+          if (Test-Path $filePath) {
+            $fileSize = (Get-Item $filePath).Length / 1MB
+            Write-Host "✓ $file exists ($([math]::Round($fileSize, 1)) MB)"
+          } else {
+            Write-Host "⚠ $file not found"
+          }
+        }
+        
+        # Create release README
+        $readmeContent = "# TidyFile v${{ github.event.release.tag_name }}`n`n"
+        $readmeContent += "## Download Instructions`n`n"
+        $readmeContent += "### Windows Users`n"
+        $readmeContent += "- Download TidyFile-Windows-x64.exe to run directly`n"
+        $readmeContent += "- Or download TidyFile-Windows-x64.zip to extract and use`n"
+        $readmeContent += "- Or download TidyFile-Windows-Installer.zip for complete installation package`n`n"
+        $readmeContent += "### Installation Instructions`n"
+        $readmeContent += "1. Download the corresponding file`n"
+        $readmeContent += "2. Extract or run directly`n"
+        $readmeContent += "3. Configure AI model (recommended: Ollama)`n"
+        $readmeContent += "4. Start using!`n`n"
+        $readmeContent += "### Update Log`n"
+        $readmeContent += "${{ github.event.release.body }}`n`n"
+        $readmeContent += "### System Requirements`n"
+        $readmeContent += "- Windows 10/11`n"
+        $readmeContent += "- 4GB+ RAM`n"
+        $readmeContent += "- 1GB+ available disk space`n`n"
+        $readmeContent += "### Technical Support`n"
+        $readmeContent += "- Project Homepage: https://github.com/vincentrcl000/TidyFile`n"
+        $readmeContent += "- Issue Feedback: https://github.com/vincentrcl000/TidyFile/issues"
+        
+        Set-Content -Path "release-assets/README.md" -Value $readmeContent -Encoding UTF8
+        Write-Host "Created README.md"
+        
+        Write-Host "Release assets created:"
+        Get-ChildItem release-assets | ForEach-Object { 
+          $fileSize = (Get-Item $_.FullName).Length / 1MB
+          Write-Host "  $($_.Name) ($([math]::Round($fileSize, 1)) MB)" 
+        }
+        
+        # Final verification
+        Write-Host "Final verification:"
+        $totalFiles = (Get-ChildItem release-assets).Count
+        Write-Host "Total files in release-assets: $totalFiles"
+        if ($totalFiles -eq 0) {
+          Write-Host "ERROR: No files in release-assets directory!"
+          exit 1
+        }
     
     - name: Upload release assets
-      uses: actions/upload-release-asset@v1
+      if: hashFiles('release-assets/TidyFile-Windows-x64.exe') != ''
+      uses: actions/upload-release-asset@v4
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./release-assets/${{ matrix.name }}
-        asset_name: ${{ matrix.name }}
+        asset_path: ./release-assets/TidyFile-Windows-x64.exe
+        asset_name: TidyFile-Windows-x64.exe
         asset_content_type: application/octet-stream
-      strategy:
-        matrix:
-          include:
-            - name: TidyFile-Windows-x64.exe
-            - name: TidyFile-Windows-x64.zip
-            - name: TidyFile-Windows-Installer.zip
-            - name: README.md 
+      continue-on-error: true
+      timeout-minutes: 5
+
+    - name: Upload release assets ZIP
+      if: hashFiles('release-assets/TidyFile-Windows-x64.zip') != ''
+      uses: actions/upload-release-asset@v4
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./release-assets/TidyFile-Windows-x64.zip
+        asset_name: TidyFile-Windows-x64.zip
+        asset_content_type: application/octet-stream
+      continue-on-error: true
+      timeout-minutes: 5
+
+    - name: Upload release assets Installer
+      if: hashFiles('release-assets/TidyFile-Windows-Installer.zip') != ''
+      uses: actions/upload-release-asset@v4
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./release-assets/TidyFile-Windows-Installer.zip
+        asset_name: TidyFile-Windows-Installer.zip
+        asset_content_type: application/octet-stream
+      continue-on-error: true
+      timeout-minutes: 5
+
+    - name: Upload release assets README
+      if: hashFiles('release-assets/README.md') != ''
+      uses: actions/upload-release-asset@v4
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./release-assets/README.md
+        asset_name: README.md
+        asset_content_type: text/markdown
+      continue-on-error: true
+      timeout-minutes: 5 

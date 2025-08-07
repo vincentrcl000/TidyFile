@@ -109,3 +109,21 @@ build/
 temp/
 tmp/
 *.temp
+
+# 构建和调试相关文件
+BUILD_*.md
+ENCODING_*.md
+*_FIX_*.md
+*_SUMMARY.md
+*_UPDATE_*.md
+
+# 错误创建的文件夹
+-p/
+--p/
+
+# 设置完成标记
+.setup_complete
+
+# 其他临时文件
+*.spec.bak
+*.spec.old

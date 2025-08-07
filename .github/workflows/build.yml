@@ -1,0 +1,158 @@
+name: Manual Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'exe'
+        type: choice
+        options:
+        - exe
+        - all
+
+jobs:
+  build-executables:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+    
+    - name: Debug environment
+      run: |
+        echo "Python version:"
+        python --version
+        echo "Pip list:"
+        pip list
+        echo "Current directory:"
+        pwd
+        echo "Directory contents:"
+        dir
+        echo "Resources directory:"
+        if (Test-Path "resources") { dir resources } else { echo "Resources directory does not exist" }
+    
+    - name: Create resources directory
+      run: |
+        # 使用PowerShell兼容的方式创建目录
+        if (!(Test-Path "resources")) {
+          New-Item -ItemType Directory -Path "resources" -Force
+        }
+        echo "Creating placeholder icons..."
+        if (!(Test-Path "resources/TidyFile.ico")) {
+          echo "Creating TidyFile.ico placeholder"
+          New-Item -ItemType File -Path "resources/TidyFile.ico" -Force
+        }
+        if (!(Test-Path "resources/Article_Reader.ico")) {
+          echo "Creating Article_Reader.ico placeholder"
+          New-Item -ItemType File -Path "resources/Article_Reader.ico" -Force
+        }
+        echo "Resources directory contents:"
+        dir resources
+    
+    - name: Test PyInstaller
+      run: |
+        echo "Testing PyInstaller installation..."
+        pyinstaller --version
+        echo "PyInstaller test completed"
+    
+    - name: Build executable (simple)
+      run: |
+        echo "Starting PyInstaller build..."
+        pyinstaller --onefile --name=TidyFile-Windows-x64 --paths=src main.py
+        echo "PyInstaller build completed"
+        echo "Dist directory contents:"
+        if (Test-Path "dist") { dir dist } else { echo "Dist directory does not exist" }
+    
+    - name: Build executable (full)
+      if: success()
+      run: |
+        echo "Starting full PyInstaller build..."
+        pyinstaller --onefile --windowed --name=TidyFile-Windows-x64-Full --icon=resources/TidyFile.ico --add-data="resources;resources" --add-data="scripts;scripts" --paths=src --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --hidden-import=concurrent.futures --hidden-import=threading --hidden-import=logging --hidden-import=json --hidden-import=pathlib --hidden-import=subprocess --hidden-import=socket --hidden-import=http.server --hidden-import=socketserver --hidden-import=webbrowser --hidden-import=psutil --hidden-import=gc --hidden-import=tempfile --hidden-import=shutil --hidden-import=hashlib --hidden-import=mimetypes --hidden-import=urllib.parse --hidden-import=collections --hidden-import=datetime --hidden-import=ssl --hidden-import=re --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=bs4 --hidden-import=beautifulsoup4 --hidden-import=html2text --hidden-import=markdown --hidden-import=openai --collect-all=tidyfile --clean main.py
+        echo "Full PyInstaller build completed"
+        echo "Final dist directory contents:"
+        dir dist
+    
+    - name: Create distribution packages
+      if: success()
+      run: |
+        echo "Creating distribution packages..."
+        cd dist
+        echo "Current directory:"
+        pwd
+        echo "Available files:"
+        dir
+        
+        if (Test-Path "TidyFile-Windows-x64.exe") {
+          echo "Creating ZIP for simple build..."
+          powershell Compress-Archive -Path "TidyFile-Windows-x64.exe" -DestinationPath "TidyFile-Windows-x64.zip"
+        }
+        
+        if (Test-Path "TidyFile-Windows-x64-Full.exe") {
+          echo "Creating ZIP for full build..."
+          powershell Compress-Archive -Path "TidyFile-Windows-x64-Full.exe" -DestinationPath "TidyFile-Windows-x64-Full.zip"
+          
+          echo "Creating installer package..."
+          if (!(Test-Path "TidyFile-Installer")) {
+            New-Item -ItemType Directory -Path "TidyFile-Installer" -Force
+          }
+          copy TidyFile-Windows-x64-Full.exe TidyFile-Installer\
+          copy ..\scripts\start_tidyfile.vbs TidyFile-Installer\
+          copy ..\scripts\start_article_reader.vbs TidyFile-Installer\
+          copy ..\scripts\create_desktop_shortcuts.py TidyFile-Installer\
+          xcopy ..\resources TidyFile-Installer\resources /E /I /Y
+          
+                     Set-Content -Path "TidyFile-Installer\README.txt" -Value "# TidyFile Windows 安装包"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value ""
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "## 安装说明"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value ""
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "1. 解压此文件夹到任意位置"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "2. 运行 create_desktop_shortcuts.py 创建桌面快捷方式"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "3. 双击桌面上的 `"TidyFile`" 或 `"Article Reader`" 图标启动程序"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value ""
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "## 注意事项"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "- 首次运行可能需要配置AI模型"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "- 推荐使用Ollama本地模型"
+           Add-Content -Path "TidyFile-Installer\README.txt" -Value "- 详细使用说明请参考用户手册"
+          
+          powershell Compress-Archive -Path "TidyFile-Installer\*" -DestinationPath "TidyFile-Windows-Installer.zip"
+        }
+        
+        echo "Distribution packages created:"
+        dir *.zip
+        
+        # Verify files exist
+        echo "Verifying created files:"
+        $files = @("TidyFile-Windows-x64.exe", "TidyFile-Windows-x64.zip", "TidyFile-Windows-x64-Full.exe", "TidyFile-Windows-x64-Full.zip", "TidyFile-Windows-Installer.zip")
+        foreach ($file in $files) {
+          if (Test-Path $file) {
+            $fileSize = (Get-Item $file).Length / 1MB
+            echo "✓ $file exists ($([math]::Round($fileSize, 1)) MB)"
+          } else {
+            echo "⚠ $file not found"
+          }
+        }
+        cd ..
+    
+    - name: Upload artifacts
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: TidyFile-Windows-x64-Manual
+        path: |
+          dist/*.exe
+          dist/*.zip
+        retention-days: 30
+        if-no-files-found: warn

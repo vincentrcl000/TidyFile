@@ -1,46 +1,55 @@
-# AI文件整理工具依赖包
-# 基础依赖
-requests>=2.25.1
-beautifulsoup4>=4.9.3
-lxml>=4.6.3
-openpyxl>=3.0.7
-python-docx>=0.8.11
-Pillow>=8.2.0
-reportlab>=3.6.0
+# TidyFile 智能文件整理与解读系统依赖包
+# 更新时间: 2025-08-07
 
-# Windows COM支持（用于Office文档转PDF）
-# pywin32>=228  # 在CI/CD环境中不需要
+# 基础依赖
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+openpyxl>=3.1.0
+python-docx>=1.1.0
+Pillow>=10.0.0
+reportlab>=4.0.0
 
 # AI模型支持
-openai>=1.0.0
+openai>=1.3.0
 anthropic>=0.7.0
 dashscope>=1.13.0
 zhipuai>=1.0.0
 
 # 其他工具
-tqdm>=4.62.0
-colorama>=0.4.4
+tqdm>=4.66.0
+colorama>=0.4.6
 
 # 系统监控（用于连接管理）
-psutil>=5.8.0
+psutil>=5.9.0
 setproctitle>=1.3.2
 
 # GUI框架
 ttkbootstrap>=1.10.1
 
 # Web服务
-flask>=2.0.0
+flask>=3.0.0
 
 # 文件处理
 PyPDF2>=3.0.0
 
 # 构建和分发工具
-pyinstaller>=5.0.0
-build>=0.10.0
+pyinstaller>=6.3.0
+build>=1.0.0
 twine>=4.0.0
 
 # 开发工具（可选）
-pytest>=6.0.0
-black>=21.0.0
-flake8>=3.8.0
-mypy>=0.800.0
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# 类型提示支持
+typing-extensions>=4.8.0
+
+# 配置管理
+pyyaml>=6.0.1
+
+# 日志和调试
+rich>=13.0.0

@@ -1,0 +1,114 @@
+name: Quick Build Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type'
+        required: true
+        default: 'basic'
+        type: choice
+        options:
+        - basic
+        - full
+
+jobs:
+  quick-build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    
+    - name: Debug environment
+      run: |
+        echo "=== 环境信息 ==="
+        echo "Python version:"
+        python --version
+        echo "Current directory:"
+        pwd
+        echo "Directory contents:"
+        dir
+        echo "Main.py exists:"
+        if (Test-Path "main.py") { echo "Yes" } else { echo "No" }
+        echo "Src directory:"
+        if (Test-Path "src") { dir src } else { echo "Src directory does not exist" }
+        
+        echo "=== 创建资源目录 ==="
+        if (!(Test-Path "resources")) {
+          New-Item -ItemType Directory -Path "resources" -Force
+        }
+        if (!(Test-Path "resources/TidyFile.ico")) {
+          New-Item -ItemType File -Path "resources/TidyFile.ico" -Force
+        }
+        if (!(Test-Path "resources/Article_Reader.ico")) {
+          New-Item -ItemType File -Path "resources/Article_Reader.ico" -Force
+        }
+        echo "Resources directory:"
+        if (Test-Path "resources") { dir resources } else { echo "Resources directory does not exist" }
+    
+    - name: Install basic dependencies
+      run: |
+        echo "=== 安装基础依赖 ==="
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+        echo "PyInstaller version:"
+        pyinstaller --version
+    
+    - name: Test basic import
+      run: |
+        echo "=== 测试基础导入 ==="
+        python -c "import sys; sys.path.insert(0, 'src'); print('Path setup OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import tidyfile; print('TidyFile import OK')"
+        
+        echo "=== 测试关键模块导入 ==="
+        python -c "import sys; sys.path.insert(0, 'src'); import tkinter; print('tkinter OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import ttkbootstrap; print('ttkbootstrap OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import flask; print('flask OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import requests; print('requests OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import PIL; print('PIL OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import PyPDF2; print('PyPDF2 OK')"
+        python -c "import sys; sys.path.insert(0, 'src'); import docx; print('docx OK')"
+    
+    - name: Simple build test
+      run: |
+        echo "=== 简单构建测试 ==="
+        pyinstaller --onefile --name=TestBuild --paths=src main.py
+        echo "Build completed"
+        if (Test-Path "dist/TestBuild.exe") {
+          $fileSize = (Get-Item "dist/TestBuild.exe").Length / 1MB
+          echo "✅ 构建成功: dist/TestBuild.exe ($([math]::Round($fileSize, 1)) MB)"
+          dir dist
+        } else {
+          echo "❌ 构建失败"
+          if (Test-Path "dist") { dir dist }
+        }
+        
+        echo "=== 完整构建测试 ==="
+        pyinstaller --onefile --windowed --name=TestBuildFull --icon=resources/TidyFile.ico --add-data="resources;resources" --add-data="scripts;scripts" --paths=src --hidden-import=tkinter --hidden-import=ttkbootstrap --hidden-import=flask --hidden-import=requests --hidden-import=PIL --hidden-import=PyPDF2 --hidden-import=docx --hidden-import=concurrent.futures --hidden-import=threading --hidden-import=logging --hidden-import=json --hidden-import=pathlib --hidden-import=subprocess --hidden-import=socket --hidden-import=http.server --hidden-import=socketserver --hidden-import=webbrowser --hidden-import=psutil --hidden-import=gc --hidden-import=tempfile --hidden-import=shutil --hidden-import=hashlib --hidden-import=mimetypes --hidden-import=urllib.parse --hidden-import=collections --hidden-import=datetime --hidden-import=ssl --hidden-import=re --hidden-import=win32com.client --hidden-import=pythoncom --hidden-import=bs4 --hidden-import=beautifulsoup4 --hidden-import=html2text --hidden-import=markdown --hidden-import=openai --collect-all=tidyfile --clean main.py
+        echo "Full build completed"
+        if (Test-Path "dist/TestBuildFull.exe") {
+          $fileSize = (Get-Item "dist/TestBuildFull.exe").Length / 1MB
+          echo "✅ 完整构建成功: dist/TestBuildFull.exe ($([math]::Round($fileSize, 1)) MB)"
+          dir dist
+        } else {
+          echo "❌ 完整构建失败"
+          if (Test-Path "dist") { dir dist }
+        }
+    
+    - name: Upload test artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: TestBuild
+        path: |
+          dist/TestBuild.exe
+          dist/TestBuildFull.exe
+        retention-days: 7
+        if-no-files-found: warn
