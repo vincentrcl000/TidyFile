@@ -59,8 +59,32 @@ jobs:
           echo "Creating Article_Reader.ico placeholder"
           New-Item -ItemType File -Path "resources/Article_Reader.ico" -Force
         }
+        
+        # Create build directory structure for PyInstaller
+        if (!(Test-Path "build")) {
+          New-Item -ItemType Directory -Path "build" -Force
+        }
+        if (!(Test-Path "build\resources")) {
+          New-Item -ItemType Directory -Path "build\resources" -Force
+        }
+        if (!(Test-Path "build\scripts")) {
+          New-Item -ItemType Directory -Path "build\scripts" -Force
+        }
+        
+        # Copy resources to build directory
+        if (Test-Path "resources") {
+          Copy-Item "resources\*" "build\resources\" -Recurse -Force
+          echo "Copied resources to build directory"
+        }
+        if (Test-Path "scripts") {
+          Copy-Item "scripts\*" "build\scripts\" -Recurse -Force
+          echo "Copied scripts to build directory"
+        }
+        
         echo "Resources directory contents:"
         dir resources
+        echo "Build resources directory contents:"
+        dir build\resources
     
     - name: Test PyInstaller
       run: |

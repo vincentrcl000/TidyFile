@@ -121,11 +121,34 @@ jobs:
           }
         }
         
+        # Create build directory structure for PyInstaller
+        if (!(Test-Path "build")) {
+          New-Item -ItemType Directory -Path "build" -Force | Out-Null
+        }
+        if (!(Test-Path "build\resources")) {
+          New-Item -ItemType Directory -Path "build\resources" -Force | Out-Null
+        }
+        if (!(Test-Path "build\scripts")) {
+          New-Item -ItemType Directory -Path "build\scripts" -Force | Out-Null
+        }
+        
+        # Copy resources to build directory
+        if (Test-Path "resources") {
+          Copy-Item "resources\*" "build\resources\" -Recurse -Force
+          Write-Host "Copied resources to build directory"
+        }
+        if (Test-Path "scripts") {
+          Copy-Item "scripts\*" "build\scripts\" -Recurse -Force
+          Write-Host "Copied scripts to build directory"
+        }
+        
         # Verify environment
         Write-Host "Python version: $(python --version)"
         Write-Host "PyInstaller version: $(pyinstaller --version)"
         Write-Host "Resources directory:"
         Get-ChildItem resources -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
+        Write-Host "Build resources directory:"
+        Get-ChildItem build\resources -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
     
     - name: Build executable (${{ matrix.build_type }})
       run: |
